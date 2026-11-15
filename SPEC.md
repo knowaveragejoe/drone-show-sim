@@ -47,7 +47,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Drone placement | Even spread over the surface of the shape. |
 | Motion | Takeoff grid to one formation, then hold. |
 | Color | One color per formation. |
-| Fleet panel | A drone list with live data. Select a drone to highlight it and its path. |
+| Fleet panel | A drone list with live data, in its own sidebar tab. Select a drone to highlight it and its path. |
 | Path display | All paths faint. The selected path bright. A toggle hides all paths. |
 | Spacing conflict | The readout warns. A Fit button sets the smallest safe size. |
 | Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
@@ -222,12 +222,12 @@ The outside volume readout turns red above zero.
 ## User interface
 
 The 3D view fills the page.
-A sidebar sits on the right.
+A sidebar sits on the right. It has two tabs: Settings and Drones.
 A transport bar sits under the 3D view.
 
-### Sidebar
+### Settings tab
 
-Each section is a native `<details>` element.
+The Settings tab holds the sections. Each section is a native `<details>` element.
 
 | Section | Contents |
 |---|---|
@@ -237,9 +237,15 @@ Each section is a native `<details>` element.
 | Formation | Shape selector. Import OBJ button and up axis selector. Size, center height, yaw, color, hold time. Spacing readout and Fit button. |
 | Checks | Drones outside volume, lowest target, transition duration, closest approach in flight, peak speed. |
 | View | Show paths toggle. Show flight volume toggle. Audience view button. |
-| Drones | List of all drones: id, position, and speed at the current time. |
 
-The drone list draws only the rows that are visible, so 1,000 drones stay fast.
+### Drones tab
+
+The Drones tab holds the drone list: the id, position, and speed of each drone at the current time.
+The list fills the height of the sidebar.
+It draws only the rows that are visible, so 1,000 drones stay fast.
+
+When the Drones tab opens, the list scrolls to the selected drone.
+The left and right arrow keys move between the tabs.
 
 ### Selection
 

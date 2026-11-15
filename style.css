@@ -67,10 +67,13 @@ body {
   color: #ffd9d9;
 }
 
-/* Sidebar. */
+/* Sidebar: a title, a tab bar, and one panel per tab. Only one panel shows at a time. */
 
 #sidebar {
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* Without this, the tall settings panel would stretch the page past the window. */
+  min-height: 0;
   border-left: 1px solid var(--line);
   background: var(--panel);
 }
@@ -82,6 +85,48 @@ body {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+#tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+}
+
+#tabs button {
+  flex: 1;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  outline-offset: -3px;
+}
+
+#tabs button:hover {
+  border-bottom-color: transparent;
+  background: var(--panel-raised);
+}
+
+#tabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+#panel-settings,
+#panel-drones {
+  flex: 1;
+  min-height: 0;
+}
+
+#panel-settings {
+  overflow-y: auto;
+}
+
+#panel-drones {
+  display: flex;
+  padding: 12px;
 }
 
 details {
@@ -261,7 +306,7 @@ output.warn {
 /* Drone list. Only the rows in view exist; each row sits at its place in a tall empty box. */
 
 #drone-list {
-  height: 244px;
+  flex: 1;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 4px;

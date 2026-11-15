@@ -1,4 +1,4 @@
-// Sidebar controls, the drone list, and the transport bar.
+// Sidebar tabs and controls, the drone list, and the transport bar.
 
 import { isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
@@ -110,6 +110,9 @@ export function createUi(actions) {
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
 
   const droneList = buildDroneList(byId('drone-list'), actions.select);
+  buildTabs((name) => {
+    if (name === 'drones') droneList.opened();
+  });
 
   document.addEventListener('keydown', (event) => {
     if (event.code === 'Escape') actions.select(-1);
@@ -183,6 +186,40 @@ export function createUi(actions) {
   return { refresh, showFrame, revealDrone: droneList.reveal };
 }
 
+const TAB_NAMES = ['settings', 'drones'];
+
+/**
+ * Connects the sidebar tabs. A click on a tab shows its panel and hides the other panel.
+ * The left and right arrow keys move between tabs.
+ * @param {(name: string) => void} onShow called after a panel comes into view
+ */
+function buildTabs(onShow) {
+  const tabs = TAB_NAMES.map((name) => byId(`tab-${name}`));
+  const panels = TAB_NAMES.map((name) => byId(`panel-${name}`));
+
+  /** @param {number} selected index in `TAB_NAMES` */
+  function select(selected) {
+    tabs.forEach((tab, index) => {
+      tab.setAttribute('aria-selected', String(index === selected));
+      // Only the selected tab is a Tab key stop. The arrow keys reach the other tab.
+      tab.tabIndex = index === selected ? 0 : -1;
+      panels[index].hidden = index !== selected;
+    });
+    onShow(TAB_NAMES[selected]);
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => select(index));
+    tab.addEventListener('keydown', (event) => {
+      const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (step === 0) return;
+      const next = (index + step + tabs.length) % tabs.length;
+      select(next);
+      tabs[next].focus();
+    });
+  });
+}
+
 const DRONE_ROW_HEIGHT = 22;
 
 /**
@@ -199,8 +236,11 @@ function buildDroneList(container, onSelect) {
   const rows = [];
   /** @type {(() => void) | null} */
   let redraw = null;
+  let selected = -1;
 
   container.addEventListener('scroll', () => redraw?.());
+  // The number of rows in view changes with the height of the box.
+  new ResizeObserver(() => redraw?.()).observe(container);
   body.addEventListener('click', (event) => {
     const row = /** @type {HTMLElement} */ (event.target).closest('.drone-row');
     if (row) onSelect(Number(/** @type {HTMLElement} */ (row).dataset.drone));
@@ -213,6 +253,7 @@ function buildDroneList(container, onSelect) {
    */
   function show(plan, view, positions) {
     redraw = () => show(plan, view, positions);
+    selected = view.selected;
     body.style.height = `${plan.count * DRONE_ROW_HEIGHT}px`;
 
     const first = Math.floor(container.scrollTop / DRONE_ROW_HEIGHT);
@@ -246,6 +287,8 @@ function buildDroneList(container, onSelect) {
    * @param {number} drone index
    */
   function reveal(drone) {
+    // A hidden box has no height and cannot scroll. `opened` does the scroll later.
+    if (container.clientHeight === 0) return;
     const top = drone * DRONE_ROW_HEIGHT;
     // The sticky header covers the first row height of the box.
     const room = container.clientHeight - 2 * DRONE_ROW_HEIGHT;
@@ -253,7 +296,13 @@ function buildDroneList(container, onSelect) {
     else if (top > container.scrollTop + room) container.scrollTop = top - room;
   }
 
-  return { show, reveal };
+  /** Call when the list comes into view. Draws the rows and scrolls to the selected drone. */
+  function opened() {
+    redraw?.();
+    if (selected >= 0) reveal(selected);
+  }
+
+  return { show, reveal, opened };
 }
 
 /**

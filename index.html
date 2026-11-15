@@ -20,111 +20,115 @@
   <aside id="sidebar">
     <h1>Drone show simulator</h1>
 
-    <details open>
-      <summary>Project</summary>
-      <div class="section">
-        <div class="button-row">
-          <button id="export-project" type="button">Export</button>
-          <button id="import-project" type="button">Import</button>
-          <input id="project-file" type="file" accept=".json,application/json" hidden>
-        </div>
-        <p class="error" id="project-error" role="alert" hidden></p>
-      </div>
-    </details>
+    <div id="tabs" role="tablist" aria-label="Sidebar">
+      <button id="tab-settings" type="button" role="tab" aria-controls="panel-settings" aria-selected="true">Settings</button>
+      <button id="tab-drones" type="button" role="tab" aria-controls="panel-drones" aria-selected="false" tabindex="-1">Drones</button>
+    </div>
 
-    <details open>
-      <summary>Fleet</summary>
-      <div class="section">
-        <div class="fields" id="fleet-fields"></div>
-      </div>
-    </details>
+    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
+      <details open>
+        <summary>Project</summary>
+        <div class="section">
+          <div class="button-row">
+            <button id="export-project" type="button">Export</button>
+            <button id="import-project" type="button">Import</button>
+            <input id="project-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <p class="error" id="project-error" role="alert" hidden></p>
+        </div>
+      </details>
 
-    <details open>
-      <summary>Flight volume</summary>
-      <div class="section">
-        <div class="fields" id="volume-fields"></div>
-      </div>
-    </details>
+      <details open>
+        <summary>Fleet</summary>
+        <div class="section">
+          <div class="fields" id="fleet-fields"></div>
+        </div>
+      </details>
 
-    <details open>
-      <summary>Formation</summary>
-      <div class="section">
-        <div class="field wide">
-          <label for="shape">Shape</label>
-          <select id="shape"></select>
+      <details open>
+        <summary>Flight volume</summary>
+        <div class="section">
+          <div class="fields" id="volume-fields"></div>
         </div>
-        <div class="button-row">
-          <button id="import-obj" type="button">Import OBJ model</button>
-          <input id="obj-file" type="file" accept=".obj" hidden>
-        </div>
-        <p class="error" id="obj-error" role="alert" hidden></p>
-        <div class="field" id="up-axis-row" hidden>
-          <label for="up-axis">Model up axis</label>
-          <select id="up-axis">
-            <option value="y">Y</option>
-            <option value="z">Z</option>
-          </select>
-        </div>
-        <div class="fields" id="formation-fields"></div>
-        <div class="field">
-          <label for="color">Color</label>
-          <input id="color" type="color">
-        </div>
-        <div class="field">
-          <span class="label">Closest spacing</span>
-          <span class="readout-with-button">
-            <output id="spacing"></output>
-            <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing">Fit</button>
-          </span>
-        </div>
-      </div>
-    </details>
+      </details>
 
-    <details open>
-      <summary>Checks</summary>
-      <div class="section">
-        <div class="field">
-          <span class="label">Drones outside volume</span>
-          <output id="outside"></output>
-        </div>
-        <div class="field">
-          <span class="label">Lowest target</span>
-          <output id="lowest"></output>
-        </div>
-        <div class="field">
-          <span class="label">Transition duration</span>
-          <output id="duration"></output>
-        </div>
-        <div class="field">
-          <span class="label">Closest approach in flight</span>
-          <output id="approach"></output>
-        </div>
-        <div class="field">
-          <span class="label">Peak speed</span>
-          <output id="peak-speed"></output>
-        </div>
-      </div>
-    </details>
-
-    <details open>
-      <summary>View</summary>
-      <div class="section">
-        <label class="check"><input id="show-paths" type="checkbox"> Show paths</label>
-        <label class="check"><input id="show-volume" type="checkbox"> Show flight volume</label>
-        <button id="audience-view" type="button">Audience view</button>
-      </div>
-    </details>
-
-    <details open>
-      <summary>Drones</summary>
-      <div class="section">
-        <div id="drone-list">
-          <div class="drone-row drone-list-header">
-            <span>#</span><span>x (m)</span><span>y (m)</span><span>z (m)</span><span>m/s</span>
+      <details open>
+        <summary>Formation</summary>
+        <div class="section">
+          <div class="field wide">
+            <label for="shape">Shape</label>
+            <select id="shape"></select>
+          </div>
+          <div class="button-row">
+            <button id="import-obj" type="button">Import OBJ model</button>
+            <input id="obj-file" type="file" accept=".obj" hidden>
+          </div>
+          <p class="error" id="obj-error" role="alert" hidden></p>
+          <div class="field" id="up-axis-row" hidden>
+            <label for="up-axis">Model up axis</label>
+            <select id="up-axis">
+              <option value="y">Y</option>
+              <option value="z">Z</option>
+            </select>
+          </div>
+          <div class="fields" id="formation-fields"></div>
+          <div class="field">
+            <label for="color">Color</label>
+            <input id="color" type="color">
+          </div>
+          <div class="field">
+            <span class="label">Closest spacing</span>
+            <span class="readout-with-button">
+              <output id="spacing"></output>
+              <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing">Fit</button>
+            </span>
           </div>
         </div>
+      </details>
+
+      <details open>
+        <summary>Checks</summary>
+        <div class="section">
+          <div class="field">
+            <span class="label">Drones outside volume</span>
+            <output id="outside"></output>
+          </div>
+          <div class="field">
+            <span class="label">Lowest target</span>
+            <output id="lowest"></output>
+          </div>
+          <div class="field">
+            <span class="label">Transition duration</span>
+            <output id="duration"></output>
+          </div>
+          <div class="field">
+            <span class="label">Closest approach in flight</span>
+            <output id="approach"></output>
+          </div>
+          <div class="field">
+            <span class="label">Peak speed</span>
+            <output id="peak-speed"></output>
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>View</summary>
+        <div class="section">
+          <label class="check"><input id="show-paths" type="checkbox"> Show paths</label>
+          <label class="check"><input id="show-volume" type="checkbox"> Show flight volume</label>
+          <button id="audience-view" type="button">Audience view</button>
+        </div>
+      </details>
+    </div>
+
+    <div id="panel-drones" role="tabpanel" aria-labelledby="tab-drones" hidden>
+      <div id="drone-list">
+        <div class="drone-row drone-list-header">
+          <span>#</span><span>x (m)</span><span>y (m)</span><span>z (m)</span><span>m/s</span>
+        </div>
       </div>
-    </details>
+    </div>
   </aside>
 
   <script type="module" src="src/main.js"></script>
