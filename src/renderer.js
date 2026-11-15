@@ -1,4 +1,4 @@
-// WebGL2 renderer for the ground grid and the drone lights.
+// WebGL2 renderer for the ground grid, the flight volume, the flight paths, and the drone lights.
 // Every draw call uses additive blending and nothing is opaque, so no depth buffer is necessary.
 
 import { AUDIENCE_DISTANCE } from './camera.js';
@@ -50,10 +50,16 @@ void main() {
 const GROUND_EXTENT = 400;
 const GROUND_STEP = 10;
 const GROUND_FADE = [120, 400];
+const GROUND_COLOR = [0.1, 0.13, 0.2];
 const NO_FADE = [1e9, 2e9];
 
 // Half the length of the ground line that marks where the audience stands, meters.
 const AUDIENCE_HALF_WIDTH = 40;
+const AUDIENCE_COLOR = [0.45, 0.35, 0.15];
+
+const VOLUME_COLOR = [0.2, 0.3, 0.42];
+// Color of the flight volume when a drone leaves it.
+const VOLUME_BROKEN_COLOR = [0.9, 0.2, 0.2];
 
 // Diameter of the glow around one drone, meters.
 const LIGHT_SIZE = 1.6;
@@ -62,8 +68,9 @@ const SELECTED_LIGHT_SIZE = 5;
 const MIN_LIGHT_PIXELS = 4;
 const MIN_SELECTED_PIXELS = 14;
 
-// Each path is this many short line segments. See `groundGrid` for the reason.
-const PATH_SEGMENTS = 8;
+// Number of short segments in one line. See `addLine` for the reason.
+const PATH_PARTS = 8;
+const VOLUME_EDGE_PARTS = 16;
 // Brightness of a path that is not selected, as a share of the light color.
 const PATH_BRIGHTNESS = 0.1;
 
@@ -76,6 +83,8 @@ const PATH_BRIGHTNESS = 0.1;
  * @property {number[]} color light color, each channel 0 to 1
  * @property {number} selected index of the selected drone, or -1
  * @property {boolean} showPaths
+ * @property {boolean} showVolume
+ * @property {boolean} volumeBroken true when a drone leaves the flight volume
  */
 
 /**
@@ -96,25 +105,21 @@ export function createRenderer(canvas) {
   ]);
   const lineUniforms = uniformLocations(gl, lineProgram, ['uViewProj', 'uColor', 'uFade']);
 
-  const ground = createVertexArray(gl, lineProgram);
-  const groundVertices = groundGrid();
-  gl.bindBuffer(gl.ARRAY_BUFFER, ground.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, groundVertices, gl.STATIC_DRAW);
-
-  const audience = createVertexArray(gl, lineProgram);
-  gl.bindBuffer(gl.ARRAY_BUFFER, audience.buffer);
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    new Float32Array([
-      -AUDIENCE_HALF_WIDTH, -AUDIENCE_DISTANCE, 0,
-      AUDIENCE_HALF_WIDTH, -AUDIENCE_DISTANCE, 0,
-    ]),
-    gl.STATIC_DRAW,
-  );
-
+  const ground = createLines(gl, lineProgram);
+  ground.set(groundGrid());
+  const audience = createLines(gl, lineProgram);
+  audience.set([
+    -AUDIENCE_HALF_WIDTH, -AUDIENCE_DISTANCE, 0,
+    AUDIENCE_HALF_WIDTH, -AUDIENCE_DISTANCE, 0,
+  ]);
+  const volume = createLines(gl, lineProgram);
+  const paths = createLines(gl, lineProgram);
   const drones = createVertexArray(gl, pointProgram);
-  const paths = createVertexArray(gl, lineProgram);
-  let pathCount = 0;
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  gl.clearColor(0.016, 0.02, 0.043, 1);
 
   /**
    * Stores the flight path of each drone: a straight line from start to target.
@@ -123,27 +128,41 @@ export function createRenderer(canvas) {
    * @param {number} count
    */
   function setPaths(starts, targets, count) {
-    const vertices = new Float32Array(count * PATH_SEGMENTS * 6);
-    let offset = 0;
+    /** @type {number[]} */
+    const vertices = [];
     for (let drone = 0; drone < count; drone++) {
-      for (let segment = 0; segment < PATH_SEGMENTS; segment++) {
-        for (const share of [segment / PATH_SEGMENTS, (segment + 1) / PATH_SEGMENTS]) {
-          for (let axis = 0; axis < 3; axis++) {
-            const start = starts[drone * 3 + axis];
-            vertices[offset++] = start + share * (targets[drone * 3 + axis] - start);
-          }
+      const from = starts.subarray(drone * 3, drone * 3 + 3);
+      const to = targets.subarray(drone * 3, drone * 3 + 3);
+      addLine(vertices, from, to, PATH_PARTS);
+    }
+    paths.set(vertices);
+  }
+
+  /**
+   * Stores the flight volume: the 12 edges of a box.
+   * @param {import('./plan.js').Bounds} bounds
+   */
+  function setVolume({ low, high }) {
+    /** @type {number[]} */
+    const vertices = [];
+    for (let axis = 0; axis < 3; axis++) {
+      // The four edges that run along this axis.
+      const side = (axis + 1) % 3;
+      const other = (axis + 2) % 3;
+      for (const sideValue of [low[side], high[side]]) {
+        for (const otherValue of [low[other], high[other]]) {
+          const from = [0, 0, 0];
+          from[side] = sideValue;
+          from[other] = otherValue;
+          const to = [...from];
+          from[axis] = low[axis];
+          to[axis] = high[axis];
+          addLine(vertices, from, to, VOLUME_EDGE_PARTS);
         }
       }
     }
-    gl.bindBuffer(gl.ARRAY_BUFFER, paths.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-    pathCount = count;
+    volume.set(vertices);
   }
-
-  gl.disable(gl.DEPTH_TEST);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE);
-  gl.clearColor(0.016, 0.02, 0.043, 1);
 
   /** @param {Frame} frame */
   function draw(frame) {
@@ -164,29 +183,30 @@ export function createRenderer(canvas) {
     // adding up to a bright band.
     gl.blendEquation(gl.MAX);
     gl.uniform2fv(lineUniforms.uFade, GROUND_FADE);
-    gl.uniform3f(lineUniforms.uColor, 0.1, 0.13, 0.2);
-    gl.bindVertexArray(ground.vertexArray);
-    gl.drawArrays(gl.LINES, 0, groundVertices.length / 3);
+    gl.uniform3fv(lineUniforms.uColor, GROUND_COLOR);
+    ground.draw();
     gl.blendEquation(gl.FUNC_ADD);
 
     gl.uniform2fv(lineUniforms.uFade, NO_FADE);
-    gl.uniform3f(lineUniforms.uColor, 0.45, 0.35, 0.15);
-    gl.bindVertexArray(audience.vertexArray);
-    gl.drawArrays(gl.LINES, 0, 2);
+    gl.uniform3fv(lineUniforms.uColor, AUDIENCE_COLOR);
+    audience.draw();
+
+    if (frame.showVolume) {
+      gl.uniform3fv(lineUniforms.uColor, frame.volumeBroken ? VOLUME_BROKEN_COLOR : VOLUME_COLOR);
+      volume.draw();
+    }
 
     const selected = frame.selected >= 0 && frame.selected < frame.count ? frame.selected : -1;
-    const verticesPerPath = PATH_SEGMENTS * 2;
-    gl.bindVertexArray(paths.vertexArray);
     if (frame.showPaths) {
       gl.uniform3fv(
         lineUniforms.uColor,
         frame.color.map((channel) => channel * PATH_BRIGHTNESS),
       );
-      gl.drawArrays(gl.LINES, 0, pathCount * verticesPerPath);
+      paths.draw();
     }
-    if (selected >= 0 && selected < pathCount) {
+    if (selected >= 0) {
       gl.uniform3f(lineUniforms.uColor, 1, 1, 1);
-      gl.drawArrays(gl.LINES, selected * verticesPerPath, verticesPerPath);
+      paths.draw(selected * PATH_PARTS, PATH_PARTS);
     }
 
     gl.useProgram(pointProgram);
@@ -210,25 +230,69 @@ export function createRenderer(canvas) {
     gl.bindVertexArray(null);
   }
 
-  return { draw, setPaths };
+  return { draw, setPaths, setVolume };
 }
 
 /**
- * Line segments of a square grid on the ground.
- * Each grid line is many short segments. Some WebGL implementations drop a whole segment
- * when one end is behind the camera, so a long line would vanish at low camera angles.
- * @returns {Float32Array}
+ * Adds one straight line to a vertex list, as short segments.
+ *
+ * Some WebGL implementations drop a whole segment when one end is behind the camera.
+ * A long line would then vanish when the camera is near it. Short segments limit the loss
+ * to the part next to the camera.
+ * @param {number[]} vertices xyz of each segment end; the function adds to this list
+ * @param {ArrayLike<number>} from
+ * @param {ArrayLike<number>} to
+ * @param {number} parts number of segments
  */
-function groundGrid() {
-  const vertices = [];
-  for (let offset = -GROUND_EXTENT; offset <= GROUND_EXTENT; offset += GROUND_STEP) {
-    for (let from = -GROUND_EXTENT; from < GROUND_EXTENT; from += GROUND_STEP) {
-      const to = from + GROUND_STEP;
-      vertices.push(offset, from, 0, offset, to, 0);
-      vertices.push(from, offset, 0, to, offset, 0);
+function addLine(vertices, from, to, parts) {
+  for (let part = 0; part < parts; part++) {
+    for (const share of [part / parts, (part + 1) / parts]) {
+      for (let axis = 0; axis < 3; axis++) {
+        vertices.push(from[axis] + share * (to[axis] - from[axis]));
+      }
     }
   }
-  return new Float32Array(vertices);
+}
+
+/** @returns {number[]} line segments of a square grid on the ground */
+function groundGrid() {
+  /** @type {number[]} */
+  const vertices = [];
+  const parts = (2 * GROUND_EXTENT) / GROUND_STEP;
+  for (let offset = -GROUND_EXTENT; offset <= GROUND_EXTENT; offset += GROUND_STEP) {
+    addLine(vertices, [offset, -GROUND_EXTENT, 0], [offset, GROUND_EXTENT, 0], parts);
+    addLine(vertices, [-GROUND_EXTENT, offset, 0], [GROUND_EXTENT, offset, 0], parts);
+  }
+  return vertices;
+}
+
+/**
+ * Makes a set of line segments that the caller can replace and draw.
+ * @param {WebGL2RenderingContext} gl
+ * @param {WebGLProgram} program
+ */
+function createLines(gl, program) {
+  const { vertexArray, buffer } = createVertexArray(gl, program);
+  let segmentCount = 0;
+  return {
+    /** @param {number[]} vertices xyz of each segment end */
+    set(vertices) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      segmentCount = vertices.length / 6;
+    },
+    /**
+     * Draws all segments, or a part of them.
+     * @param {number} [first] index of the first segment
+     * @param {number} [count] number of segments
+     */
+    draw(first = 0, count = segmentCount) {
+      const last = Math.min(segmentCount, first + count);
+      if (last <= first) return;
+      gl.bindVertexArray(vertexArray);
+      gl.drawArrays(gl.LINES, first * 2, (last - first) * 2);
+    },
+  };
 }
 
 /**

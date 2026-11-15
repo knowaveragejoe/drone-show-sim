@@ -19,7 +19,7 @@ Status: version 1 is built. `SPEC.md` lists the milestones, the known limits, an
 
 - Units: meters, seconds, degrees.
 - Axes: right-handed, Z up. The audience stands on the negative Y axis and looks toward positive Y.
-- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, takeoff grid, assignment, transition.
+- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, takeoff grid, flight volume, assignment, transition.
 - Math modules stay pure: no DOM and no WebGL. Node runs their tests.
 - Random sampling uses the seeded generator, so results repeat.
 

@@ -40,6 +40,13 @@
     </details>
 
     <details open>
+      <summary>Flight volume</summary>
+      <div class="section">
+        <div class="fields" id="volume-fields"></div>
+      </div>
+    </details>
+
+    <details open>
       <summary>Formation</summary>
       <div class="section">
         <div class="field wide">
@@ -77,6 +84,10 @@
       <summary>Checks</summary>
       <div class="section">
         <div class="field">
+          <span class="label">Drones outside volume</span>
+          <output id="outside"></output>
+        </div>
+        <div class="field">
           <span class="label">Lowest target</span>
           <output id="lowest"></output>
         </div>
@@ -99,6 +110,7 @@
       <summary>View</summary>
       <div class="section">
         <label class="check"><input id="show-paths" type="checkbox"> Show paths</label>
+        <label class="check"><input id="show-volume" type="checkbox"> Show flight volume</label>
         <button id="audience-view" type="button">Audience view</button>
       </div>
     </details>

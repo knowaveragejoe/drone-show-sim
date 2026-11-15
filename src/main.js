@@ -62,7 +62,13 @@ function start() {
   let plan = planner(state);
   // The page opens on the finished formation. Play then starts from the takeoff grid.
   /** @type {import('./ui.js').View} */
-  const view = { time: plan.total, playing: false, selected: -1, showPaths: true };
+  const view = {
+    time: plan.total,
+    playing: false,
+    selected: -1,
+    showPaths: true,
+    showVolume: true,
+  };
 
   const positions = new Float32Array(MAX_DRONES * 3);
   const viewProj = new Float32Array(16);
@@ -98,6 +104,9 @@ function start() {
   const ui = createUi({
     setFleet(key, value) {
       commit({ ...state, fleet: { ...state.fleet, [key]: value } });
+    },
+    setVolume(key, value) {
+      commit({ ...state, volume: { ...state.volume, [key]: value } });
     },
     setFormation(key, value) {
       changeFormation({ [key]: value });
@@ -141,6 +150,10 @@ function start() {
       view.showPaths = show;
       requestFrame();
     },
+    setShowVolume(show) {
+      view.showVolume = show;
+      requestFrame();
+    },
     audienceView() {
       setAudienceView(camera, state.formations[0].centerHeight);
       requestFrame();
@@ -164,6 +177,7 @@ function start() {
 
   function showPlan() {
     renderer.setPaths(plan.starts, plan.targets, plan.count);
+    renderer.setVolume(plan.volume);
     ui.refresh(state, plan, view);
     requestFrame();
   }
@@ -227,6 +241,8 @@ function start() {
       color: hexToRgb(state.formations[0].color),
       selected: view.selected,
       showPaths: view.showPaths,
+      showVolume: view.showVolume,
+      volumeBroken: plan.outsideVolume > 0,
     });
     ui.showFrame(plan, view, positions);
 

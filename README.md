@@ -3,7 +3,7 @@
 A browser tool that previews a drone light show in 3D.
 The drones take off from a ground grid, fly to a formation, and hold it.
 
-![A torus of 400 drones in flight, with flight paths and the drone list](docs/screenshot.png)
+![A torus of 400 drones in flight inside the flight volume, with flight paths and the drone list](docs/screenshot.png)
 
 The page is static files. It has no dependencies and no build step.
 
@@ -28,15 +28,16 @@ Open `http://localhost:8000/`. The browser must support WebGL2.
 | Click empty space, or Escape | Clear the selection |
 | Space | Play or pause |
 
-The sidebar has six sections.
+The sidebar has seven sections.
 
 | Section | What it does |
 |---|---|
 | Project | Saves the project to a JSON file and loads it again. |
 | Fleet | Sets the drone count, the speed and acceleration limits, and the spacing. |
+| Flight volume | Sets the size and position of the cube that the drones must stay inside. The cube turns red when a drone leaves it. |
 | Formation | Sets the shape, size, height, rotation, color, and hold time. Fit sets the smallest size that keeps the minimum spacing. |
-| Checks | Shows the lowest target, the transition duration, the closest approach in flight, and the peak speed. A value turns red when it breaks a limit. |
-| View | Hides the flight paths. Moves the camera to where the audience stands. |
+| Checks | Shows the drones outside the flight volume, the lowest target, the transition duration, the closest approach in flight, and the peak speed. A value turns red when it breaks a limit. |
+| View | Hides the flight paths or the flight volume. Moves the camera to where the audience stands. |
 | Drones | Lists each drone with its position and speed at the current time. |
 
 A shape is one of seven built-in shapes or an OBJ model.

@@ -5,6 +5,7 @@ import { createPlanner } from '../src/plan.js';
 import {
   FLEET_FIELDS,
   FORMATION_FIELDS,
+  VOLUME_FIELDS,
   clampToField,
   defaultState,
   parseProject,
@@ -26,6 +27,9 @@ test('the default state has a value in range for each field', () => {
   for (const field of FORMATION_FIELDS) {
     assert.equal(clampToField(field, state.formations[0][field.key]), state.formations[0][field.key]);
   }
+  for (const field of VOLUME_FIELDS) {
+    assert.equal(clampToField(field, state.volume[field.key]), state.volume[field.key]);
+  }
 });
 
 test('clampToField keeps a value in range', () => {
@@ -39,6 +43,7 @@ test('clampToField keeps a value in range', () => {
 test('export then import gives the same state', () => {
   const state = defaultState();
   state.fleet.count = 321;
+  state.volume = { size: 250, x: -30, y: 12.5, z: 4 };
   state.formations[0].yaw = -45.5;
   state.formations[0].source = { type: 'builtin', shape: 'heart' };
   assert.deepEqual(parseProject(serializeProject(state)), state);
@@ -64,6 +69,7 @@ test('import drops values that the project format does not have', () => {
   const text = fileWith((data) => {
     data.extra = 1;
     data.fleet.extra = 2;
+    data.volume.extra = 5;
     data.formations[0].extra = 3;
     data.formations[0].source.extra = 4;
   });
@@ -93,6 +99,11 @@ test('import rejects a value that is out of range or of the wrong type', () => {
     [(data) => delete data.fleet.maxClimbSpeed, /fleet\.maxClimbSpeed must be a number from 0\.5 to 30/],
     [(data) => (data.fleet.minSpacing = 0), /fleet\.minSpacing/],
     [(data) => (data.fleet.gridSpacing = null), /fleet\.gridSpacing/],
+    [(data) => (data.volume.size = 5), /volume\.size must be a number from 10 to 1000/],
+    [(data) => (data.volume.z = -1), /volume\.z must be a number from 0 to 500/],
+    [(data) => delete data.volume.x, /volume\.x/],
+    [(data) => (data.volume = 'big'), /flight volume in the project file is not valid/],
+    [(data) => (data.volume = null), /flight volume in the project file is not valid/],
     [(data) => (data.formations[0].size = -1), /formation\.size must be a number from 1 to 500/],
     [(data) => (data.formations[0].yaw = 999), /formation\.yaw/],
     [(data) => (data.formations[0].color = 'red'), /formation\.color/],
@@ -112,4 +123,10 @@ test('import rejects a bad shape source', () => {
   assert.throws(() => parseProject(source({ type: 'obj', fileName: 'a.obj', upAxis: 'y' })), /not complete/);
   assert.throws(() => parseProject(source({ type: 'svg' })), /built-in shape or an OBJ model/);
   assert.throws(() => parseProject(source(undefined)), /built-in shape or an OBJ model/);
+});
+
+test('a project file with no flight volume gets the default volume', () => {
+  const loaded = parseProject(fileWith((data) => delete data.volume));
+  assert.deepEqual(loaded.volume, defaultState().volume);
+  assert.deepEqual(loaded, defaultState());
 });

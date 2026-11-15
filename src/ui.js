@@ -2,11 +2,18 @@
 
 import { isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
-import { FLEET_FIELDS, FORMATION_FIELDS, PROJECT_FILE_NAME, clampToField } from './state.js';
+import {
+  FLEET_FIELDS,
+  FORMATION_FIELDS,
+  PROJECT_FILE_NAME,
+  VOLUME_FIELDS,
+  clampToField,
+} from './state.js';
 
 /**
  * @typedef {object} Actions
  * @property {(key: string, value: number) => void} setFleet
+ * @property {(key: string, value: number) => void} setVolume
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
  * @property {(fileName: string, text: string) => string | null} importObj returns an error message, or null
@@ -15,6 +22,7 @@ import { FLEET_FIELDS, FORMATION_FIELDS, PROJECT_FILE_NAME, clampToField } from 
  * @property {() => string} projectText contents of the project file
  * @property {(text: string) => string | null} importProject returns an error message, or null
  * @property {(show: boolean) => void} setShowPaths
+ * @property {(show: boolean) => void} setShowVolume
  * @property {() => void} audienceView
  * @property {() => void} togglePlay
  * @property {(time: number) => void} seek
@@ -28,6 +36,7 @@ import { FLEET_FIELDS, FORMATION_FIELDS, PROJECT_FILE_NAME, clampToField } from 
  * @property {boolean} playing
  * @property {number} selected index of the selected drone, or -1
  * @property {boolean} showPaths
+ * @property {boolean} showVolume
  */
 
 // A new plan for a large fleet takes a moment. Up to this fleet size, a slider applies
@@ -44,6 +53,8 @@ export function createUi(actions) {
     Math.max(droneCount, key === 'count' ? value : 0) <= LIVE_SLIDER_MAX_DRONES;
 
   const fleetFields = buildFields(byId('fleet-fields'), FLEET_FIELDS, actions.setFleet, isLive);
+  // A new flight volume needs no new assignment, so its slider is live for every fleet size.
+  const volumeFields = buildFields(byId('volume-fields'), VOLUME_FIELDS, actions.setVolume, () => true);
   const formationFields = buildFields(
     byId('formation-fields'),
     FORMATION_FIELDS,
@@ -80,6 +91,7 @@ export function createUi(actions) {
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
 
+  const outside = byId('outside');
   const lowest = byId('lowest');
   const duration = byId('duration');
   const approach = byId('approach');
@@ -87,6 +99,8 @@ export function createUi(actions) {
 
   const showPaths = /** @type {HTMLInputElement} */ (byId('show-paths'));
   showPaths.addEventListener('change', () => actions.setShowPaths(showPaths.checked));
+  const showVolume = /** @type {HTMLInputElement} */ (byId('show-volume'));
+  showVolume.addEventListener('change', () => actions.setShowVolume(showVolume.checked));
   byId('audience-view').addEventListener('click', actions.audienceView);
 
   const play = byId('play');
@@ -118,6 +132,7 @@ export function createUi(actions) {
     const { minSpacing } = state.fleet;
     droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
+    volumeFields.show(state.volume);
     formationFields.show(formation);
     color.value = formation.color;
 
@@ -137,6 +152,9 @@ export function createUi(actions) {
     spacing.classList.toggle('warn', isTooClose(plan.spacing, minSpacing));
     fit.disabled = !Number.isFinite(plan.spacing) || plan.spacing <= 0;
 
+    outside.textContent =
+      plan.outsideVolume === 0 ? '0' : `${plan.outsideVolume} of ${plan.count}`;
+    outside.classList.toggle('warn', plan.outsideVolume > 0);
     lowest.textContent = `${plan.lowestTarget.toFixed(1)} m`;
     lowest.classList.toggle('warn', isBelowGround(plan.lowestTarget));
     duration.textContent = `${plan.timing.duration.toFixed(1)} s`;
@@ -145,6 +163,7 @@ export function createUi(actions) {
     peakSpeed.textContent = `${plan.peakSpeed.toFixed(1)} m/s`;
 
     showPaths.checked = view.showPaths;
+    showVolume.checked = view.showVolume;
     scrub.max = String(plan.total);
   }
 

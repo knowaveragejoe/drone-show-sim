@@ -26,6 +26,7 @@ A transition is the march between two pictures, and all marchers move on the sam
 | Target | One position in a formation. Each drone gets one target. |
 | Formation | One static picture made of drones: a shape plus its size, position, and color. |
 | Takeoff grid | The ground positions where the drones start. |
+| Flight volume | The cube that the drones must stay inside. |
 | Assignment | The mapping from each drone to one target. The drill chart. |
 | Transition | The flight from one set of positions to the next. |
 | Storyboard | Future. The ordered list of formations in a show. |
@@ -49,6 +50,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Fleet panel | A drone list with live data. Select a drone to highlight it and its path. |
 | Path display | All paths faint. The selected path bright. A toggle hides all paths. |
 | Spacing conflict | The readout warns. A Fit button sets the smallest safe size. |
+| Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
 | Saving | Export and import of a JSON project file. |
 | Tests | Node unit tests for the math. One headless browser smoke test. |
 | Hosting | GitHub Pages from the repository root, after the repository becomes public. |
@@ -71,6 +73,8 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Maximum acceleration | 4 m/s² |
 | Minimum spacing | 2 m |
 | Takeoff grid spacing | 3 m |
+| Flight volume size | 120 m |
+| Flight volume position | Centered on the origin, floor on the ground |
 | Shape | Sphere |
 | Formation size (largest extent) | 40 m |
 | Formation center height | 60 m |
@@ -80,6 +84,18 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 The limits are starting values in the range that show design tools use.
 They do not come from one drone model.
 The user can edit every value.
+
+### Flight volume
+
+The flight volume is a cube with sides along the world axes.
+One size value sets its edge length.
+
+`x` and `y` set the center of the cube. `z` sets the height of its floor.
+A larger size grows the cube up and out from the middle of its floor.
+A cube that stands on the ground then stays on the ground.
+
+The view draws the 12 edges of the cube.
+The edges turn red when a drone leaves the cube.
 
 ## How the simulator computes a show
 
@@ -193,6 +209,7 @@ The timeline has two parts: the transition, then the hold.
 
 | Readout | How it is computed |
 |---|---|
+| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies a straight line and the volume is a box, so the drone stays inside exactly when its start and its target are inside. A position on a face of the box is inside. |
 | Formation spacing | Smallest distance between two targets. |
 | Lowest target | Height of the lowest target. Red when it is below the ground. Fit grows the shape about its center, so a large shape can reach the ground. |
 | Transition duration | From step 7. |
@@ -200,6 +217,7 @@ The timeline has two parts: the transition, then the hold.
 | Peak speed | Longest path × peak rate of `s`. |
 
 The closest approach readout turns red below the minimum spacing.
+The outside volume readout turns red above zero.
 
 ## User interface
 
@@ -215,9 +233,10 @@ Each section is a native `<details>` element.
 |---|---|
 | Project | Export button. Import button. |
 | Fleet | Drone count. The five limits. Takeoff grid spacing. |
+| Flight volume | Size. Center X and Y. Floor height. |
 | Formation | Shape selector. Import OBJ button and up axis selector. Size, center height, yaw, color, hold time. Spacing readout and Fit button. |
-| Checks | Lowest target, transition duration, closest approach in flight, peak speed. |
-| View | Show paths toggle. Audience view button. |
+| Checks | Drones outside volume, lowest target, transition duration, closest approach in flight, peak speed. |
+| View | Show paths toggle. Show flight volume toggle. Audience view button. |
 | Drones | List of all drones: id, position, and speed at the current time. |
 
 The drone list draws only the rows that are visible, so 1,000 drones stay fast.
@@ -255,6 +274,7 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Paths: one `gl.LINES` draw call for all paths at low opacity. A second draw call for the selected path at full brightness.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Audience: a short line on the ground marks where the audience stands.
+- Flight volume: one `gl.LINES` draw call for the edges of the cube.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
 - The canvas follows `devicePixelRatio`.
@@ -275,6 +295,12 @@ The project file is JSON with the extension `.droneshow.json`.
     "maxAcceleration": 4,
     "minSpacing": 2,
     "gridSpacing": 3
+  },
+  "volume": {
+    "size": 120,
+    "x": 0,
+    "y": 0,
+    "z": 0
   },
   "formations": [
     {
@@ -298,6 +324,9 @@ An OBJ formation stores the full OBJ text:
 
 `formations` holds exactly one entry in version 1.
 It is an array because the storyboard feature adds more.
+
+A project file with no `volume` gets the default flight volume.
+Files from before the flight volume existed then still load.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -355,6 +384,7 @@ No `npm install` is necessary.
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. |
+| `plan.js` | Targets, timeline, and checks for a state. The count of drones outside the flight volume. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -392,6 +422,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
 - A change of shape, size, yaw, or drone count at 1,000 drones pauses the page for 0.2 to 0.7 seconds on a slow CPU.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
+- The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 
 ## Future features

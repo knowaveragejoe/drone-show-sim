@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  countOutside,
   createPlanner,
   fitSize,
   isBelowGround,
@@ -9,6 +10,7 @@ import {
   positionsAt,
   retime,
   speedAt,
+  volumeBounds,
 } from '../src/plan.js';
 import { defaultState } from '../src/state.js';
 
@@ -195,4 +197,42 @@ test('the lowest target check finds a formation that goes below the ground', () 
   // A target on the ground is not below it.
   assert.ok(!isBelowGround(0));
   assert.ok(!isBelowGround(-0.0001));
+});
+
+test('the flight volume is a cube that stands on its floor', () => {
+  assert.deepEqual(volumeBounds({ size: 100, x: 10, y: -20, z: 5 }), {
+    low: [-40, -70, 5],
+    high: [60, 30, 105],
+  });
+});
+
+test('countOutside counts each drone that starts or ends outside the box', () => {
+  const bounds = { low: [-10, -10, 0], high: [10, 10, 20] };
+  const starts = new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 11, 0, 0]);
+  const targets = new Float32Array([0, 0, 10, 0, 0, 21, 10, -10, 20, 0, 0, 10, 0, 0, 10]);
+  // Drone 0 is inside. Drone 1 ends too high. Drone 2 ends on a corner, which is inside.
+  // Drone 3 starts below the floor. Drone 4 starts beside the box.
+  assert.equal(countOutside(starts, targets, 5, bounds), 3);
+  assert.equal(countOutside(starts, targets, 1, bounds), 0);
+  assert.equal(countOutside(starts, targets, 0, bounds), 0);
+});
+
+test('the plan counts the drones outside the flight volume', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  // The default show fits in the default volume. The takeoff grid is on the floor, which is inside.
+  assert.equal(planner(state).outsideVolume, 0);
+
+  // A ceiling at 60 m cuts the sphere, which is centered at 60 m, in half.
+  state.volume = { ...state.volume, size: 60 };
+  const cut = planner(state).outsideVolume;
+  assert.ok(cut > 30 && cut < 70, `outside ${cut}`);
+
+  // A volume that floats above the ground does not hold the takeoff grid.
+  state.volume = { size: 120, x: 0, y: 0, z: 10 };
+  assert.equal(planner(state).outsideVolume, state.fleet.count);
+
+  // A volume far to the side holds no drone.
+  state.volume = { size: 120, x: 400, y: 0, z: 0 };
+  assert.equal(planner(state).outsideVolume, state.fleet.count);
 });

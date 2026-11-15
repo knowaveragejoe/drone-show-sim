@@ -20,6 +20,15 @@ import { MAX_DRONES } from './state.js';
  * @property {number} lowestTarget height of the lowest target, meters; negative is below the ground
  * @property {number} closestApproach smallest distance between two drones in flight, meters
  * @property {number} peakSpeed speed of the fastest drone, m/s
+ * @property {Bounds} volume corners of the flight volume
+ * @property {number} outsideVolume number of drones that leave the flight volume at some time
+ */
+
+/**
+ * A box with sides along the world axes.
+ * @typedef {object} Bounds
+ * @property {number[]} low corner with the smallest x, y, and z
+ * @property {number[]} high corner with the largest x, y, and z
  */
 
 /**
@@ -92,6 +101,7 @@ export function createPlanner() {
     }
 
     const timing = planTiming(starts, targets, count, state.fleet);
+    const volume = volumeBounds(state.volume);
     return {
       count,
       starts,
@@ -103,8 +113,48 @@ export function createPlanner() {
       lowestTarget,
       closestApproach: closestApproach(starts, targets, count),
       peakSpeed: longest * timing.peakRate,
+      volume,
+      outsideVolume: countOutside(starts, targets, count, volume),
     };
   };
+}
+
+/**
+ * @param {import('./state.js').Volume} volume
+ * @returns {Bounds}
+ */
+export function volumeBounds(volume) {
+  const half = volume.size / 2;
+  return {
+    low: [volume.x - half, volume.y - half, volume.z],
+    high: [volume.x + half, volume.y + half, volume.z + volume.size],
+  };
+}
+
+/**
+ * Counts the drones that leave a box at some time.
+ * A drone flies a straight line, so it stays in the box exactly when its start and its
+ * target are in the box. A position on a face of the box is inside.
+ * @param {Float32Array} starts xyz per drone
+ * @param {Float32Array} targets xyz per drone
+ * @param {number} count
+ * @param {Bounds} bounds
+ */
+export function countOutside(starts, targets, count, bounds) {
+  let outside = 0;
+  for (let drone = 0; drone < count; drone++) {
+    for (let axis = 0; axis < 3; axis++) {
+      const low = bounds.low[axis] - ROUNDING_SLACK;
+      const high = bounds.high[axis] + ROUNDING_SLACK;
+      const start = starts[drone * 3 + axis];
+      const target = targets[drone * 3 + axis];
+      if (start < low || start > high || target < low || target > high) {
+        outside++;
+        break;
+      }
+    }
+  }
+  return outside;
 }
 
 /**

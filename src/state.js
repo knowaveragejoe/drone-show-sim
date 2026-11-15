@@ -34,6 +34,14 @@ export const FORMATION_FIELDS = [
   { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
 ];
 
+/** @type {NumberField[]} */
+export const VOLUME_FIELDS = [
+  { key: 'size', label: 'Size', unit: 'm', min: 10, max: 1000, step: 1, slider: true },
+  { key: 'x', label: 'Center X', unit: 'm', min: -500, max: 500, step: 1 },
+  { key: 'y', label: 'Center Y', unit: 'm', min: -500, max: 500, step: 1 },
+  { key: 'z', label: 'Floor height', unit: 'm', min: 0, max: 500, step: 1 },
+];
+
 export const MAX_DRONES = FLEET_FIELDS[0].max;
 
 export const PROJECT_APP = 'drone-show-sim';
@@ -49,6 +57,16 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} maxAcceleration m/s²
  * @property {number} minSpacing meters
  * @property {number} gridSpacing meters
+ */
+
+/**
+ * The flight volume: a cube that the drones must stay inside.
+ * A larger size grows the cube up and out from the middle of its floor.
+ * @typedef {object} Volume
+ * @property {number} size edge length, meters
+ * @property {number} x center of the cube, meters
+ * @property {number} y center of the cube, meters
+ * @property {number} z height of the cube floor above the ground, meters
  */
 
 /**
@@ -73,6 +91,7 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
 /**
  * @typedef {object} State
  * @property {Fleet} fleet
+ * @property {Volume} volume
  * @property {Formation[]} formations exactly one entry in version 1
  */
 
@@ -87,6 +106,12 @@ export function defaultState() {
       maxAcceleration: 4,
       minSpacing: 2,
       gridSpacing: 3,
+    },
+    volume: {
+      size: 120,
+      x: 0,
+      y: 0,
+      z: 0,
     },
     formations: [
       {
@@ -154,8 +179,16 @@ export function parseProject(text) {
   }
   if (!Number.isInteger(saved.seed)) throw new Error('formation.seed must be a whole number.');
 
+  // A project file from before the flight volume existed has no volume. It gets the default one.
+  let volume = defaultState().volume;
+  if (data.volume !== undefined) {
+    if (!isObject(data.volume)) throw new Error('The flight volume in the project file is not valid.');
+    volume = /** @type {Volume} */ (readFields('volume', data.volume, VOLUME_FIELDS));
+  }
+
   return {
     fleet: /** @type {Fleet} */ (readFields('fleet', data.fleet, FLEET_FIELDS)),
+    volume,
     formations: [
       /** @type {Formation} */ ({
         ...readFields('formation', saved, FORMATION_FIELDS),
