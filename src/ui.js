@@ -1,6 +1,6 @@
 // Sidebar controls, the drone list, and the transport bar.
 
-import { isTooClose, speedAt } from './plan.js';
+import { isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
 import { FLEET_FIELDS, FORMATION_FIELDS, PROJECT_FILE_NAME, clampToField } from './state.js';
 
@@ -80,6 +80,7 @@ export function createUi(actions) {
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
 
+  const lowest = byId('lowest');
   const duration = byId('duration');
   const approach = byId('approach');
   const peakSpeed = byId('peak-speed');
@@ -136,6 +137,8 @@ export function createUi(actions) {
     spacing.classList.toggle('warn', isTooClose(plan.spacing, minSpacing));
     fit.disabled = !Number.isFinite(plan.spacing) || plan.spacing <= 0;
 
+    lowest.textContent = `${plan.lowestTarget.toFixed(1)} m`;
+    lowest.classList.toggle('warn', isBelowGround(plan.lowestTarget));
     duration.textContent = `${plan.timing.duration.toFixed(1)} s`;
     approach.textContent = meters(plan.closestApproach);
     approach.classList.toggle('warn', isTooClose(plan.closestApproach, minSpacing));

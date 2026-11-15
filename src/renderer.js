@@ -178,8 +178,10 @@ export function createRenderer(canvas) {
     const verticesPerPath = PATH_SEGMENTS * 2;
     gl.bindVertexArray(paths.vertexArray);
     if (frame.showPaths) {
-      const [red, green, blue] = frame.color;
-      gl.uniform3f(lineUniforms.uColor, red * PATH_BRIGHTNESS, green * PATH_BRIGHTNESS, blue * PATH_BRIGHTNESS);
+      gl.uniform3fv(
+        lineUniforms.uColor,
+        frame.color.map((channel) => channel * PATH_BRIGHTNESS),
+      );
       gl.drawArrays(gl.LINES, 0, pathCount * verticesPerPath);
     }
     if (selected >= 0 && selected < pathCount) {

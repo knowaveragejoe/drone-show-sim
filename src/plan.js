@@ -17,6 +17,7 @@ import { MAX_DRONES } from './state.js';
  * @property {import('./motion.js').Timing} timing timing of the transition
  * @property {number} total length of the timeline, seconds
  * @property {number} spacing smallest distance between two targets, meters
+ * @property {number} lowestTarget height of the lowest target, meters; negative is below the ground
  * @property {number} closestApproach smallest distance between two drones in flight, meters
  * @property {number} peakSpeed speed of the fastest drone, m/s
  */
@@ -74,6 +75,7 @@ export function createPlanner() {
     const targets = new Float32Array(count * 3);
     const pathLengths = new Float32Array(count);
     let longest = 0;
+    let lowestTarget = Infinity;
     for (let drone = 0; drone < count; drone++) {
       const from = assignment[drone] * 3;
       const to = drone * 3;
@@ -86,6 +88,7 @@ export function createPlanner() {
         targets[to + 2] - starts[to + 2],
       );
       longest = Math.max(longest, pathLengths[drone]);
+      lowestTarget = Math.min(lowestTarget, targets[to + 2]);
     }
 
     const timing = planTiming(starts, targets, count, state.fleet);
@@ -97,6 +100,7 @@ export function createPlanner() {
       timing,
       total: timing.duration + formation.holdSeconds,
       spacing: closestSpacing(targets, count),
+      lowestTarget,
       closestApproach: closestApproach(starts, targets, count),
       peakSpeed: longest * timing.peakRate,
     };
@@ -141,14 +145,24 @@ export function fitSize(size, spacing, minSpacing) {
   return Math.ceil((size * minSpacing * 100) / spacing) / 100;
 }
 
+// Positions are 32-bit numbers, so the checks allow half a millimeter of rounding error.
+const ROUNDING_SLACK = 0.0005;
+
 /**
  * True when a distance breaks the minimum spacing.
- * Positions are 32-bit numbers, so the check allows half a millimeter of rounding error.
  * @param {number} distance meters
  * @param {number} minSpacing meters
  */
 export function isTooClose(distance, minSpacing) {
-  return distance < minSpacing - 0.0005;
+  return distance < minSpacing - ROUNDING_SLACK;
+}
+
+/**
+ * True when a height is below the ground.
+ * @param {number} height meters
+ */
+export function isBelowGround(height) {
+  return height < -ROUNDING_SLACK;
 }
 
 /**

@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: the build is in progress. `SPEC.md` lists the milestones.
+Status: version 1 is built. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 
@@ -37,5 +37,5 @@ Status: the build is in progress. `SPEC.md` lists the milestones.
   3. Take a headless browser screenshot only when a change needs a visual check. Do not use the browser for every small change. Keep screenshot scripts out of the repository.
 - In the cloud container, Chromium is at `/opt/pw-browsers/chromium` and Playwright is installed globally. WebGL2 runs there through software rendering.
 - Work in milestones. Commit and push after each one.
-- When a design or technical decision changes, update `SPEC.md` and this file in the same commit.
+- When a design or technical decision changes, update `SPEC.md` and this file in the same commit. Update `README.md` when the controls or the commands change.
 - Prose style: Simplified Technical English. Short sentences, active voice, one term per concept.

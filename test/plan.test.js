@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createPlanner, fitSize, isTooClose, positionsAt, retime, speedAt } from '../src/plan.js';
+import {
+  createPlanner,
+  fitSize,
+  isBelowGround,
+  isTooClose,
+  positionsAt,
+  retime,
+  speedAt,
+} from '../src/plan.js';
 import { defaultState } from '../src/state.js';
 
 /** The targets as a sorted list of "x,y,z" strings, so two plans compare without regard to drone order. */
@@ -170,4 +178,21 @@ test('a shape that fails does not break the planner', () => {
   bad.formations[0].source = { type: 'obj', fileName: 'empty.obj', upAxis: 'y', text: '' };
   assert.throws(() => planner(bad), /no faces/);
   assert.deepEqual(planner(state).targets, good.targets);
+});
+
+test('the lowest target check finds a formation that goes below the ground', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  // A 40 m sphere centered at 60 m: the lowest target is near 40 m.
+  const high = planner(state);
+  assert.ok(high.lowestTarget > 39.9 && high.lowestTarget < 42, `lowest ${high.lowestTarget}`);
+  assert.ok(!isBelowGround(high.lowestTarget));
+
+  state.formations[0].centerHeight = 10;
+  const low = planner(state);
+  assert.ok(Math.abs(low.lowestTarget - (high.lowestTarget - 50)) < 1e-3);
+  assert.ok(isBelowGround(low.lowestTarget));
+  // A target on the ground is not below it.
+  assert.ok(!isBelowGround(0));
+  assert.ok(!isBelowGround(-0.0001));
 });

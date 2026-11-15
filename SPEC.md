@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: plan agreed on 2026-11-15. The build follows the milestones below.
+Status: version 1 is built. GitHub Pages is the only open step, and it waits for the repository to become public.
 
 ## Purpose
 
@@ -194,6 +194,7 @@ The timeline has two parts: the transition, then the hold.
 | Readout | How it is computed |
 |---|---|
 | Formation spacing | Smallest distance between two targets. |
+| Lowest target | Height of the lowest target. Red when it is below the ground. Fit grows the shape about its center, so a large shape can reach the ground. |
 | Transition duration | From step 7. |
 | Closest approach in flight | Exact. For each pair of drones, the relative position moves along a straight segment. The simulator takes the shortest distance from that segment to zero. |
 | Peak speed | Longest path × peak rate of `s`. |
@@ -215,7 +216,7 @@ Each section is a native `<details>` element.
 | Project | Export button. Import button. |
 | Fleet | Drone count. The five limits. Takeoff grid spacing. |
 | Formation | Shape selector. Import OBJ button and up axis selector. Size, center height, yaw, color, hold time. Spacing readout and Fit button. |
-| Checks | Transition duration, closest approach in flight, peak speed. |
+| Checks | Lowest target, transition duration, closest approach in flight, peak speed. |
 | View | Show paths toggle. Audience view button. |
 | Drones | List of all drones: id, position, and speed at the current time. |
 
@@ -253,6 +254,7 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Paths: one `gl.LINES` draw call for all paths at low opacity. A second draw call for the selected path at full brightness.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
+- Audience: a short line on the ground marks where the audience stands.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
 - The canvas follows `devicePixelRatio`.
@@ -306,6 +308,10 @@ It shows a message and changes nothing when a check fails.
 index.html        page skeleton: canvas, sidebar, transport bar
 style.css
 package.json      no dependencies; marks the code as ES modules and names the test scripts
+README.md         how to run, use, test, and publish the simulator
+.nojekyll         tells GitHub Pages to serve the files as they are
+docs/
+  screenshot.png  picture for the README
 src/
   main.js         start-up; connects state, plan, renderer, and user interface
   state.js        default state, field limits, project file export and import
@@ -365,21 +371,28 @@ GitHub Pages serves the repository root from a branch.
 The site needs no build and no workflow file.
 All URLs in the code are relative, so the site works under `/drone-show-sim/`.
 
-The owner makes the repository public and turns on Pages when a build is ready to test.
+The owner makes the repository public and turns on Pages. `README.md` lists the steps.
 Before that, a local static server runs the site: `uv run python -m http.server 8000`.
 
 ## Milestones
 
 Claude checks each milestone before the next one starts. Each milestone is one or more commits.
 
-| # | Name | Result |
-|---|---|---|
-| 1 | Lights on | Page layout, WebGL2 renderer, orbit camera, ground grid. Drones glow on the takeoff grid. Drone count control. `package.json` and the smoke test. |
-| 2 | Shapes | Built-in shapes, sampler, formation controls. Spacing readout and Fit button. The view shows the drones in the formation. |
-| 3 | Flight | Assignment, motion plan, limit controls, transport bar, paths, checks readout. |
-| 4 | Fleet | Drone list with live data. Selection from the list and from the 3D view. |
-| 5 | Files | OBJ import. Project file export and import. |
-| 6 | Publish | GitHub Pages setup and a README. |
+| # | Name | Result | Status |
+|---|---|---|---|
+| 1 | Lights on | Page layout, WebGL2 renderer, orbit camera, ground grid. Drones glow on the takeoff grid. Drone count control. `package.json` and the smoke test. | Done |
+| 2 | Shapes | Built-in shapes, sampler, formation controls. Spacing readout and Fit button. The view shows the drones in the formation. | Done |
+| 3 | Flight | Assignment, motion plan, limit controls, transport bar, paths, checks readout. | Done |
+| 4 | Fleet | Drone list with live data. Selection from the list and from the 3D view. | Done |
+| 5 | Files | OBJ import. Project file export and import. | Done |
+| 6 | Publish | GitHub Pages setup and a README. | README and `.nojekyll` are done. The owner turns on Pages. |
+
+## Known limits of version 1
+
+- Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
+- A change of shape, size, yaw, or drone count at 1,000 drones pauses the page for 0.2 to 0.7 seconds on a slow CPU.
+- The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
+- Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 
 ## Future features
 
