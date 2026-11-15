@@ -2,6 +2,7 @@
 
 import { assignTargets } from './assign.js';
 import { closestApproach, planTiming, progressAt, rateAt, takeoffGrid } from './motion.js';
+import { objCloud } from './obj.js';
 import { closestSpacing, farthestPointOrder } from './sample.js';
 import { builtinCloud } from './shapes.js';
 import { MAX_DRONES } from './state.js';
@@ -24,6 +25,9 @@ import { MAX_DRONES } from './state.js';
  * Makes a function that builds the plan for a state.
  * The function keeps the results of the two slow steps, sampling and assignment,
  * and runs them again only when their inputs change.
+ *
+ * The function throws when the shape is not usable, for example an OBJ file with no faces.
+ * It then keeps its stored results, so the next call with the old state is still fast.
  * @returns {(state: import('./state.js').State) => Plan}
  */
 export function createPlanner() {
@@ -45,7 +49,11 @@ export function createPlanner() {
     const formation = state.formations[0];
 
     if (formation.source !== sampledSource || formation.seed !== sampledSeed) {
-      cloud = builtinCloud(formation.source.shape, formation.seed);
+      const { source, seed } = formation;
+      cloud =
+        source.type === 'obj'
+          ? objCloud(source.text, source.upAxis, seed)
+          : builtinCloud(source.shape, seed);
       order = farthestPointOrder(cloud, MAX_DRONES);
       sampledSource = formation.source;
       sampledSeed = formation.seed;

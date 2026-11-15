@@ -2,14 +2,18 @@
 
 import { isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
-import { FLEET_FIELDS, FORMATION_FIELDS, clampToField } from './state.js';
+import { FLEET_FIELDS, FORMATION_FIELDS, PROJECT_FILE_NAME, clampToField } from './state.js';
 
 /**
  * @typedef {object} Actions
  * @property {(key: string, value: number) => void} setFleet
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
+ * @property {(fileName: string, text: string) => string | null} importObj returns an error message, or null
+ * @property {(upAxis: 'y' | 'z') => void} setUpAxis
  * @property {() => void} fit
+ * @property {() => string} projectText contents of the project file
+ * @property {(text: string) => string | null} importProject returns an error message, or null
  * @property {(show: boolean) => void} setShowPaths
  * @property {() => void} audienceView
  * @property {() => void} togglePlay
@@ -47,11 +51,27 @@ export function createUi(actions) {
     isLive,
   );
 
+  byId('export-project').addEventListener('click', () => {
+    download(PROJECT_FILE_NAME, actions.projectText());
+  });
+  wireFilePicker(byId('import-project'), byId('project-file'), byId('project-error'), (fileName, text) =>
+    actions.importProject(text),
+  );
+
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
   for (const [key, { label }] of Object.entries(BUILTIN_SHAPES)) {
     shape.add(new Option(label, key));
   }
-  shape.addEventListener('change', () => actions.setShape(shape.value));
+  // This option is in the list only while the formation uses an imported model.
+  const objOption = new Option('', 'obj');
+  shape.addEventListener('change', () => {
+    if (shape.value !== 'obj') actions.setShape(shape.value);
+  });
+
+  wireFilePicker(byId('import-obj'), byId('obj-file'), byId('obj-error'), actions.importObj);
+  const upAxisRow = byId('up-axis-row');
+  const upAxis = /** @type {HTMLSelectElement} */ (byId('up-axis'));
+  upAxis.addEventListener('change', () => actions.setUpAxis(upAxis.value === 'z' ? 'z' : 'y'));
 
   const color = /** @type {HTMLInputElement} */ (byId('color'));
   color.addEventListener('input', () => actions.setFormation('color', color.value));
@@ -98,8 +118,19 @@ export function createUi(actions) {
     droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
     formationFields.show(formation);
-    shape.value = formation.source.shape;
     color.value = formation.color;
+
+    const { source } = formation;
+    if (source.type === 'obj') {
+      objOption.textContent = `OBJ: ${source.fileName}`;
+      shape.add(objOption);
+      shape.value = 'obj';
+      upAxis.value = source.upAxis;
+    } else {
+      objOption.remove();
+      shape.value = source.shape;
+    }
+    upAxisRow.hidden = source.type !== 'obj';
 
     spacing.textContent = meters(plan.spacing);
     spacing.classList.toggle('warn', isTooClose(plan.spacing, minSpacing));
@@ -201,6 +232,48 @@ function buildDroneList(container, onSelect) {
   }
 
   return { show, reveal };
+}
+
+/**
+ * Makes a button open a file picker, and imports the picked file as text.
+ * @param {HTMLElement} button
+ * @param {HTMLElement} input a hidden file input
+ * @param {HTMLElement} errorBox shows the error message of a failed import
+ * @param {(fileName: string, text: string) => string | null} importText returns an error message, or null
+ */
+function wireFilePicker(button, input, errorBox, importText) {
+  const picker = /** @type {HTMLInputElement} */ (input);
+  button.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', async () => {
+    const file = picker.files?.[0];
+    // Empty the picker, so the same file can be picked again.
+    picker.value = '';
+    if (!file) return;
+    let message;
+    try {
+      const text = await file.text();
+      message = importText(file.name, text);
+    } catch (error) {
+      // Only a failed read is expected here. Any other error is a bug and must stay visible.
+      if (!(error instanceof DOMException)) throw error;
+      message = 'The browser could not read the file.';
+    }
+    errorBox.textContent = message ?? '';
+    errorBox.hidden = message === null;
+  });
+}
+
+/**
+ * Saves text as a file on the user's computer.
+ * @param {string} fileName
+ * @param {string} text
+ */
+function download(fileName, text) {
+  const link = element('a');
+  link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 /**

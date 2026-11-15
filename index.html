@@ -21,6 +21,18 @@
     <h1>Drone show simulator</h1>
 
     <details open>
+      <summary>Project</summary>
+      <div class="section">
+        <div class="button-row">
+          <button id="export-project" type="button">Export</button>
+          <button id="import-project" type="button">Import</button>
+          <input id="project-file" type="file" accept=".json,application/json" hidden>
+        </div>
+        <p class="error" id="project-error" role="alert" hidden></p>
+      </div>
+    </details>
+
+    <details open>
       <summary>Fleet</summary>
       <div class="section">
         <div class="fields" id="fleet-fields"></div>
@@ -30,9 +42,21 @@
     <details open>
       <summary>Formation</summary>
       <div class="section">
-        <div class="field">
+        <div class="field wide">
           <label for="shape">Shape</label>
           <select id="shape"></select>
+        </div>
+        <div class="button-row">
+          <button id="import-obj" type="button">Import OBJ model</button>
+          <input id="obj-file" type="file" accept=".obj" hidden>
+        </div>
+        <p class="error" id="obj-error" role="alert" hidden></p>
+        <div class="field" id="up-axis-row" hidden>
+          <label for="up-axis">Model up axis</label>
+          <select id="up-axis">
+            <option value="y">Y</option>
+            <option value="z">Z</option>
+          </select>
         </div>
         <div class="fields" id="formation-fields"></div>
         <div class="field">

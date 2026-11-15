@@ -15,6 +15,11 @@
   box-sizing: border-box;
 }
 
+/* A display value in a rule below would win over the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -113,6 +118,12 @@ summary:hover {
   gap: 4px 8px;
 }
 
+/* A control that needs more room than a number box, for example a file name. */
+.field.wide {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 16px;
+}
+
 .field label,
 .field .label {
   color: var(--muted);
@@ -203,6 +214,20 @@ input[type="color"] {
   cursor: pointer;
 }
 
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row button {
+  flex: 1;
+}
+
+.error {
+  margin: 0;
+  color: var(--warn);
+}
+
 /* Computed values. */
 
 output {
@@ -255,11 +280,6 @@ output.warn {
   padding: 0 8px;
   font-variant-numeric: tabular-nums;
   text-align: right;
-}
-
-/* The grid display above would win over the hidden attribute. */
-.drone-row[hidden] {
-  display: none;
 }
 
 .drone-list-body .drone-row {

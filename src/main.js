@@ -10,7 +10,14 @@ import {
 import { projectToScreen } from './mat4.js';
 import { createPlanner, fitSize, positionsAt, retime } from './plan.js';
 import { createRenderer } from './renderer.js';
-import { FORMATION_FIELDS, MAX_DRONES, clampToField, defaultState } from './state.js';
+import {
+  FORMATION_FIELDS,
+  MAX_DRONES,
+  clampToField,
+  defaultState,
+  parseProject,
+  serializeProject,
+} from './state.js';
 import { createUi } from './ui.js';
 
 // A click selects the nearest drone inside this distance, CSS pixels.
@@ -49,7 +56,9 @@ function start() {
   const renderer = createRenderer(canvas);
   const camera = createCamera();
   const planner = createPlanner();
-  const state = defaultState();
+  // The state is never changed in place. Each change makes a new state object,
+  // so a change that the planner rejects leaves the old state as it was.
+  let state = defaultState();
   let plan = planner(state);
   // The page opens on the finished formation. Play then starts from the takeoff grid.
   /** @type {import('./ui.js').View} */
@@ -61,26 +70,72 @@ function start() {
   let firstFrame = true;
   let lastFrameTime = 0;
 
+  /**
+   * Makes `next` the project state and shows its plan.
+   * @param {import('./state.js').State} next
+   * @returns {string | null} an error message when the planner rejects the state, or null
+   */
+  function commit(next) {
+    let nextPlan;
+    try {
+      nextPlan = planner(next);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    view.time = retime(plan, nextPlan, view.time);
+    state = next;
+    plan = nextPlan;
+    if (view.selected >= plan.count) view.selected = -1;
+    showPlan();
+    return null;
+  }
+
+  /** @param {Partial<import('./state.js').Formation>} changes */
+  function changeFormation(changes) {
+    return commit({ ...state, formations: [{ ...state.formations[0], ...changes }] });
+  }
+
   const ui = createUi({
     setFleet(key, value) {
-      state.fleet[key] = value;
-      stateChanged();
+      commit({ ...state, fleet: { ...state.fleet, [key]: value } });
     },
     setFormation(key, value) {
-      state.formations[0][key] = value;
-      stateChanged();
+      changeFormation({ [key]: value });
     },
     setShape(shape) {
-      state.formations[0].source = { type: 'builtin', shape };
-      stateChanged();
+      changeFormation({ source: { type: 'builtin', shape } });
+    },
+    importObj(fileName, text) {
+      return changeFormation({ source: { type: 'obj', fileName, upAxis: 'y', text } });
+    },
+    setUpAxis(upAxis) {
+      const { source } = state.formations[0];
+      if (source.type === 'obj') changeFormation({ source: { ...source, upAxis } });
     },
     fit() {
-      const formation = state.formations[0];
-      const size = fitSize(formation.size, plan.spacing, state.fleet.minSpacing);
+      const size = fitSize(state.formations[0].size, plan.spacing, state.fleet.minSpacing);
       if (size === null) return;
       const sizeField = FORMATION_FIELDS.find((field) => field.key === 'size');
-      formation.size = clampToField(sizeField, size);
-      stateChanged();
+      changeFormation({ size: clampToField(sizeField, size) });
+    },
+    projectText() {
+      return serializeProject(state);
+    },
+    importProject(text) {
+      let next;
+      try {
+        next = parseProject(text);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      const error = commit(next);
+      if (error === null) {
+        // A loaded project opens like the page does: on the finished formation.
+        view.time = plan.total;
+        view.playing = false;
+        view.selected = -1;
+      }
+      return error;
     },
     setShowPaths(show) {
       view.showPaths = show;
@@ -107,12 +162,10 @@ function start() {
     },
   });
 
-  function stateChanged() {
-    const previous = plan;
-    plan = planner(state);
-    view.time = retime(previous, plan, view.time);
-    if (view.selected >= plan.count) view.selected = -1;
-    showPlan();
+  function showPlan() {
+    renderer.setPaths(plan.starts, plan.targets, plan.count);
+    ui.refresh(state, plan, view);
+    requestFrame();
   }
 
   /**
@@ -141,12 +194,6 @@ function start() {
     }
     view.selected = nearest;
     if (nearest >= 0) ui.revealDrone(nearest);
-    requestFrame();
-  }
-
-  function showPlan() {
-    renderer.setPaths(plan.starts, plan.targets, plan.count);
-    ui.refresh(state, plan, view);
     requestFrame();
   }
 

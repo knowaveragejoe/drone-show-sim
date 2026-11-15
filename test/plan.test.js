@@ -147,3 +147,27 @@ test('retime keeps the same moment when the plan changes', () => {
   assert.equal(retime(oldPlan, newPlan, 5), 10);
   assert.equal(retime(oldPlan, newPlan, 0), 0);
 });
+
+test('the plan uses an OBJ model as the shape', () => {
+  const state = defaultState();
+  // A flat square in the model XY plane. With Y up, it stands upright and faces the audience.
+  const text = 'v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n';
+  state.formations[0].source = { type: 'obj', fileName: 'square.obj', upAxis: 'y', text };
+  const plan = createPlanner()(state);
+  const { size, centerHeight } = state.formations[0];
+  for (let i = 0; i < plan.count; i++) {
+    assert.ok(Math.abs(plan.targets[i * 3]) <= size / 2 + 1e-3);
+    assert.ok(Math.abs(plan.targets[i * 3 + 1]) < 1e-3);
+    assert.ok(Math.abs(plan.targets[i * 3 + 2] - centerHeight) <= size / 2 + 1e-3);
+  }
+});
+
+test('a shape that fails does not break the planner', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  const good = planner(state);
+  const bad = structuredClone(state);
+  bad.formations[0].source = { type: 'obj', fileName: 'empty.obj', upAxis: 'y', text: '' };
+  assert.throws(() => planner(bad), /no faces/);
+  assert.deepEqual(planner(state).targets, good.targets);
+});
