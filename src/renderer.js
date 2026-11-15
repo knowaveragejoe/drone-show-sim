@@ -62,6 +62,11 @@ const SELECTED_LIGHT_SIZE = 5;
 const MIN_LIGHT_PIXELS = 4;
 const MIN_SELECTED_PIXELS = 14;
 
+// Each path is this many short line segments. See `groundGrid` for the reason.
+const PATH_SEGMENTS = 8;
+// Brightness of a path that is not selected, as a share of the light color.
+const PATH_BRIGHTNESS = 0.1;
+
 /**
  * @typedef {object} Frame
  * @property {Float32Array} viewProj
@@ -70,11 +75,11 @@ const MIN_SELECTED_PIXELS = 14;
  * @property {number} count number of drones
  * @property {number[]} color light color, each channel 0 to 1
  * @property {number} selected index of the selected drone, or -1
+ * @property {boolean} showPaths
  */
 
 /**
  * @param {HTMLCanvasElement} canvas
- * @returns {{draw: (frame: Frame) => void, canvas: HTMLCanvasElement}}
  */
 export function createRenderer(canvas) {
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
@@ -108,6 +113,32 @@ export function createRenderer(canvas) {
   );
 
   const drones = createVertexArray(gl, pointProgram);
+  const paths = createVertexArray(gl, lineProgram);
+  let pathCount = 0;
+
+  /**
+   * Stores the flight path of each drone: a straight line from start to target.
+   * @param {Float32Array} starts xyz per drone
+   * @param {Float32Array} targets xyz per drone
+   * @param {number} count
+   */
+  function setPaths(starts, targets, count) {
+    const vertices = new Float32Array(count * PATH_SEGMENTS * 6);
+    let offset = 0;
+    for (let drone = 0; drone < count; drone++) {
+      for (let segment = 0; segment < PATH_SEGMENTS; segment++) {
+        for (const share of [segment / PATH_SEGMENTS, (segment + 1) / PATH_SEGMENTS]) {
+          for (let axis = 0; axis < 3; axis++) {
+            const start = starts[drone * 3 + axis];
+            vertices[offset++] = start + share * (targets[drone * 3 + axis] - start);
+          }
+        }
+      }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, paths.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+    pathCount = count;
+  }
 
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
@@ -129,15 +160,32 @@ export function createRenderer(canvas) {
     gl.useProgram(lineProgram);
     gl.uniformMatrix4fv(lineUniforms.uViewProj, false, frame.viewProj);
 
+    // Near the horizon many ground lines share a pixel. MAX blending keeps them from
+    // adding up to a bright band.
+    gl.blendEquation(gl.MAX);
     gl.uniform2fv(lineUniforms.uFade, GROUND_FADE);
     gl.uniform3f(lineUniforms.uColor, 0.1, 0.13, 0.2);
     gl.bindVertexArray(ground.vertexArray);
     gl.drawArrays(gl.LINES, 0, groundVertices.length / 3);
+    gl.blendEquation(gl.FUNC_ADD);
 
     gl.uniform2fv(lineUniforms.uFade, NO_FADE);
     gl.uniform3f(lineUniforms.uColor, 0.45, 0.35, 0.15);
     gl.bindVertexArray(audience.vertexArray);
     gl.drawArrays(gl.LINES, 0, 2);
+
+    const selected = frame.selected >= 0 && frame.selected < frame.count ? frame.selected : -1;
+    const verticesPerPath = PATH_SEGMENTS * 2;
+    gl.bindVertexArray(paths.vertexArray);
+    if (frame.showPaths) {
+      const [red, green, blue] = frame.color;
+      gl.uniform3f(lineUniforms.uColor, red * PATH_BRIGHTNESS, green * PATH_BRIGHTNESS, blue * PATH_BRIGHTNESS);
+      gl.drawArrays(gl.LINES, 0, pathCount * verticesPerPath);
+    }
+    if (selected >= 0 && selected < pathCount) {
+      gl.uniform3f(lineUniforms.uColor, 1, 1, 1);
+      gl.drawArrays(gl.LINES, selected * verticesPerPath, verticesPerPath);
+    }
 
     gl.useProgram(pointProgram);
     gl.uniformMatrix4fv(pointUniforms.uViewProj, false, frame.viewProj);
@@ -151,16 +199,16 @@ export function createRenderer(canvas) {
     gl.uniform3fv(pointUniforms.uColor, frame.color);
     gl.drawArrays(gl.POINTS, 0, frame.count);
 
-    if (frame.selected >= 0 && frame.selected < frame.count) {
+    if (selected >= 0) {
       gl.uniform1f(pointUniforms.uSize, SELECTED_LIGHT_SIZE);
       gl.uniform1f(pointUniforms.uMinPixels, MIN_SELECTED_PIXELS * dpr);
       gl.uniform3f(pointUniforms.uColor, 1, 1, 1);
-      gl.drawArrays(gl.POINTS, frame.selected, 1);
+      gl.drawArrays(gl.POINTS, selected, 1);
     }
     gl.bindVertexArray(null);
   }
 
-  return { draw, canvas };
+  return { draw, setPaths };
 }
 
 /**

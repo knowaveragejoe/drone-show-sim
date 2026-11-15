@@ -220,3 +220,43 @@ output.warn {
   justify-content: space-between;
   gap: 8px;
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Transport bar: play, timeline, time. */
+
+#transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#play {
+  width: 64px;
+}
+
+#scrub {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+#time {
+  min-width: 104px;
+  color: var(--muted);
+  text-align: right;
+}

@@ -1,4 +1,4 @@
-// Sidebar controls.
+// Sidebar controls and the transport bar.
 
 import { isTooClose } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
@@ -10,14 +10,41 @@ import { FLEET_FIELDS, FORMATION_FIELDS, clampToField } from './state.js';
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
  * @property {() => void} fit
+ * @property {(show: boolean) => void} setShowPaths
+ * @property {() => void} audienceView
+ * @property {() => void} togglePlay
+ * @property {(time: number) => void} seek
  */
+
+/**
+ * What the user looks at. This is not part of the project.
+ * @typedef {object} View
+ * @property {number} time position on the timeline, seconds
+ * @property {boolean} playing
+ * @property {number} selected index of the selected drone, or -1
+ * @property {boolean} showPaths
+ */
+
+// A new plan for a large fleet takes a moment. Up to this fleet size, a slider applies
+// each step of a drag. Above it, a slider applies its value when the user lets go.
+const LIVE_SLIDER_MAX_DRONES = 250;
 
 /**
  * @param {Actions} actions
  */
 export function createUi(actions) {
-  const fleetFields = buildFields(byId('fleet-fields'), FLEET_FIELDS, actions.setFleet);
-  const formationFields = buildFields(byId('formation-fields'), FORMATION_FIELDS, actions.setFormation);
+  let droneCount = 0;
+  /** @type {LivePredicate} */
+  const isLive = (key, value) =>
+    Math.max(droneCount, key === 'count' ? value : 0) <= LIVE_SLIDER_MAX_DRONES;
+
+  const fleetFields = buildFields(byId('fleet-fields'), FLEET_FIELDS, actions.setFleet, isLive);
+  const formationFields = buildFields(
+    byId('formation-fields'),
+    FORMATION_FIELDS,
+    actions.setFormation,
+    isLive,
+  );
 
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
   for (const [key, { label }] of Object.entries(BUILTIN_SHAPES)) {
@@ -32,34 +59,95 @@ export function createUi(actions) {
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
 
+  const duration = byId('duration');
+  const approach = byId('approach');
+  const peakSpeed = byId('peak-speed');
+
+  const showPaths = /** @type {HTMLInputElement} */ (byId('show-paths'));
+  showPaths.addEventListener('change', () => actions.setShowPaths(showPaths.checked));
+  byId('audience-view').addEventListener('click', actions.audienceView);
+
+  const play = byId('play');
+  const scrub = /** @type {HTMLInputElement} */ (byId('scrub'));
+  const time = byId('time');
+  play.addEventListener('click', actions.togglePlay);
+  scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
+
+  document.addEventListener('keydown', (event) => {
+    if (event.code !== 'Space' || event.repeat) return;
+    // In these controls the Space key already has a job.
+    const target = /** @type {HTMLElement} */ (event.target);
+    if (target.closest('button, select, summary, textarea, input:not([type="range"])')) return;
+    event.preventDefault();
+    actions.togglePlay();
+  });
+
   /**
    * Shows the project state and the plan in the controls. Call after each state change.
    * @param {import('./state.js').State} state
    * @param {import('./plan.js').Plan} plan
+   * @param {View} view
    */
-  function refresh(state, plan) {
+  function refresh(state, plan, view) {
     const formation = state.formations[0];
+    const { minSpacing } = state.fleet;
+    droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
     formationFields.show(formation);
     shape.value = formation.source.shape;
     color.value = formation.color;
 
-    const hasSpacing = Number.isFinite(plan.spacing);
-    spacing.textContent = hasSpacing ? `${plan.spacing.toFixed(2)} m` : 'n/a';
-    spacing.classList.toggle('warn', isTooClose(plan.spacing, state.fleet.minSpacing));
-    fit.disabled = !hasSpacing || plan.spacing <= 0;
+    spacing.textContent = meters(plan.spacing);
+    spacing.classList.toggle('warn', isTooClose(plan.spacing, minSpacing));
+    fit.disabled = !Number.isFinite(plan.spacing) || plan.spacing <= 0;
+
+    duration.textContent = `${plan.timing.duration.toFixed(1)} s`;
+    approach.textContent = meters(plan.closestApproach);
+    approach.classList.toggle('warn', isTooClose(plan.closestApproach, minSpacing));
+    peakSpeed.textContent = `${plan.peakSpeed.toFixed(1)} m/s`;
+
+    showPaths.checked = view.showPaths;
+    scrub.max = String(plan.total);
+    showTime(plan, view);
   }
 
-  return { refresh };
+  /**
+   * Shows the timeline position. Call for each frame.
+   * @param {import('./plan.js').Plan} plan
+   * @param {View} view
+   */
+  function showTime(plan, view) {
+    scrub.value = String(view.time);
+    time.textContent = `${view.time.toFixed(1)} / ${plan.total.toFixed(1)} s`;
+    play.textContent = view.playing ? 'Pause' : 'Play';
+  }
+
+  return { refresh, showTime };
 }
+
+/**
+ * @param {number} distance meters; Infinity when fewer than two drones exist
+ */
+function meters(distance) {
+  return Number.isFinite(distance) ? `${distance.toFixed(2)} m` : 'n/a';
+}
+
+/**
+ * Tells if a slider applies each step of a drag.
+ * @callback LivePredicate
+ * @param {string} key field key
+ * @param {number} value the value under the slider thumb
+ * @returns {boolean}
+ */
 
 /**
  * Builds one labeled number box per field, plus a slider for fields that ask for one.
  * @param {HTMLElement} container
  * @param {import('./state.js').NumberField[]} fields
  * @param {(key: string, value: number) => void} onChange
+ * @param {LivePredicate} isLive
  */
-function buildFields(container, fields, onChange) {
+function buildFields(container, fields, onChange, isLive) {
   /** @type {Map<string, HTMLInputElement[]>} */
   const inputs = new Map();
   /** @type {Record<string, any>} */
@@ -88,8 +176,13 @@ function buildFields(container, fields, onChange) {
     if (field.slider) {
       const slider = numberInput(field, 'range');
       slider.setAttribute('aria-label', field.label);
-      // A slider reports each step of a drag.
-      slider.addEventListener('input', () => commit(field, slider));
+      slider.addEventListener('input', () => {
+        const value = clampToField(field, slider.valueAsNumber);
+        if (value !== null && isLive(field.key, value)) onChange(field.key, value);
+        // Not live: the number box shows the value that the slider will apply.
+        else number.value = slider.value;
+      });
+      slider.addEventListener('change', () => commit(field, slider));
       row.append(slider);
       fieldInputs.push(slider);
     }

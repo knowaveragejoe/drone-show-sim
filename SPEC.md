@@ -139,17 +139,22 @@ Drone ids run from 1 to N, row by row.
 
 ### 6. Assign drones to targets
 
-The Hungarian algorithm finds the assignment with the smallest total of squared distances.
+The solver finds the assignment with the smallest total of squared distances.
+It uses the Jonker-Volgenant algorithm, which gives the same result as the Hungarian algorithm in less time.
 
 Squared distance matters.
 With this assignment and with all drones on the same count, straight paths stay apart.
 If the closest spacing at the start and at the end is `D`, the closest approach in flight is at least `D ÷ √2`.
 Skybrush documents the same bound.
 
-The Hungarian algorithm needs time in proportion to N³.
-At 1,000 drones the expected time is about one second.
-Milestone 3 measures the real time.
-If the pause is longer than 0.5 seconds, the assignment moves to a Web Worker.
+The solver is the slowest step.
+Measured on a slow cloud CPU: under 30 ms at 300 drones, and 0.2 to 0.5 seconds at 1,000 drones.
+Two measures keep the page usable for large fleets:
+
+- The planner keeps the assignment when only the formation height changes. A shift of all targets does not change the best assignment.
+- Above 250 drones, a slider applies its value when the user lets go, not at each step of the drag.
+
+If the pause is still a problem, the next step is to run the planner in a Web Worker.
 
 ### 7. Plan the motion
 
@@ -237,12 +242,17 @@ The Audience view button puts the camera 150 m in front of the takeoff grid at e
 Play and pause button, scrubber, and time readout.
 The Space key toggles play and pause.
 
+The page opens on the finished formation.
+Play at the end of the timeline starts again from the takeoff grid.
+When the plan changes, the timeline keeps the same moment: the end stays the end, and a time in the transition keeps its share of the transition.
+
 ## Rendering
 
 - Background: a dark night sky.
 - Ground: a line grid on `z = 0`.
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Paths: one `gl.LINES` draw call for all paths at low opacity. A second draw call for the selected path at full brightness.
+- Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
 - The canvas follows `devicePixelRatio`.
@@ -304,7 +314,7 @@ src/
   shapes.js       built-in shape generators
   obj.js          OBJ parser and triangle sampler
   sample.js       farthest point sampling, smallest spacing
-  assign.js       Hungarian algorithm
+  assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, position at a time, closest approach
   mat4.js         matrix helpers for the camera
   camera.js       orbit camera and mouse input
@@ -335,7 +345,7 @@ No `npm install` is necessary.
 | Module | What the tests check |
 |---|---|
 | `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. |
-| `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases. |
+| `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. |

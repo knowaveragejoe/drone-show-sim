@@ -15,6 +15,10 @@
 /** @type {NumberField[]} */
 export const FLEET_FIELDS = [
   { key: 'count', label: 'Drone count', unit: '', min: 1, max: 1000, step: 1, integer: true, slider: true },
+  { key: 'maxHorizontalSpeed', label: 'Max horizontal speed', unit: 'm/s', min: 0.5, max: 30, step: 0.5 },
+  { key: 'maxClimbSpeed', label: 'Max climb speed', unit: 'm/s', min: 0.5, max: 30, step: 0.5 },
+  { key: 'maxDescentSpeed', label: 'Max descent speed', unit: 'm/s', min: 0.5, max: 30, step: 0.5 },
+  { key: 'maxAcceleration', label: 'Max acceleration', unit: 'm/s²', min: 0.5, max: 30, step: 0.5 },
   { key: 'minSpacing', label: 'Minimum spacing', unit: 'm', min: 0.5, max: 20, step: 0.1 },
   { key: 'gridSpacing', label: 'Takeoff grid spacing', unit: 'm', min: 0.5, max: 20, step: 0.1 },
 ];
@@ -24,6 +28,7 @@ export const FORMATION_FIELDS = [
   { key: 'size', label: 'Size', unit: 'm', min: 1, max: 500, step: 1, slider: true },
   { key: 'centerHeight', label: 'Center height', unit: 'm', min: 0, max: 500, step: 1, slider: true },
   { key: 'yaw', label: 'Yaw', unit: '°', min: -180, max: 180, step: 1, slider: true },
+  { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
 ];
 
 export const MAX_DRONES = FLEET_FIELDS[0].max;
@@ -31,6 +36,10 @@ export const MAX_DRONES = FLEET_FIELDS[0].max;
 /**
  * @typedef {object} Fleet
  * @property {number} count
+ * @property {number} maxHorizontalSpeed m/s
+ * @property {number} maxClimbSpeed m/s
+ * @property {number} maxDescentSpeed m/s
+ * @property {number} maxAcceleration m/s²
  * @property {number} minSpacing meters
  * @property {number} gridSpacing meters
  */
@@ -49,6 +58,7 @@ export const MAX_DRONES = FLEET_FIELDS[0].max;
  * @property {number} centerHeight meters above the ground
  * @property {number} yaw rotation about the vertical axis, degrees
  * @property {string} color light color, `#rrggbb`
+ * @property {number} holdSeconds time that the drones hold the formation
  * @property {number} seed seed of the random sampler
  */
 
@@ -63,6 +73,10 @@ export function defaultState() {
   return {
     fleet: {
       count: 100,
+      maxHorizontalSpeed: 8,
+      maxClimbSpeed: 3,
+      maxDescentSpeed: 3,
+      maxAcceleration: 4,
       minSpacing: 2,
       gridSpacing: 3,
     },
@@ -73,6 +87,7 @@ export function defaultState() {
         centerHeight: 60,
         yaw: 0,
         color: '#66ccff',
+        holdSeconds: 10,
         seed: 1,
       },
     ],

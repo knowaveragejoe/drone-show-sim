@@ -10,6 +10,11 @@
   <main id="stage">
     <canvas id="view" aria-label="3D view of the drone show"></canvas>
     <p id="fatal" role="alert" hidden></p>
+    <footer id="transport">
+      <button id="play" type="button" title="Play or pause (Space)">Play</button>
+      <input id="scrub" type="range" min="0" max="1" step="any" aria-label="Timeline">
+      <output id="time"></output>
+    </footer>
   </main>
 
   <aside id="sidebar">
@@ -41,6 +46,32 @@
             <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing">Fit</button>
           </span>
         </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Checks</summary>
+      <div class="section">
+        <div class="field">
+          <span class="label">Transition duration</span>
+          <output id="duration"></output>
+        </div>
+        <div class="field">
+          <span class="label">Closest approach in flight</span>
+          <output id="approach"></output>
+        </div>
+        <div class="field">
+          <span class="label">Peak speed</span>
+          <output id="peak-speed"></output>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>View</summary>
+      <div class="section">
+        <label class="check"><input id="show-paths" type="checkbox"> Show paths</label>
+        <button id="audience-view" type="button">Audience view</button>
       </div>
     </details>
   </aside>

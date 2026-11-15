@@ -1,10 +1,20 @@
 // Start-up. Connects the state, the plan, the renderer, and the user interface.
 
-import { attachCameraControls, createCamera, pixelsPerMeter, viewProjection } from './camera.js';
-import { createPlanner, fitSize, positionsAt } from './plan.js';
+import {
+  attachCameraControls,
+  createCamera,
+  pixelsPerMeter,
+  setAudienceView,
+  viewProjection,
+} from './camera.js';
+import { createPlanner, fitSize, positionsAt, retime } from './plan.js';
 import { createRenderer } from './renderer.js';
 import { FORMATION_FIELDS, MAX_DRONES, clampToField, defaultState } from './state.js';
 import { createUi } from './ui.js';
+
+// Longest step of the timeline in one frame, seconds. A browser tab in the background
+// draws no frames; without the limit the show would jump when the tab comes back.
+const MAX_FRAME_STEP = 0.1;
 
 /**
  * Shows an error on the page and marks the page for the smoke test.
@@ -36,13 +46,16 @@ function start() {
   const camera = createCamera();
   const planner = createPlanner();
   const state = defaultState();
-  const view = { time: 0, selected: -1 };
   let plan = planner(state);
+  // The page opens on the finished formation. Play then starts from the takeoff grid.
+  /** @type {import('./ui.js').View} */
+  const view = { time: plan.total, playing: false, selected: -1, showPaths: true };
 
   const positions = new Float32Array(MAX_DRONES * 3);
   const viewProj = new Float32Array(16);
   let frameRequested = false;
   let firstFrame = true;
+  let lastFrameTime = 0;
 
   const ui = createUi({
     setFleet(key, value) {
@@ -65,11 +78,37 @@ function start() {
       formation.size = clampToField(sizeField, size);
       stateChanged();
     },
+    setShowPaths(show) {
+      view.showPaths = show;
+      requestFrame();
+    },
+    audienceView() {
+      setAudienceView(camera, state.formations[0].centerHeight);
+      requestFrame();
+    },
+    togglePlay() {
+      if (!view.playing && view.time >= plan.total) view.time = 0;
+      view.playing = !view.playing;
+      lastFrameTime = performance.now();
+      requestFrame();
+    },
+    seek(time) {
+      view.playing = false;
+      view.time = Math.min(plan.total, Math.max(0, time));
+      requestFrame();
+    },
   });
 
   function stateChanged() {
+    const previous = plan;
     plan = planner(state);
-    ui.refresh(state, plan);
+    view.time = retime(previous, plan, view.time);
+    showPlan();
+  }
+
+  function showPlan() {
+    renderer.setPaths(plan.starts, plan.targets, plan.count);
+    ui.refresh(state, plan, view);
     requestFrame();
   }
 
@@ -79,8 +118,20 @@ function start() {
     requestAnimationFrame(drawFrame);
   }
 
-  function drawFrame() {
+  /** @param {number} now time of this frame, milliseconds */
+  function drawFrame(now) {
     frameRequested = false;
+    if (view.playing) {
+      view.time += Math.min(MAX_FRAME_STEP, Math.max(0, (now - lastFrameTime) / 1000));
+      if (view.time >= plan.total) {
+        view.time = plan.total;
+        view.playing = false;
+      } else {
+        requestFrame();
+      }
+    }
+    lastFrameTime = now;
+
     positionsAt(plan, view.time, positions);
     viewProjection(camera, canvas.clientWidth / Math.max(1, canvas.clientHeight), viewProj);
     renderer.draw({
@@ -90,7 +141,10 @@ function start() {
       count: plan.count,
       color: hexToRgb(state.formations[0].color),
       selected: view.selected,
+      showPaths: view.showPaths,
     });
+    ui.showTime(plan, view);
+
     if (firstFrame) {
       firstFrame = false;
       // The smoke test reads this marker.
@@ -100,7 +154,7 @@ function start() {
 
   attachCameraControls(canvas, camera, requestFrame, () => {});
   new ResizeObserver(requestFrame).observe(canvas);
-  stateChanged();
+  showPlan();
 }
 
 try {
