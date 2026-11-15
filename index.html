@@ -17,7 +17,31 @@
 
     <details open>
       <summary>Fleet</summary>
-      <div class="section" id="fleet-fields"></div>
+      <div class="section">
+        <div class="fields" id="fleet-fields"></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Formation</summary>
+      <div class="section">
+        <div class="field">
+          <label for="shape">Shape</label>
+          <select id="shape"></select>
+        </div>
+        <div class="fields" id="formation-fields"></div>
+        <div class="field">
+          <label for="color">Color</label>
+          <input id="color" type="color">
+        </div>
+        <div class="field">
+          <span class="label">Closest spacing</span>
+          <span class="readout-with-button">
+            <output id="spacing"></output>
+            <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing">Fit</button>
+          </span>
+        </div>
+      </div>
     </details>
   </aside>
 

@@ -266,7 +266,6 @@ The project file is JSON with the extension `.droneshow.json`.
   },
   "formations": [
     {
-      "name": "Sphere",
       "source": { "type": "builtin", "shape": "sphere" },
       "size": 40,
       "centerHeight": 60,

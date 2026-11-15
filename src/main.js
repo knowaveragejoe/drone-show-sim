@@ -1,13 +1,10 @@
 // Start-up. Connects the state, the plan, the renderer, and the user interface.
 
 import { attachCameraControls, createCamera, pixelsPerMeter, viewProjection } from './camera.js';
-import { buildPlan, positionsAt } from './plan.js';
+import { createPlanner, fitSize, positionsAt } from './plan.js';
 import { createRenderer } from './renderer.js';
-import { FLEET_FIELDS, defaultState } from './state.js';
+import { FORMATION_FIELDS, MAX_DRONES, clampToField, defaultState } from './state.js';
 import { createUi } from './ui.js';
-
-const MAX_DRONES = FLEET_FIELDS.find((field) => field.key === 'count').max;
-const LIGHT_COLOR = [0.4, 0.8, 1];
 
 /**
  * Shows an error on the page and marks the page for the smoke test.
@@ -24,13 +21,23 @@ function reportFatal(message) {
 window.addEventListener('error', (event) => reportFatal(event.message));
 window.addEventListener('unhandledrejection', (event) => reportFatal(String(event.reason)));
 
+/**
+ * @param {string} hex color as `#rrggbb`
+ * @returns {number[]} red, green, blue, each 0 to 1
+ */
+function hexToRgb(hex) {
+  const value = parseInt(hex.slice(1), 16);
+  return [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+}
+
 function start() {
   const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('view'));
   const renderer = createRenderer(canvas);
   const camera = createCamera();
+  const planner = createPlanner();
   const state = defaultState();
   const view = { time: 0, selected: -1 };
-  let plan = buildPlan(state);
+  let plan = planner(state);
 
   const positions = new Float32Array(MAX_DRONES * 3);
   const viewProj = new Float32Array(16);
@@ -42,11 +49,27 @@ function start() {
       state.fleet[key] = value;
       stateChanged();
     },
+    setFormation(key, value) {
+      state.formations[0][key] = value;
+      stateChanged();
+    },
+    setShape(shape) {
+      state.formations[0].source = { type: 'builtin', shape };
+      stateChanged();
+    },
+    fit() {
+      const formation = state.formations[0];
+      const size = fitSize(formation.size, plan.spacing, state.fleet.minSpacing);
+      if (size === null) return;
+      const sizeField = FORMATION_FIELDS.find((field) => field.key === 'size');
+      formation.size = clampToField(sizeField, size);
+      stateChanged();
+    },
   });
 
   function stateChanged() {
-    plan = buildPlan(state);
-    ui.refresh(state);
+    plan = planner(state);
+    ui.refresh(state, plan);
     requestFrame();
   }
 
@@ -65,7 +88,7 @@ function start() {
       pixelsPerMeter: pixelsPerMeter(camera, canvas.clientHeight),
       positions: positions.subarray(0, plan.count * 3),
       count: plan.count,
-      color: LIGHT_COLOR,
+      color: hexToRgb(state.formations[0].color),
       selected: view.selected,
     });
     if (firstFrame) {

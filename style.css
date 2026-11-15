@@ -94,13 +94,17 @@ summary:hover {
   background: var(--panel-raised);
 }
 
-.section {
+.section,
+.fields {
   display: grid;
   gap: 10px;
+}
+
+.section {
   padding: 4px 12px 14px;
 }
 
-/* One labeled number box, with an optional slider on a second row. */
+/* One labeled control. A slider, if present, takes a second row. */
 
 .field {
   display: grid;
@@ -109,7 +113,8 @@ summary:hover {
   gap: 4px 8px;
 }
 
-.field label {
+.field label,
+.field .label {
   color: var(--muted);
 }
 
@@ -152,4 +157,66 @@ summary:hover {
   width: 100%;
   margin: 0;
   accent-color: var(--accent);
+}
+
+select,
+button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+select {
+  width: 100%;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+select:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type="color"] {
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  cursor: pointer;
+}
+
+/* Computed values. */
+
+output {
+  font-variant-numeric: tabular-nums;
+}
+
+output.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.readout-with-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }

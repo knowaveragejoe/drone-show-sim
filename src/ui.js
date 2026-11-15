@@ -1,10 +1,15 @@
 // Sidebar controls.
 
-import { FLEET_FIELDS, clampToField } from './state.js';
+import { isTooClose } from './plan.js';
+import { BUILTIN_SHAPES } from './shapes.js';
+import { FLEET_FIELDS, FORMATION_FIELDS, clampToField } from './state.js';
 
 /**
  * @typedef {object} Actions
  * @property {(key: string, value: number) => void} setFleet
+ * @property {(key: string, value: number | string) => void} setFormation
+ * @property {(shape: string) => void} setShape
+ * @property {() => void} fit
  */
 
 /**
@@ -12,13 +17,37 @@ import { FLEET_FIELDS, clampToField } from './state.js';
  */
 export function createUi(actions) {
   const fleetFields = buildFields(byId('fleet-fields'), FLEET_FIELDS, actions.setFleet);
+  const formationFields = buildFields(byId('formation-fields'), FORMATION_FIELDS, actions.setFormation);
+
+  const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
+  for (const [key, { label }] of Object.entries(BUILTIN_SHAPES)) {
+    shape.add(new Option(label, key));
+  }
+  shape.addEventListener('change', () => actions.setShape(shape.value));
+
+  const color = /** @type {HTMLInputElement} */ (byId('color'));
+  color.addEventListener('input', () => actions.setFormation('color', color.value));
+
+  const spacing = byId('spacing');
+  const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
+  fit.addEventListener('click', actions.fit);
 
   /**
-   * Shows the project state in the controls. Call after each state change.
+   * Shows the project state and the plan in the controls. Call after each state change.
    * @param {import('./state.js').State} state
+   * @param {import('./plan.js').Plan} plan
    */
-  function refresh(state) {
+  function refresh(state, plan) {
+    const formation = state.formations[0];
     fleetFields.show(state.fleet);
+    formationFields.show(formation);
+    shape.value = formation.source.shape;
+    color.value = formation.color;
+
+    const hasSpacing = Number.isFinite(plan.spacing);
+    spacing.textContent = hasSpacing ? `${plan.spacing.toFixed(2)} m` : 'n/a';
+    spacing.classList.toggle('warn', isTooClose(plan.spacing, state.fleet.minSpacing));
+    fit.disabled = !hasSpacing || plan.spacing <= 0;
   }
 
   return { refresh };
@@ -33,11 +62,11 @@ export function createUi(actions) {
 function buildFields(container, fields, onChange) {
   /** @type {Map<string, HTMLInputElement[]>} */
   const inputs = new Map();
-  /** @type {Record<string, number>} */
+  /** @type {Record<string, any>} */
   let shown = {};
 
   for (const field of fields) {
-    const id = `field-${container.id}-${field.key}`;
+    const id = `${container.id}-${field.key}`;
     const row = element('div', 'field');
 
     const label = element('label');
@@ -82,7 +111,7 @@ function buildFields(container, fields, onChange) {
     onChange(field.key, value);
   }
 
-  /** @param {Record<string, number>} values */
+  /** @param {Record<string, any>} values object that holds one number per field key */
   function show(values) {
     shown = values;
     for (const [key, fieldInputs] of inputs) {
