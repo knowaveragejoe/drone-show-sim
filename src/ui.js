@@ -1,6 +1,6 @@
-// Sidebar controls and the transport bar.
+// Sidebar controls, the drone list, and the transport bar.
 
-import { isTooClose } from './plan.js';
+import { isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
 import { FLEET_FIELDS, FORMATION_FIELDS, clampToField } from './state.js';
 
@@ -14,6 +14,7 @@ import { FLEET_FIELDS, FORMATION_FIELDS, clampToField } from './state.js';
  * @property {() => void} audienceView
  * @property {() => void} togglePlay
  * @property {(time: number) => void} seek
+ * @property {(drone: number) => void} select index of the drone to select, or -1 to clear the selection
  */
 
 /**
@@ -73,7 +74,10 @@ export function createUi(actions) {
   play.addEventListener('click', actions.togglePlay);
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
 
+  const droneList = buildDroneList(byId('drone-list'), actions.select);
+
   document.addEventListener('keydown', (event) => {
+    if (event.code === 'Escape') actions.select(-1);
     if (event.code !== 'Space' || event.repeat) return;
     // In these controls the Space key already has a job.
     const target = /** @type {HTMLElement} */ (event.target);
@@ -108,21 +112,95 @@ export function createUi(actions) {
 
     showPaths.checked = view.showPaths;
     scrub.max = String(plan.total);
-    showTime(plan, view);
   }
 
   /**
-   * Shows the timeline position. Call for each frame.
+   * Shows the timeline position and the live drone data. Call for each frame.
    * @param {import('./plan.js').Plan} plan
    * @param {View} view
+   * @param {Float32Array} positions position of each drone at the view time, xyz
    */
-  function showTime(plan, view) {
+  function showFrame(plan, view, positions) {
     scrub.value = String(view.time);
     time.textContent = `${view.time.toFixed(1)} / ${plan.total.toFixed(1)} s`;
     play.textContent = view.playing ? 'Pause' : 'Play';
+    droneList.show(plan, view, positions);
   }
 
-  return { refresh, showTime };
+  return { refresh, showFrame, revealDrone: droneList.reveal };
+}
+
+const DRONE_ROW_HEIGHT = 22;
+
+/**
+ * Builds the drone list. The list draws only the rows that are in view,
+ * so a large fleet costs the same as a small one.
+ * @param {HTMLElement} container scroll box; its first child is the sticky header row
+ * @param {(drone: number) => void} onSelect
+ */
+function buildDroneList(container, onSelect) {
+  // An empty box as tall as all rows. It gives the scroll bar the right range.
+  const body = element('div', 'drone-list-body');
+  container.append(body);
+  /** @type {HTMLElement[]} */
+  const rows = [];
+  /** @type {(() => void) | null} */
+  let redraw = null;
+
+  container.addEventListener('scroll', () => redraw?.());
+  body.addEventListener('click', (event) => {
+    const row = /** @type {HTMLElement} */ (event.target).closest('.drone-row');
+    if (row) onSelect(Number(/** @type {HTMLElement} */ (row).dataset.drone));
+  });
+
+  /**
+   * @param {import('./plan.js').Plan} plan
+   * @param {View} view
+   * @param {Float32Array} positions
+   */
+  function show(plan, view, positions) {
+    redraw = () => show(plan, view, positions);
+    body.style.height = `${plan.count * DRONE_ROW_HEIGHT}px`;
+
+    const first = Math.floor(container.scrollTop / DRONE_ROW_HEIGHT);
+    const visible = Math.ceil(container.clientHeight / DRONE_ROW_HEIGHT) + 1;
+    const last = Math.min(plan.count, first + visible);
+    while (rows.length < last - first) {
+      const row = element('div', 'drone-row');
+      for (let cell = 0; cell < 5; cell++) row.append(element('span'));
+      body.append(row);
+      rows.push(row);
+    }
+
+    rows.forEach((row, slot) => {
+      const drone = first + slot;
+      row.hidden = drone >= last;
+      if (row.hidden) return;
+      row.dataset.drone = String(drone);
+      row.style.transform = `translateY(${drone * DRONE_ROW_HEIGHT}px)`;
+      row.classList.toggle('selected', drone === view.selected);
+      const cells = row.children;
+      cells[0].textContent = String(drone + 1);
+      cells[1].textContent = positions[drone * 3].toFixed(1);
+      cells[2].textContent = positions[drone * 3 + 1].toFixed(1);
+      cells[3].textContent = positions[drone * 3 + 2].toFixed(1);
+      cells[4].textContent = speedAt(plan, drone, view.time).toFixed(1);
+    });
+  }
+
+  /**
+   * Scrolls the list so that one drone is in view.
+   * @param {number} drone index
+   */
+  function reveal(drone) {
+    const top = drone * DRONE_ROW_HEIGHT;
+    // The sticky header covers the first row height of the box.
+    const room = container.clientHeight - 2 * DRONE_ROW_HEIGHT;
+    if (top < container.scrollTop) container.scrollTop = top;
+    else if (top > container.scrollTop + room) container.scrollTop = top - room;
+  }
+
+  return { show, reveal };
 }
 
 /**

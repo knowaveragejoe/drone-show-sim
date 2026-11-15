@@ -233,6 +233,59 @@ output.warn {
   accent-color: var(--accent);
 }
 
+/* Drone list. Only the rows in view exist; each row sits at its place in a tall empty box. */
+
+#drone-list {
+  height: 244px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+}
+
+.drone-list-body {
+  position: relative;
+}
+
+.drone-row {
+  display: grid;
+  grid-template-columns: 40px repeat(4, minmax(0, 1fr));
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The grid display above would win over the hidden attribute. */
+.drone-row[hidden] {
+  display: none;
+}
+
+.drone-list-body .drone-row {
+  position: absolute;
+  inset: 0 0 auto 0;
+  cursor: pointer;
+}
+
+.drone-list-body .drone-row:hover {
+  background: #232738;
+}
+
+.drone-list-body .drone-row.selected {
+  background: #1c4057;
+  color: #fff;
+}
+
+.drone-list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--muted);
+}
+
 /* Transport bar: play, timeline, time. */
 
 #transport {

@@ -7,10 +7,14 @@ import {
   setAudienceView,
   viewProjection,
 } from './camera.js';
+import { projectToScreen } from './mat4.js';
 import { createPlanner, fitSize, positionsAt, retime } from './plan.js';
 import { createRenderer } from './renderer.js';
 import { FORMATION_FIELDS, MAX_DRONES, clampToField, defaultState } from './state.js';
 import { createUi } from './ui.js';
+
+// A click selects the nearest drone inside this distance, CSS pixels.
+const PICK_RADIUS = 10;
 
 // Longest step of the timeline in one frame, seconds. A browser tab in the background
 // draws no frames; without the limit the show would jump when the tab comes back.
@@ -97,13 +101,47 @@ function start() {
       view.time = Math.min(plan.total, Math.max(0, time));
       requestFrame();
     },
+    select(drone) {
+      view.selected = drone;
+      requestFrame();
+    },
   });
 
   function stateChanged() {
     const previous = plan;
     plan = planner(state);
     view.time = retime(previous, plan, view.time);
+    if (view.selected >= plan.count) view.selected = -1;
     showPlan();
+  }
+
+  /**
+   * Selects the drone under a click in the 3D view. A click on empty space clears the selection.
+   * @param {number} x CSS pixels from the left edge of the canvas
+   * @param {number} y CSS pixels from the top edge of the canvas
+   */
+  function pick(x, y) {
+    let nearest = -1;
+    let nearestDistance = PICK_RADIUS;
+    for (let drone = 0; drone < plan.count; drone++) {
+      const point = projectToScreen(
+        viewProj,
+        positions[drone * 3],
+        positions[drone * 3 + 1],
+        positions[drone * 3 + 2],
+        canvas.clientWidth,
+        canvas.clientHeight,
+      );
+      if (!point) continue;
+      const distance = Math.hypot(point[0] - x, point[1] - y);
+      if (distance < nearestDistance) {
+        nearest = drone;
+        nearestDistance = distance;
+      }
+    }
+    view.selected = nearest;
+    if (nearest >= 0) ui.revealDrone(nearest);
+    requestFrame();
   }
 
   function showPlan() {
@@ -143,7 +181,7 @@ function start() {
       selected: view.selected,
       showPaths: view.showPaths,
     });
-    ui.showTime(plan, view);
+    ui.showFrame(plan, view, positions);
 
     if (firstFrame) {
       firstFrame = false;
@@ -152,7 +190,7 @@ function start() {
     }
   }
 
-  attachCameraControls(canvas, camera, requestFrame, () => {});
+  attachCameraControls(canvas, camera, requestFrame, pick);
   new ResizeObserver(requestFrame).observe(canvas);
   showPlan();
 }
