@@ -1,0 +1,11 @@
+{
+  "name": "drone-show-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser tool that previews a drone light show in 3D",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "smoke": "node tools/smoke.js"
+  }
+}

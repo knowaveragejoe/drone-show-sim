@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: plan agreed on 2026-11-15. No code exists yet.
+Status: plan agreed on 2026-11-15. The build follows the milestones below.
 
 ## Purpose
 
@@ -299,7 +299,8 @@ style.css
 package.json      no dependencies; marks the code as ES modules and names the test scripts
 src/
   main.js         start-up; connects state, plan, renderer, and user interface
-  state.js        default state, updates, project file export and import
+  state.js        default state, field limits, project file export and import
+  plan.js         runs the steps from state to plan and stores results that did not change
   rng.js          seeded random number generator
   shapes.js       built-in shape generators
   obj.js          OBJ parser and triangle sampler
@@ -316,16 +317,20 @@ tools/
   smoke.js        headless browser smoke test
 ```
 
-`rng.js`, `shapes.js`, `obj.js`, `sample.js`, `assign.js`, and `motion.js` are pure.
+`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `sample.js`, `assign.js`, and `motion.js` are pure.
 They use no DOM and no WebGL, so Node can run their tests.
-The project file functions in `state.js` follow the same rule.
 
 ## Tests
 
-The owner tests the visuals by hand.
+Claude builds and checks every milestone without help from the owner.
+The checks have three levels:
+
+1. Unit tests, after each change to a math module.
+2. The smoke test, after each change to the page.
+3. Screenshots from a headless browser, only when a change needs a visual check. The screenshot scripts are not part of the repository.
 
 Unit tests use the Node built-in test runner.
-`npm test` runs `node --test test/`.
+`npm test` runs `node --test`.
 No `npm install` is necessary.
 
 | Module | What the tests check |
@@ -342,8 +347,8 @@ The page sets `data-smoke="ok"` on the `<html>` element after the first frame.
 It sets `data-smoke="error"` on an uncaught error or a WebGL failure.
 
 The smoke test uses the `--dump-dom` flag of Chrome, so it needs no npm package.
-Milestone 1 confirms that this flag waits for the first frame.
-If it does not, the fallback is Playwright as a development-only dependency.
+It also sets `--virtual-time-budget`. Without that flag, Chrome prints the page before the first frame.
+The `CHROME_PATH` environment variable selects the browser binary.
 
 ## Hosting
 
@@ -356,7 +361,7 @@ Before that, a local static server runs the site: `uv run python -m http.server 
 
 ## Milestones
 
-The owner tests each milestone in the browser before the next one starts.
+Claude checks each milestone before the next one starts. Each milestone is one or more commits.
 
 | # | Name | Result |
 |---|---|---|

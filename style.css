@@ -1,0 +1,155 @@
+:root {
+  --bg: #04050b;
+  --panel: #10121a;
+  --panel-raised: #191c28;
+  --line: #262a3a;
+  --text: #d9dde8;
+  --muted: #8a91a6;
+  --accent: #66ccff;
+  --warn: #ff6b6b;
+  color-scheme: dark;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* Stage: the 3D view. */
+
+#stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+#view {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+#view:active {
+  cursor: grabbing;
+}
+
+#fatal {
+  position: absolute;
+  inset: 16px 16px auto 16px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: #2a1216;
+  color: #ffd9d9;
+}
+
+/* Sidebar. */
+
+#sidebar {
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#sidebar h1 {
+  margin: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+details {
+  border-bottom: 1px solid var(--line);
+}
+
+summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+summary:hover {
+  background: var(--panel-raised);
+}
+
+.section {
+  display: grid;
+  gap: 10px;
+  padding: 4px 12px 14px;
+}
+
+/* One labeled number box, with an optional slider on a second row. */
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.field label {
+  color: var(--muted);
+}
+
+.number-box {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+}
+
+.number-box:focus-within {
+  border-color: var(--accent);
+}
+
+.number-box input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.unit {
+  padding-right: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.unit:empty {
+  display: none;
+}
+
+.field input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}

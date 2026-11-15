@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drone show simulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="stage">
+    <canvas id="view" aria-label="3D view of the drone show"></canvas>
+    <p id="fatal" role="alert" hidden></p>
+  </main>
+
+  <aside id="sidebar">
+    <h1>Drone show simulator</h1>
+
+    <details open>
+      <summary>Fleet</summary>
+      <div class="section" id="fleet-fields"></div>
+    </details>
+  </aside>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

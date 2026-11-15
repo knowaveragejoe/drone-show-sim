@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: planning is complete. No code exists yet. The next step is milestone 1 in `SPEC.md`.
+Status: the build is in progress. `SPEC.md` lists the milestones.
 
 ## Hard constraints
 
@@ -25,14 +25,17 @@ Status: planning is complete. No code exists yet. The next step is milestone 1 i
 
 ## Commands
 
-These commands work after milestone 1.
-
 - Serve: `uv run python -m http.server 8000`, then open `http://localhost:8000/`.
 - Unit tests: `npm test`. Needs Node 20 or later. No `npm install`.
-- Smoke test: `npm run smoke`. Needs Chrome or Chromium.
+- Smoke test: `npm run smoke`. Needs Chrome or Chromium. Set `CHROME_PATH` if the script does not find the browser.
 
 ## Workflow
 
-- Work in milestones. The owner tests each milestone by hand in the browser before the next one starts.
+- Develop without waiting for the owner to test. Check your own work at three levels:
+  1. Run the unit tests after each change to a math module.
+  2. Run the smoke test after each change to the page.
+  3. Take a headless browser screenshot only when a change needs a visual check. Do not use the browser for every small change. Keep screenshot scripts out of the repository.
+- In the cloud container, Chromium is at `/opt/pw-browsers/chromium` and Playwright is installed globally. WebGL2 runs there through software rendering.
+- Work in milestones. Commit and push after each one.
 - When a design or technical decision changes, update `SPEC.md` and this file in the same commit.
 - Prose style: Simplified Technical English. Short sentences, active voice, one term per concept.
