@@ -1,86 +1,117 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { takeoffGrid } from '../src/motion.js';
 import {
+  FLIGHT_MARGIN,
   countOutside,
   createPlanner,
   fitSize,
+  formationProblems,
+  holdStart,
   isBelowGround,
   isTooClose,
+  lightColorAt,
   positionsAt,
   retime,
   speedAt,
+  stepAt,
   volumeBounds,
 } from '../src/plan.js';
 import { defaultState } from '../src/state.js';
 
-/** The targets as a sorted list of "x,y,z" strings, so two plans compare without regard to drone order. */
-function targetSet(plan) {
+/** A show with one formation and no landing: the first formation of the default show. */
+function singleState() {
+  const state = defaultState();
+  state.formations = [state.formations[0]];
+  state.landAtEnd = false;
+  return state;
+}
+
+/** Positions as a sorted list of "x,y,z" strings, to compare two sets without regard to drone order. */
+function pointSet(positions) {
   const rows = [];
-  for (let i = 0; i < plan.count; i++) {
-    rows.push(Array.from(plan.targets.subarray(i * 3, i * 3 + 3), (value) => value.toFixed(3)).join());
+  for (let i = 0; i < positions.length; i += 3) {
+    rows.push(Array.from(positions.subarray(i, i + 3), (value) => (value + 0).toFixed(3)).join());
   }
   return rows.sort();
 }
 
+function near(actual, expected, tolerance = 1e-6) {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not near ${expected}`);
+}
+
+// One formation.
+
 test('the plan has one target per drone at the formation height', () => {
-  const state = defaultState();
+  const state = singleState();
   const plan = createPlanner()(state);
   const { size, centerHeight } = state.formations[0];
+  const targets = plan.steps[0].to;
   assert.equal(plan.count, 100);
-  assert.equal(plan.targets.length, 300);
+  assert.equal(plan.steps.length, 1);
+  assert.equal(targets.length, 300);
   for (let i = 0; i < plan.count; i++) {
-    const z = plan.targets[i * 3 + 2];
+    const z = targets[i * 3 + 2];
     assert.ok(z >= centerHeight - size / 2 - 1e-3 && z <= centerHeight + size / 2 + 1e-3);
   }
 });
 
 test('more drones keep the targets of the first drones', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  const small = new Set(targetSet(planner(state)));
+  const state = singleState();
+  const small = new Set(pointSet(planner(state).steps[0].to));
   state.fleet.count = 250;
-  const large = new Set(targetSet(planner(state)));
+  const large = new Set(pointSet(planner(state).steps[0].to));
   assert.equal(large.size, 250);
   for (const target of small) assert.ok(large.has(target));
 });
 
 test('yaw turns the formation about the vertical axis', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  const before = planner(state);
+  const state = singleState();
+  const before = planner(state).steps[0].to;
   state.formations[0].yaw = 90;
-  const after = new Set(targetSet(planner(state)));
-  for (let i = 0; i < before.count; i++) {
-    const [x, y, z] = before.targets.subarray(i * 3, i * 3 + 3);
+  const after = new Set(pointSet(planner(state).steps[0].to));
+  for (let i = 0; i < before.length; i += 3) {
+    const [x, y, z] = before.subarray(i, i + 3);
     // A quarter turn counterclockwise moves (x, y) to (-y, x).
-    const turned = [-y, x, z].map((value) => (value + 0).toFixed(3)).join();
+    const turned = pointSet(new Float32Array([-y, x, z]))[0];
     assert.ok(after.has(turned) || after.has(turned.replaceAll('-0.000', '0.000')), turned);
   }
 });
 
 test('spacing grows in proportion to size', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  const before = planner(state).spacing;
+  const state = singleState();
+  const before = planner(state).formations[0].spacing;
   state.formations[0].size *= 2;
-  assert.ok(Math.abs(planner(state).spacing - before * 2) < 1e-3);
+  near(planner(state).formations[0].spacing, before * 2, 1e-3);
 });
 
-test('Fit gives the smallest size that keeps the minimum spacing', () => {
+test('Fit gives the smallest size that keeps the minimum spacing, also in flight', () => {
   const planner = createPlanner();
-  const state = defaultState();
+  const state = singleState();
+  const { minSpacing } = state.fleet;
   state.fleet.count = 400;
   state.formations[0].size = 10;
   const crowded = planner(state);
-  assert.ok(isTooClose(crowded.spacing, state.fleet.minSpacing));
+  assert.ok(isTooClose(crowded.formations[0].spacing, minSpacing));
+  assert.ok(isTooClose(crowded.closestApproach, minSpacing));
 
-  state.formations[0].size = fitSize(10, crowded.spacing, state.fleet.minSpacing);
+  // The targets end up with the margin that the flight bound needs.
+  const target = minSpacing * FLIGHT_MARGIN;
+  state.formations[0].size = fitSize(10, crowded.formations[0].spacing, minSpacing);
   const fitted = planner(state);
-  assert.ok(!isTooClose(fitted.spacing, state.fleet.minSpacing));
-  // One centimeter smaller is too small.
+  assert.ok(!isTooClose(fitted.formations[0].spacing, target));
+  // The takeoff grid has the same margin, so the flight is safe too.
+  assert.ok(state.fleet.gridSpacing >= target);
+  assert.ok(!isTooClose(fitted.closestApproach, minSpacing), `closest approach ${fitted.closestApproach}`);
+  assert.deepEqual(formationProblems(fitted, 0, minSpacing), []);
+
+  // Two centimeters smaller is too small.
   state.formations[0].size -= 0.02;
-  assert.ok(isTooClose(planner(state).spacing, state.fleet.minSpacing));
+  assert.ok(isTooClose(planner(state).formations[0].spacing, target));
 });
 
 test('Fit has no answer for one drone', () => {
@@ -89,25 +120,28 @@ test('Fit has no answer for one drone', () => {
 });
 
 test('drones start on the takeoff grid and end on their targets', () => {
-  const plan = createPlanner()(defaultState());
+  const state = singleState();
+  const plan = createPlanner()(state);
+  const step = plan.steps[0];
+  assert.deepEqual(step.from, takeoffGrid(state.fleet.count, state.fleet.gridSpacing));
   const positions = new Float32Array(plan.count * 3);
   positionsAt(plan, 0, positions);
-  assert.deepEqual(positions, plan.starts);
-  positionsAt(plan, plan.timing.duration, positions);
-  assert.deepEqual(positions, plan.targets);
+  assert.deepEqual(positions, step.from);
+  positionsAt(plan, step.timing.duration, positions);
+  assert.deepEqual(positions, step.to);
   positionsAt(plan, plan.total, positions);
-  assert.deepEqual(positions, plan.targets);
+  assert.deepEqual(positions, step.to);
 });
 
-test('the timeline is the transition plus the hold', () => {
-  const state = defaultState();
+test('the timeline of one formation is the transition plus the hold', () => {
+  const state = singleState();
   const plan = createPlanner()(state);
-  assert.ok(plan.timing.duration > 10);
-  assert.equal(plan.total, plan.timing.duration + state.formations[0].holdSeconds);
+  assert.ok(plan.steps[0].timing.duration > 10);
+  assert.equal(plan.total, plan.steps[0].timing.duration + state.formations[0].holdSeconds);
 });
 
 test('the checks follow the limits', () => {
-  const state = defaultState();
+  const state = singleState();
   const plan = createPlanner()(state);
   // The grid spacing is 3 m and the formation spacing is larger, so D is 3 m.
   assert.ok(plan.closestApproach >= 3 / Math.SQRT2 - 1e-3, `closest approach ${plan.closestApproach}`);
@@ -116,59 +150,45 @@ test('the checks follow the limits', () => {
 
   let fastest = 0;
   for (let drone = 0; drone < plan.count; drone++) {
-    fastest = Math.max(fastest, speedAt(plan, drone, plan.timing.duration / 2));
+    fastest = Math.max(fastest, speedAt(plan, drone, plan.steps[0].timing.duration / 2));
     assert.equal(speedAt(plan, drone, 0), 0);
     assert.equal(speedAt(plan, drone, plan.total), 0);
   }
-  assert.ok(Math.abs(fastest - plan.peakSpeed) < 1e-4);
+  near(fastest, plan.peakSpeed, 1e-4);
 });
 
 test('slower limits make a longer transition', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  const before = planner(state).timing.duration;
+  const state = singleState();
+  const before = planner(state).steps[0].timing.duration;
   state.fleet.maxClimbSpeed /= 2;
-  assert.ok(planner(state).timing.duration > before * 1.5);
+  assert.ok(planner(state).steps[0].timing.duration > before * 1.5);
 });
 
 test('a new formation height keeps the assignment', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  const low = planner(state);
+  const state = singleState();
+  const low = planner(state).steps[0].to;
   state.formations[0].centerHeight += 25;
-  const high = planner(state);
-  for (let i = 0; i < low.count; i++) {
-    assert.equal(high.targets[i * 3], low.targets[i * 3]);
-    assert.equal(high.targets[i * 3 + 1], low.targets[i * 3 + 1]);
-    assert.ok(Math.abs(high.targets[i * 3 + 2] - low.targets[i * 3 + 2] - 25) < 1e-3);
+  const high = planner(state).steps[0].to;
+  for (let i = 0; i < low.length; i += 3) {
+    assert.equal(high[i], low[i]);
+    assert.equal(high[i + 1], low[i + 1]);
+    near(high[i + 2], low[i + 2] + 25, 1e-3);
   }
 });
 
-test('retime keeps the same moment when the plan changes', () => {
-  const oldPlan = { timing: { duration: 20 }, total: 30 };
-  const newPlan = { timing: { duration: 40 }, total: 45 };
-  // The end stays the end.
-  assert.equal(retime(oldPlan, newPlan, 30), 45);
-  // 3 s into the hold stays 3 s into the hold.
-  assert.equal(retime(oldPlan, newPlan, 23), 43);
-  // The hold got shorter: stop at the end.
-  assert.equal(retime(oldPlan, newPlan, 28), 45);
-  // A quarter of the transition stays a quarter.
-  assert.equal(retime(oldPlan, newPlan, 5), 10);
-  assert.equal(retime(oldPlan, newPlan, 0), 0);
-});
-
 test('the plan uses an OBJ model as the shape', () => {
-  const state = defaultState();
+  const state = singleState();
   // A flat square in the model XY plane. With Y up, it stands upright and faces the audience.
   const text = 'v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n';
   state.formations[0].source = { type: 'obj', fileName: 'square.obj', upAxis: 'y', text };
-  const plan = createPlanner()(state);
+  const targets = createPlanner()(state).steps[0].to;
   const { size, centerHeight } = state.formations[0];
-  for (let i = 0; i < plan.count; i++) {
-    assert.ok(Math.abs(plan.targets[i * 3]) <= size / 2 + 1e-3);
-    assert.ok(Math.abs(plan.targets[i * 3 + 1]) < 1e-3);
-    assert.ok(Math.abs(plan.targets[i * 3 + 2] - centerHeight) <= size / 2 + 1e-3);
+  for (let i = 0; i < targets.length; i += 3) {
+    assert.ok(Math.abs(targets[i]) <= size / 2 + 1e-3);
+    assert.ok(Math.abs(targets[i + 1]) < 1e-3);
+    assert.ok(Math.abs(targets[i + 2] - centerHeight) <= size / 2 + 1e-3);
   }
 });
 
@@ -177,14 +197,14 @@ test('a shape that fails does not break the planner', () => {
   const state = defaultState();
   const good = planner(state);
   const bad = structuredClone(state);
-  bad.formations[0].source = { type: 'obj', fileName: 'empty.obj', upAxis: 'y', text: '' };
+  bad.formations[1].source = { type: 'obj', fileName: 'empty.obj', upAxis: 'y', text: '' };
   assert.throws(() => planner(bad), /no faces/);
-  assert.deepEqual(planner(state).targets, good.targets);
+  assert.deepEqual(planner(state).steps.at(-1).to, good.steps.at(-1).to);
 });
 
 test('the lowest target check finds a formation that goes below the ground', () => {
   const planner = createPlanner();
-  const state = defaultState();
+  const state = singleState();
   // A 40 m sphere centered at 60 m: the lowest target is near 40 m.
   const high = planner(state);
   assert.ok(high.lowestTarget > 39.9 && high.lowestTarget < 42, `lowest ${high.lowestTarget}`);
@@ -192,12 +212,15 @@ test('the lowest target check finds a formation that goes below the ground', () 
 
   state.formations[0].centerHeight = 10;
   const low = planner(state);
-  assert.ok(Math.abs(low.lowestTarget - (high.lowestTarget - 50)) < 1e-3);
+  near(low.lowestTarget, high.lowestTarget - 50, 1e-3);
+  assert.equal(low.formations[0].lowestTarget, low.lowestTarget);
   assert.ok(isBelowGround(low.lowestTarget));
   // A target on the ground is not below it.
   assert.ok(!isBelowGround(0));
   assert.ok(!isBelowGround(-0.0001));
 });
+
+// Flight volume.
 
 test('the flight volume is a cube that stands on its floor', () => {
   assert.deepEqual(volumeBounds({ size: 100, x: 10, y: -20, z: 5 }), {
@@ -206,33 +229,244 @@ test('the flight volume is a cube that stands on its floor', () => {
   });
 });
 
-test('countOutside counts each drone that starts or ends outside the box', () => {
+test('countOutside counts each drone that is outside the box at a stop', () => {
   const bounds = { low: [-10, -10, 0], high: [10, 10, 20] };
-  const starts = new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 11, 0, 0]);
-  const targets = new Float32Array([0, 0, 10, 0, 0, 21, 10, -10, 20, 0, 0, 10, 0, 0, 10]);
+  const first = new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 11, 0, 0]);
+  const second = new Float32Array([0, 0, 10, 0, 0, 21, 10, -10, 20, 0, 0, 10, 0, 0, 10]);
   // Drone 0 is inside. Drone 1 ends too high. Drone 2 ends on a corner, which is inside.
   // Drone 3 starts below the floor. Drone 4 starts beside the box.
-  assert.equal(countOutside(starts, targets, 5, bounds), 3);
-  assert.equal(countOutside(starts, targets, 1, bounds), 0);
-  assert.equal(countOutside(starts, targets, 0, bounds), 0);
+  assert.equal(countOutside([first, second], 5, bounds), 3);
+  assert.equal(countOutside([first], 5, bounds), 2);
+  assert.equal(countOutside([first, second], 1, bounds), 0);
+  // A drone that is outside at two stops counts one time.
+  assert.equal(countOutside([second, second, first], 5, bounds), 3);
 });
 
 test('the plan counts the drones outside the flight volume', () => {
   const planner = createPlanner();
-  const state = defaultState();
-  // The default show fits in the default volume. The takeoff grid is on the floor, which is inside.
+  const state = singleState();
+  // The show fits in the default volume. The takeoff grid is on the floor, which is inside.
   assert.equal(planner(state).outsideVolume, 0);
 
   // A ceiling at 60 m cuts the sphere, which is centered at 60 m, in half.
   state.volume = { ...state.volume, size: 60 };
-  const cut = planner(state).outsideVolume;
-  assert.ok(cut > 30 && cut < 70, `outside ${cut}`);
+  const cut = planner(state);
+  assert.ok(cut.outsideVolume > 30 && cut.outsideVolume < 70, `outside ${cut.outsideVolume}`);
+  assert.equal(cut.formations[0].outsideVolume, cut.outsideVolume);
 
   // A volume that floats above the ground does not hold the takeoff grid.
   state.volume = { size: 120, x: 0, y: 0, z: 10 };
   assert.equal(planner(state).outsideVolume, state.fleet.count);
+  assert.equal(planner(state).formations[0].outsideVolume, 0);
 
   // A volume far to the side holds no drone.
   state.volume = { size: 120, x: 400, y: 0, z: 0 };
   assert.equal(planner(state).outsideVolume, state.fleet.count);
+});
+
+// Storyboard: more than one formation.
+
+test('a show has one step per formation, and one more for the landing', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  assert.deepEqual(plan.steps.map((step) => step.formation), [0, 1, 2, -1]);
+  assert.equal(plan.formations.length, 3);
+
+  let time = 0;
+  plan.steps.forEach((step, index) => {
+    near(step.start, time);
+    assert.equal(step.hold, index < 3 ? state.formations[index].holdSeconds : 0);
+    time += step.timing.duration + step.hold;
+  });
+  near(plan.total, time);
+
+  state.landAtEnd = false;
+  assert.deepEqual(createPlanner()(state).steps.map((step) => step.formation), [0, 1, 2]);
+});
+
+test('each step starts where the step before it ends', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  assert.deepEqual(plan.steps[0].from, takeoffGrid(state.fleet.count, state.fleet.gridSpacing));
+  for (let index = 1; index < plan.steps.length; index++) {
+    assert.deepEqual(plan.steps[index].from, plan.steps[index - 1].to);
+  }
+
+  // No drone jumps at the border between two steps.
+  const before = new Float32Array(plan.count * 3);
+  const after = new Float32Array(plan.count * 3);
+  for (const step of plan.steps.slice(1)) {
+    positionsAt(plan, step.start - 1e-6, before);
+    positionsAt(plan, step.start + 1e-6, after);
+    for (let i = 0; i < before.length; i++) near(after[i], before[i], 1e-3);
+  }
+});
+
+test('each stop has one drone on each target of its formation', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  state.formations.forEach((formation, index) => {
+    // The same formation as the only one of a show gives the same targets.
+    const alone = createPlanner()({ ...state, formations: [formation], landAtEnd: false });
+    assert.deepEqual(pointSet(plan.steps[index].to), pointSet(alone.steps[0].to));
+  });
+});
+
+test('the landing puts one drone on each cell of the takeoff grid', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  const grid = takeoffGrid(state.fleet.count, state.fleet.gridSpacing);
+  assert.deepEqual(pointSet(plan.steps.at(-1).to), pointSet(grid));
+});
+
+test('each transition keeps the closest approach bound', () => {
+  const state = defaultState();
+  state.fleet.count = 150;
+  const plan = createPlanner()(state);
+  const spacings = [state.fleet.gridSpacing, ...plan.formations.map((checks) => checks.spacing)];
+  spacings.push(state.fleet.gridSpacing);
+  plan.steps.forEach((step, index) => {
+    // If the closest spacing at both ends is D, the closest approach is at least D ÷ √2.
+    const bound = Math.min(spacings[index], spacings[index + 1]) / Math.SQRT2;
+    assert.ok(step.closestApproach >= bound - 1e-3, `step ${index}: ${step.closestApproach} < ${bound}`);
+  });
+  near(plan.closestApproach, Math.min(...plan.steps.map((step) => step.closestApproach)));
+  near(plan.peakSpeed, Math.max(...plan.steps.map((step) => step.peakSpeed)));
+});
+
+test('stored results give the same plan as a new planner', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  planner(state);
+  const [first, second, third] = state.formations;
+  const changes = [
+    // A height change uses the stored assignment.
+    { ...state, formations: [first, { ...second, centerHeight: 80 }, third] },
+    { ...state, formations: [third, first, second] },
+    { ...state, formations: [first, { ...second, size: 120, yaw: 45 }, third], landAtEnd: false },
+    { ...state, fleet: { ...state.fleet, count: 60, gridSpacing: 4 } },
+    { ...state, formations: [first, first, third, second] },
+    state,
+  ];
+  for (const changed of changes) {
+    const stored = planner(changed);
+    const fresh = createPlanner()(changed);
+    assert.equal(stored.steps.length, fresh.steps.length);
+    stored.steps.forEach((step, index) => {
+      assert.deepEqual(step.to, fresh.steps[index].to);
+      assert.equal(step.closestApproach, fresh.steps[index].closestApproach);
+    });
+    assert.deepEqual(stored.formations, fresh.formations);
+    assert.equal(stored.total, fresh.total);
+  }
+});
+
+test('two equal formations in a row need no flight', () => {
+  const state = defaultState();
+  state.formations = [state.formations[0], state.formations[0]];
+  const plan = createPlanner()(state);
+  assert.equal(plan.steps[1].timing.duration, 0);
+  assert.deepEqual(plan.steps[1].to, plan.steps[0].to);
+  assert.equal(plan.steps[1].peakSpeed, 0);
+});
+
+test('stepAt and holdStart find the parts of the timeline', () => {
+  const plan = createPlanner()(defaultState());
+  const [takeoff, second, third, landing] = plan.steps;
+  assert.equal(stepAt(plan, 0), 0);
+  assert.equal(stepAt(plan, -5), 0);
+  assert.equal(stepAt(plan, second.start - 0.01), 0);
+  assert.equal(stepAt(plan, second.start), 1);
+  assert.equal(stepAt(plan, third.start + 1), 2);
+  assert.equal(stepAt(plan, plan.total + 100), 3);
+
+  near(holdStart(plan, 0), takeoff.timing.duration);
+  near(holdStart(plan, 1), second.start + second.timing.duration);
+  near(holdStart(plan, 2) + third.hold, landing.start);
+});
+
+test('drones hold their targets between transitions', () => {
+  const plan = createPlanner()(defaultState());
+  const positions = new Float32Array(plan.count * 3);
+  plan.formations.forEach((checks, index) => {
+    const step = plan.steps[index];
+    positionsAt(plan, holdStart(plan, index) + step.hold / 2, positions);
+    assert.deepEqual(positions, step.to);
+    for (let drone = 0; drone < plan.count; drone += 7) {
+      assert.equal(speedAt(plan, drone, holdStart(plan, index) + 1), 0);
+    }
+  });
+  // In the middle of a transition each drone is between its two stops.
+  const step = plan.steps[1];
+  positionsAt(plan, step.start + step.timing.duration / 2, positions);
+  for (let i = 0; i < positions.length; i++) near(positions[i], (step.from[i] + step.to[i]) / 2, 1e-3);
+});
+
+test('the light color blends from one formation to the next', () => {
+  const plan = createPlanner()(defaultState());
+  const colors = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  const [takeoff, second, third, landing] = plan.steps;
+  // Takeoff uses the color of the first formation.
+  assert.deepEqual(lightColorAt(plan, colors, 0), [1, 0, 0]);
+  assert.deepEqual(lightColorAt(plan, colors, takeoff.timing.duration / 2), [1, 0, 0]);
+  assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 0) + 1), [1, 0, 0]);
+  // Half of the progress of a transition is at half of its time.
+  const half = lightColorAt(plan, colors, second.start + second.timing.duration / 2);
+  [0.5, 0.5, 0].forEach((channel, i) => near(half[i], channel, 1e-6));
+  assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 1)), [0, 1, 0]);
+  assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 2) + third.hold / 2), [0, 0, 1]);
+  // The landing keeps the color of the last formation.
+  assert.deepEqual(lightColorAt(plan, colors, landing.start + 5), [0, 0, 1]);
+  assert.deepEqual(lightColorAt(plan, colors, plan.total), [0, 0, 1]);
+});
+
+test('retime keeps the same moment when the plan changes', () => {
+  const step = (start, duration, hold) => ({ start, timing: { duration }, hold });
+  const oldPlan = { steps: [step(0, 20, 10), step(30, 10, 10)], total: 50 };
+  const newPlan = { steps: [step(0, 40, 5), step(45, 20, 30)], total: 95 };
+  // The end stays the end.
+  assert.equal(retime(oldPlan, newPlan, 50), 95);
+  // 3 s into the first hold stays 3 s into the first hold.
+  assert.equal(retime(oldPlan, newPlan, 23), 43);
+  // The first hold got shorter: stop at its end.
+  assert.equal(retime(oldPlan, newPlan, 28), 45);
+  // A quarter of the first transition stays a quarter.
+  assert.equal(retime(oldPlan, newPlan, 5), 10);
+  assert.equal(retime(oldPlan, newPlan, 0), 0);
+  // Half of the second transition stays half of the second transition.
+  assert.equal(retime(oldPlan, newPlan, 35), 55);
+  // 4 s into the second hold.
+  assert.equal(retime(oldPlan, newPlan, 44), 69);
+
+  // The new plan has no second step: go to its end.
+  const shortPlan = { steps: [step(0, 40, 5)], total: 45 };
+  assert.equal(retime(oldPlan, shortPlan, 35), 45);
+  assert.equal(retime(oldPlan, shortPlan, 5), 10);
+});
+
+test('formationProblems lists what is wrong with a formation', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  const { minSpacing } = state.fleet;
+  const plan = planner(state);
+  state.formations.forEach((formation, index) => {
+    assert.deepEqual(formationProblems(plan, index, minSpacing), []);
+  });
+
+  // A small, low second formation: crowded targets, below the ground, and a tight transition.
+  state.formations[1] = { ...state.formations[1], size: 20, centerHeight: 5 };
+  state.volume = { ...state.volume, x: 80 };
+  const broken = planner(state);
+  const problems = formationProblems(broken, 1, minSpacing);
+  assert.equal(problems.length, 4);
+  assert.match(problems[0], /closer than the minimum spacing/);
+  assert.match(problems[1], /below the ground/);
+  assert.match(problems[2], /outside the flight volume/);
+  assert.match(problems[3], /too close in the transition/);
+  // The first formation is far from the moved volume, but its own spacing is fine.
+  assert.deepEqual(formationProblems(broken, 0, minSpacing), ['Targets are outside the flight volume.']);
 });

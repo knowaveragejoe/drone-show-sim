@@ -273,6 +273,54 @@ input[type="color"] {
   color: var(--warn);
 }
 
+/* Storyboard: one row per formation. */
+
+#formation-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.formation-row {
+  display: grid;
+  grid-template-columns: 14px 18px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.formation-row[aria-current="true"] {
+  border-color: var(--accent);
+  background: #17283a;
+}
+
+.formation-row .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.formation-row .number {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.formation-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formation-row .problem {
+  color: var(--warn);
+  font-weight: 700;
+}
+
 /* Computed values. */
 
 output {
@@ -351,7 +399,7 @@ output.warn {
   color: var(--muted);
 }
 
-/* Transport bar: play, timeline, time. */
+/* Transport bar: play button, timeline strip over the scrubber, time. */
 
 #transport {
   display: flex;
@@ -366,15 +414,86 @@ output.warn {
   width: 64px;
 }
 
-#scrub {
+#track {
+  display: grid;
   flex: 1;
+  gap: 6px;
   min-width: 0;
+}
+
+/* The side margin is half the width of the scrubber thumb, so the playhead and the thumb line up. */
+#timeline {
+  position: relative;
+  height: 20px;
+  margin: 0 8px;
+}
+
+#timeline-blocks {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--panel-raised);
+}
+
+/* The script sets the flex-grow of each block to its time in seconds. */
+.block {
+  flex-basis: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.block:hover {
+  filter: brightness(1.3);
+}
+
+.block.flight {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--from) 22%, transparent),
+    color-mix(in srgb, var(--to) 22%, transparent)
+  );
+}
+
+.block.hold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--to) 60%, transparent);
+  color: #05060b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.block.hold.current {
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+.block.problem {
+  box-shadow: inset 0 -3px 0 var(--warn);
+}
+
+#playhead {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: #fff;
+  pointer-events: none;
+}
+
+#scrub {
+  width: 100%;
   margin: 0;
   accent-color: var(--accent);
 }
 
 #time {
-  min-width: 104px;
+  min-width: 112px;
   color: var(--muted);
   text-align: right;
 }

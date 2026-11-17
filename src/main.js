@@ -8,13 +8,23 @@ import {
   viewProjection,
 } from './camera.js';
 import { projectToScreen } from './mat4.js';
-import { createPlanner, fitSize, positionsAt, retime } from './plan.js';
+import {
+  createPlanner,
+  fitSize,
+  holdStart,
+  lightColorAt,
+  positionsAt,
+  retime,
+  stepAt,
+} from './plan.js';
 import { createRenderer } from './renderer.js';
 import {
   FORMATION_FIELDS,
   MAX_DRONES,
+  MAX_FORMATIONS,
   clampToField,
   defaultState,
+  nextFormation,
   parseProject,
   serializeProject,
 } from './state.js';
@@ -22,6 +32,11 @@ import { createUi } from './ui.js';
 
 // A click selects the nearest drone inside this distance, CSS pixels.
 const PICK_RADIUS = 10;
+
+// A range input rounds its value to about 14 digits. A scrubber at its right end then gives
+// a time that is a tiny bit before the end of the show. A seek this close to the end, in
+// seconds, goes to the exact end.
+const END_SLACK = 1e-6;
 
 // Longest step of the timeline in one frame, seconds. A browser tab in the background
 // draws no frames; without the limit the show would jump when the tab comes back.
@@ -60,12 +75,14 @@ function start() {
   // so a change that the planner rejects leaves the old state as it was.
   let state = defaultState();
   let plan = planner(state);
-  // The page opens on the finished formation. Play then starts from the takeoff grid.
+  let colors = state.formations.map((formation) => hexToRgb(formation.color));
+  // The page opens on the first formation. Play runs the show from there.
   /** @type {import('./ui.js').View} */
   const view = {
-    time: plan.total,
+    time: holdStart(plan, 0),
     playing: false,
     selected: -1,
+    formation: 0,
     showPaths: true,
     showVolume: true,
   };
@@ -79,9 +96,10 @@ function start() {
   /**
    * Makes `next` the project state and shows its plan.
    * @param {import('./state.js').State} next
+   * @param {() => void} [adjustView] runs after the new plan is in place and before the page shows it
    * @returns {string | null} an error message when the planner rejects the state, or null
    */
-  function commit(next) {
+  function commit(next, adjustView) {
     let nextPlan;
     try {
       nextPlan = planner(next);
@@ -91,14 +109,28 @@ function start() {
     view.time = retime(plan, nextPlan, view.time);
     state = next;
     plan = nextPlan;
+    view.formation = Math.min(view.formation, state.formations.length - 1);
     if (view.selected >= plan.count) view.selected = -1;
+    adjustView?.();
     showPlan();
     return null;
   }
 
-  /** @param {Partial<import('./state.js').Formation>} changes */
+  /**
+   * Makes one formation the formation that the sidebar edits, and moves the timeline
+   * to the start of its hold, so that the 3D view shows it.
+   * @param {number} index place in the storyboard
+   */
+  function showFormation(index) {
+    view.formation = index;
+    view.time = holdStart(plan, index);
+    view.playing = false;
+  }
+
+  /** @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits */
   function changeFormation(changes) {
-    return commit({ ...state, formations: [{ ...state.formations[0], ...changes }] });
+    const formation = { ...state.formations[view.formation], ...changes };
+    return commit({ ...state, formations: state.formations.with(view.formation, formation) });
   }
 
   const ui = createUi({
@@ -107,6 +139,37 @@ function start() {
     },
     setVolume(key, value) {
       commit({ ...state, volume: { ...state.volume, [key]: value } });
+    },
+    selectFormation(index) {
+      showFormation(index);
+      ui.refresh(state, plan, view);
+      requestFrame();
+    },
+    addFormation() {
+      const { formations } = state;
+      if (formations.length >= MAX_FORMATIONS) return;
+      const index = view.formation;
+      const added = formations.toSpliced(index + 1, 0, nextFormation(formations, index));
+      commit({ ...state, formations: added }, () => showFormation(index + 1));
+    },
+    removeFormation() {
+      const { formations } = state;
+      if (formations.length <= 1) return;
+      const index = view.formation;
+      commit({ ...state, formations: formations.toSpliced(index, 1) }, () =>
+        showFormation(Math.min(index, formations.length - 2)),
+      );
+    },
+    moveFormation(step) {
+      const { formations } = state;
+      const index = view.formation;
+      const target = index + step;
+      if (target < 0 || target >= formations.length) return;
+      const moved = formations.with(index, formations[target]).with(target, formations[index]);
+      commit({ ...state, formations: moved }, () => showFormation(target));
+    },
+    setLandAtEnd(landAtEnd) {
+      commit({ ...state, landAtEnd });
     },
     setFormation(key, value) {
       changeFormation({ [key]: value });
@@ -118,14 +181,16 @@ function start() {
       return changeFormation({ source: { type: 'obj', fileName, upAxis: 'y', text } });
     },
     setUpAxis(upAxis) {
-      const { source } = state.formations[0];
+      const { source } = state.formations[view.formation];
       if (source.type === 'obj') changeFormation({ source: { ...source, upAxis } });
     },
     fit() {
-      const size = fitSize(state.formations[0].size, plan.spacing, state.fleet.minSpacing);
-      if (size === null) return;
+      const { size } = state.formations[view.formation];
+      const { spacing } = plan.formations[view.formation];
+      const fitted = fitSize(size, spacing, state.fleet.minSpacing);
+      if (fitted === null) return;
       const sizeField = FORMATION_FIELDS.find((field) => field.key === 'size');
-      changeFormation({ size: clampToField(sizeField, size) });
+      changeFormation({ size: clampToField(sizeField, fitted) });
     },
     projectText() {
       return serializeProject(state);
@@ -137,14 +202,11 @@ function start() {
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }
-      const error = commit(next);
-      if (error === null) {
-        // A loaded project opens like the page does: on the finished formation.
-        view.time = plan.total;
-        view.playing = false;
+      // A loaded project opens like the page does: on the first formation.
+      return commit(next, () => {
+        showFormation(0);
         view.selected = -1;
-      }
-      return error;
+      });
     },
     setShowPaths(show) {
       view.showPaths = show;
@@ -155,7 +217,7 @@ function start() {
       requestFrame();
     },
     audienceView() {
-      setAudienceView(camera, state.formations[0].centerHeight);
+      setAudienceView(camera, state.formations[view.formation].centerHeight);
       requestFrame();
     },
     togglePlay() {
@@ -166,7 +228,7 @@ function start() {
     },
     seek(time) {
       view.playing = false;
-      view.time = Math.min(plan.total, Math.max(0, time));
+      view.time = time >= plan.total - END_SLACK ? plan.total : Math.max(0, time);
       requestFrame();
     },
     select(drone) {
@@ -176,7 +238,8 @@ function start() {
   });
 
   function showPlan() {
-    renderer.setPaths(plan.starts, plan.targets, plan.count);
+    colors = state.formations.map((formation) => hexToRgb(formation.color));
+    renderer.setPaths(plan.steps, plan.count);
     renderer.setVolume(plan.volume);
     ui.refresh(state, plan, view);
     requestFrame();
@@ -238,8 +301,9 @@ function start() {
       pixelsPerMeter: pixelsPerMeter(camera, canvas.clientHeight),
       positions: positions.subarray(0, plan.count * 3),
       count: plan.count,
-      color: hexToRgb(state.formations[0].color),
+      color: lightColorAt(plan, colors, view.time),
       selected: view.selected,
+      pathStep: stepAt(plan, view.time),
       showPaths: view.showPaths,
       showVolume: view.showVolume,
       volumeBroken: plan.outsideVolume > 0,

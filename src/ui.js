@@ -1,10 +1,11 @@
-// Sidebar tabs and controls, the drone list, and the transport bar.
+// Sidebar tabs and controls, the storyboard, the drone list, and the transport bar.
 
-import { isBelowGround, isTooClose, speedAt } from './plan.js';
+import { formationProblems, isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
 import {
   FLEET_FIELDS,
   FORMATION_FIELDS,
+  MAX_FORMATIONS,
   PROJECT_FILE_NAME,
   VOLUME_FIELDS,
   clampToField,
@@ -14,6 +15,11 @@ import {
  * @typedef {object} Actions
  * @property {(key: string, value: number) => void} setFleet
  * @property {(key: string, value: number) => void} setVolume
+ * @property {(index: number) => void} selectFormation makes one formation the formation that the sidebar edits
+ * @property {() => void} addFormation
+ * @property {() => void} removeFormation
+ * @property {(step: number) => void} moveFormation -1 moves the formation earlier, 1 later
+ * @property {(land: boolean) => void} setLandAtEnd
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
  * @property {(fileName: string, text: string) => string | null} importObj returns an error message, or null
@@ -35,6 +41,7 @@ import {
  * @property {number} time position on the timeline, seconds
  * @property {boolean} playing
  * @property {number} selected index of the selected drone, or -1
+ * @property {number} formation index of the formation that the sidebar edits
  * @property {boolean} showPaths
  * @property {boolean} showVolume
  */
@@ -42,6 +49,8 @@ import {
 // A new plan for a large fleet takes a moment. Up to this fleet size, a slider applies
 // each step of a drag. Above it, a slider applies its value when the user lets go.
 const LIVE_SLIDER_MAX_DRONES = 250;
+
+const LANDING_PROBLEM = 'Drones come too close in the landing.';
 
 /**
  * @param {Actions} actions
@@ -69,6 +78,19 @@ export function createUi(actions) {
     actions.importProject(text),
   );
 
+  const storyboard = buildStoryboard(byId('formation-list'), actions.selectFormation);
+  const addFormation = /** @type {HTMLButtonElement} */ (byId('add-formation'));
+  const removeFormation = /** @type {HTMLButtonElement} */ (byId('remove-formation'));
+  const moveEarlier = /** @type {HTMLButtonElement} */ (byId('move-formation-earlier'));
+  const moveLater = /** @type {HTMLButtonElement} */ (byId('move-formation-later'));
+  addFormation.addEventListener('click', actions.addFormation);
+  removeFormation.addEventListener('click', actions.removeFormation);
+  moveEarlier.addEventListener('click', () => actions.moveFormation(-1));
+  moveLater.addEventListener('click', () => actions.moveFormation(1));
+  const landAtEnd = /** @type {HTMLInputElement} */ (byId('land-at-end'));
+  landAtEnd.addEventListener('change', () => actions.setLandAtEnd(landAtEnd.checked));
+
+  const formationTitle = byId('formation-title');
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
   for (const [key, { label }] of Object.entries(BUILTIN_SHAPES)) {
     shape.add(new Option(label, key));
@@ -91,9 +113,9 @@ export function createUi(actions) {
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
 
+  const duration = byId('duration');
   const outside = byId('outside');
   const lowest = byId('lowest');
-  const duration = byId('duration');
   const approach = byId('approach');
   const peakSpeed = byId('peak-speed');
 
@@ -106,8 +128,10 @@ export function createUi(actions) {
   const play = byId('play');
   const scrub = /** @type {HTMLInputElement} */ (byId('scrub'));
   const time = byId('time');
+  const playhead = byId('playhead');
   play.addEventListener('click', actions.togglePlay);
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
+  const timeline = buildTimeline(byId('timeline-blocks'), actions);
 
   const droneList = buildDroneList(byId('drone-list'), actions.select);
   buildTabs((name) => {
@@ -131,11 +155,21 @@ export function createUi(actions) {
    * @param {View} view
    */
   function refresh(state, plan, view) {
-    const formation = state.formations[0];
+    const { formations } = state;
+    const formation = formations[view.formation];
     const { minSpacing } = state.fleet;
     droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
     volumeFields.show(state.volume);
+
+    storyboard.show(state, plan, view);
+    addFormation.disabled = formations.length >= MAX_FORMATIONS;
+    removeFormation.disabled = formations.length <= 1;
+    moveEarlier.disabled = view.formation === 0;
+    moveLater.disabled = view.formation === formations.length - 1;
+    landAtEnd.checked = state.landAtEnd;
+
+    formationTitle.textContent = `Formation ${view.formation + 1}`;
     formationFields.show(formation);
     color.value = formation.color;
 
@@ -151,16 +185,17 @@ export function createUi(actions) {
     }
     upAxisRow.hidden = source.type !== 'obj';
 
-    spacing.textContent = meters(plan.spacing);
-    spacing.classList.toggle('warn', isTooClose(plan.spacing, minSpacing));
-    fit.disabled = !Number.isFinite(plan.spacing) || plan.spacing <= 0;
+    const formationSpacing = plan.formations[view.formation].spacing;
+    spacing.textContent = meters(formationSpacing);
+    spacing.classList.toggle('warn', isTooClose(formationSpacing, minSpacing));
+    fit.disabled = !Number.isFinite(formationSpacing) || formationSpacing <= 0;
 
+    duration.textContent = `${plan.total.toFixed(1)} s`;
     outside.textContent =
       plan.outsideVolume === 0 ? '0' : `${plan.outsideVolume} of ${plan.count}`;
     outside.classList.toggle('warn', plan.outsideVolume > 0);
     lowest.textContent = `${plan.lowestTarget.toFixed(1)} m`;
     lowest.classList.toggle('warn', isBelowGround(plan.lowestTarget));
-    duration.textContent = `${plan.timing.duration.toFixed(1)} s`;
     approach.textContent = meters(plan.closestApproach);
     approach.classList.toggle('warn', isTooClose(plan.closestApproach, minSpacing));
     peakSpeed.textContent = `${plan.peakSpeed.toFixed(1)} m/s`;
@@ -168,6 +203,7 @@ export function createUi(actions) {
     showPaths.checked = view.showPaths;
     showVolume.checked = view.showVolume;
     scrub.max = String(plan.total);
+    timeline.show(state, plan, view);
   }
 
   /**
@@ -178,12 +214,134 @@ export function createUi(actions) {
    */
   function showFrame(plan, view, positions) {
     scrub.value = String(view.time);
+    playhead.style.left = `${plan.total > 0 ? (view.time / plan.total) * 100 : 0}%`;
     time.textContent = `${view.time.toFixed(1)} / ${plan.total.toFixed(1)} s`;
     play.textContent = view.playing ? 'Pause' : 'Play';
     droneList.show(plan, view, positions);
   }
 
   return { refresh, showFrame, revealDrone: droneList.reveal };
+}
+
+/**
+ * Name of the shape of a formation, for the storyboard.
+ * @param {import('./state.js').Formation} formation
+ */
+function shapeLabel({ source }) {
+  return source.type === 'obj' ? source.fileName : BUILTIN_SHAPES[source.shape].label;
+}
+
+/**
+ * Builds the storyboard list: one row per formation, in show order.
+ * @param {HTMLElement} list
+ * @param {(index: number) => void} onSelect
+ */
+function buildStoryboard(list, onSelect) {
+  /** @type {HTMLButtonElement[]} */
+  const rows = [];
+
+  /**
+   * @param {import('./state.js').State} state
+   * @param {import('./plan.js').Plan} plan
+   * @param {View} view
+   */
+  function show(state, plan, view) {
+    // The rows stay in the page and only their contents change. A row that the user
+    // tabbed to then keeps the keyboard focus.
+    while (rows.length < state.formations.length) {
+      const index = rows.length;
+      const row = element('button', 'formation-row');
+      row.type = 'button';
+      row.append(element('span', 'swatch'), element('span', 'number'), element('span', 'name'));
+      row.append(element('span', 'problem'));
+      row.addEventListener('click', () => onSelect(index));
+      const item = element('li');
+      item.append(row);
+      list.append(item);
+      rows.push(row);
+    }
+    while (rows.length > state.formations.length) rows.pop().parentElement.remove();
+
+    state.formations.forEach((formation, index) => {
+      const row = rows[index];
+      const [swatch, number, name, problem] = /** @type {HTMLElement[]} */ ([...row.children]);
+      const problems = formationProblems(plan, index, state.fleet.minSpacing);
+      row.setAttribute('aria-current', String(index === view.formation));
+      swatch.style.background = formation.color;
+      number.textContent = String(index + 1);
+      name.textContent = shapeLabel(formation);
+      problem.textContent = problems.length > 0 ? '!' : '';
+      row.title = problems.join(' ');
+    });
+  }
+
+  return { show };
+}
+
+/**
+ * Builds the timeline strip: one block per transition and one per hold.
+ * The width of a block shows how long it takes.
+ * @param {HTMLElement} strip
+ * @param {Actions} actions
+ */
+function buildTimeline(strip, actions) {
+  /** What a click on each block does. @type {(() => void)[]} */
+  let clicks = [];
+  strip.addEventListener('click', (event) => {
+    const block = /** @type {HTMLElement} */ (event.target).closest('.block');
+    if (block) clicks[Number(/** @type {HTMLElement} */ (block).dataset.block)]();
+  });
+
+  /**
+   * @param {import('./state.js').State} state
+   * @param {import('./plan.js').Plan} plan
+   * @param {View} view
+   */
+  function show(state, plan, view) {
+    const { formations } = state;
+    const { minSpacing } = state.fleet;
+    const blocks = [];
+    clicks = [];
+    plan.steps.forEach((step, index) => {
+      const landing = step.formation < 0;
+      const select = landing
+        ? () => actions.seek(step.start)
+        : () => actions.selectFormation(step.formation);
+      const colorBefore = formations[index === 0 ? 0 : plan.steps[index - 1].formation].color;
+      const colorAfter = landing ? colorBefore : formations[step.formation].color;
+      const current = !landing && step.formation === view.formation;
+      const problems = landing
+        ? isTooClose(step.closestApproach, minSpacing)
+          ? [LANDING_PROBLEM]
+          : []
+        : formationProblems(plan, step.formation, minSpacing);
+
+      const flight = element('div', 'block flight');
+      flight.style.flexGrow = String(step.timing.duration);
+      flight.style.setProperty('--from', colorBefore);
+      flight.style.setProperty('--to', colorAfter);
+      flight.title = [landing ? 'Landing' : `Flight to formation ${step.formation + 1}`]
+        .concat(`${step.timing.duration.toFixed(1)} s`, problems)
+        .join('. ');
+      flight.classList.toggle('problem', problems.length > 0);
+      flight.dataset.block = String(clicks.push(select) - 1);
+      blocks.push(flight);
+
+      if (!landing) {
+        const hold = element('div', 'block hold');
+        hold.style.flexGrow = String(step.hold);
+        hold.style.setProperty('--to', colorAfter);
+        hold.textContent = String(step.formation + 1);
+        hold.title = `Formation ${step.formation + 1}: ${shapeLabel(formations[step.formation])}. Hold ${step.hold} s`;
+        hold.classList.toggle('current', current);
+        hold.dataset.block = String(clicks.push(select) - 1);
+        blocks.push(hold);
+      }
+    });
+    strip.replaceChildren(...blocks);
+  }
+
+  return { show };
 }
 
 const TAB_NAMES = ['settings', 'drones'];

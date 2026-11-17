@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: version 1 is built. `SPEC.md` lists the milestones, the known limits, and the future features.
+Status: the simulator plays a storyboard of several formations. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 
@@ -13,13 +13,13 @@ Status: version 1 is built. `SPEC.md` lists the milestones, the known limits, an
 - No build step. Plain JavaScript with native ES modules and JSDoc types.
 - Raw WebGL2 for the 3D view.
 - All URLs are relative, so the site works from a GitHub Pages subpath.
-- YAGNI: build only what the current milestone needs.
+- YAGNI: build only what the current feature needs.
 
 ## Conventions
 
 - Units: meters, seconds, degrees.
 - Axes: right-handed, Z up. The audience stands on the negative Y axis and looks toward positive Y.
-- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, takeoff grid, flight volume, assignment, transition.
+- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, storyboard, takeoff grid, stop, transition, hold, step, assignment, flight volume.
 - Math modules stay pure: no DOM and no WebGL. Node runs their tests.
 - Random sampling uses the seeded generator, so results repeat.
 

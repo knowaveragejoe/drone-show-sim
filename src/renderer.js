@@ -73,6 +73,8 @@ const PATH_PARTS = 8;
 const VOLUME_EDGE_PARTS = 16;
 // Brightness of a path that is not selected, as a share of the light color.
 const PATH_BRIGHTNESS = 0.1;
+// Brightness of the selected drone's path in the steps that are not the current one.
+const OTHER_STEP_BRIGHTNESS = 0.3;
 
 /**
  * @typedef {object} Frame
@@ -82,6 +84,7 @@ const PATH_BRIGHTNESS = 0.1;
  * @property {number} count number of drones
  * @property {number[]} color light color, each channel 0 to 1
  * @property {number} selected index of the selected drone, or -1
+ * @property {number} pathStep index of the step whose flight paths the view shows
  * @property {boolean} showPaths
  * @property {boolean} showVolume
  * @property {boolean} volumeBroken true when a drone leaves the flight volume
@@ -121,21 +124,34 @@ export function createRenderer(canvas) {
   gl.blendFunc(gl.ONE, gl.ONE);
   gl.clearColor(0.016, 0.02, 0.043, 1);
 
+  let pathSteps = 0;
+  let pathDrones = 0;
+
   /**
-   * Stores the flight path of each drone: a straight line from start to target.
-   * @param {Float32Array} starts xyz per drone
-   * @param {Float32Array} targets xyz per drone
-   * @param {number} count
+   * Stores the flight paths: for each step, one straight line per drone.
+   * @param {import('./plan.js').Step[]} steps
+   * @param {number} count number of drones
    */
-  function setPaths(starts, targets, count) {
-    /** @type {number[]} */
-    const vertices = [];
-    for (let drone = 0; drone < count; drone++) {
-      const from = starts.subarray(drone * 3, drone * 3 + 3);
-      const to = targets.subarray(drone * 3, drone * 3 + 3);
-      addLine(vertices, from, to, PATH_PARTS);
+  function setPaths(steps, count) {
+    // Each line is short segments, for the reason that `addLine` gives.
+    const vertices = new Float32Array(steps.length * count * PATH_PARTS * 6);
+    let offset = 0;
+    for (const { from, to } of steps) {
+      for (let drone = 0; drone < count; drone++) {
+        for (let part = 0; part < PATH_PARTS; part++) {
+          for (let end = 0; end < 2; end++) {
+            const share = (part + end) / PATH_PARTS;
+            for (let axis = 0; axis < 3; axis++) {
+              const start = from[drone * 3 + axis];
+              vertices[offset++] = start + share * (to[drone * 3 + axis] - start);
+            }
+          }
+        }
+      }
     }
     paths.set(vertices);
+    pathSteps = steps.length;
+    pathDrones = count;
   }
 
   /**
@@ -196,17 +212,22 @@ export function createRenderer(canvas) {
       volume.draw();
     }
 
-    const selected = frame.selected >= 0 && frame.selected < frame.count ? frame.selected : -1;
+    const selected = frame.selected >= 0 && frame.selected < pathDrones ? frame.selected : -1;
     if (frame.showPaths) {
+      // All paths of one step: the transition in flight, or the one that led to the current hold.
       gl.uniform3fv(
         lineUniforms.uColor,
         frame.color.map((channel) => channel * PATH_BRIGHTNESS),
       );
-      paths.draw();
+      paths.draw(frame.pathStep * pathDrones * PATH_PARTS, pathDrones * PATH_PARTS);
     }
     if (selected >= 0) {
-      gl.uniform3f(lineUniforms.uColor, 1, 1, 1);
-      paths.draw(selected * PATH_PARTS, PATH_PARTS);
+      // The whole route of the selected drone, with the current step brightest.
+      for (let step = 0; step < pathSteps; step++) {
+        const brightness = step === frame.pathStep ? 1 : OTHER_STEP_BRIGHTNESS;
+        gl.uniform3f(lineUniforms.uColor, brightness, brightness, brightness);
+        paths.draw((step * pathDrones + selected) * PATH_PARTS, PATH_PARTS);
+      }
     }
 
     gl.useProgram(pointProgram);
@@ -221,7 +242,7 @@ export function createRenderer(canvas) {
     gl.uniform3fv(pointUniforms.uColor, frame.color);
     gl.drawArrays(gl.POINTS, 0, frame.count);
 
-    if (selected >= 0) {
+    if (selected >= 0 && selected < frame.count) {
       gl.uniform1f(pointUniforms.uSize, SELECTED_LIGHT_SIZE);
       gl.uniform1f(pointUniforms.uMinPixels, MIN_SELECTED_PIXELS * dpr);
       gl.uniform3f(pointUniforms.uColor, 1, 1, 1);
@@ -275,10 +296,11 @@ function createLines(gl, program) {
   const { vertexArray, buffer } = createVertexArray(gl, program);
   let segmentCount = 0;
   return {
-    /** @param {number[]} vertices xyz of each segment end */
+    /** @param {number[] | Float32Array} vertices xyz of each segment end */
     set(vertices) {
+      const data = vertices instanceof Float32Array ? vertices : new Float32Array(vertices);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
       segmentCount = vertices.length / 6;
     },
     /**

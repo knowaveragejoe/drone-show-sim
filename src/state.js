@@ -43,9 +43,15 @@ export const VOLUME_FIELDS = [
 ];
 
 export const MAX_DRONES = FLEET_FIELDS[0].max;
+export const MAX_FORMATIONS = 20;
+
+// A new formation gets the next color of this list.
+const FORMATION_COLORS = ['#66ccff', '#ff5c8a', '#ffb347', '#7dff9b', '#c69bff', '#fff27a'];
 
 export const PROJECT_APP = 'drone-show-sim';
-export const PROJECT_VERSION = 1;
+// Version 2 adds the storyboard: more than one formation, and the landing.
+export const PROJECT_VERSION = 2;
+const READABLE_VERSIONS = [1, 2];
 export const PROJECT_FILE_NAME = 'show.droneshow.json';
 
 /**
@@ -92,7 +98,8 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @typedef {object} State
  * @property {Fleet} fleet
  * @property {Volume} volume
- * @property {Formation[]} formations exactly one entry in version 1
+ * @property {Formation[]} formations the storyboard: the formations of the show, in order
+ * @property {boolean} landAtEnd true when the show ends with a flight back to the takeoff grid
  */
 
 /** @returns {State} */
@@ -119,11 +126,50 @@ export function defaultState() {
         size: 40,
         centerHeight: 60,
         yaw: 0,
-        color: '#66ccff',
+        color: FORMATION_COLORS[0],
+        holdSeconds: 10,
+        seed: 1,
+      },
+      {
+        source: { type: 'builtin', shape: 'heart' },
+        size: 100,
+        centerHeight: 60,
+        yaw: 0,
+        color: FORMATION_COLORS[1],
+        holdSeconds: 10,
+        seed: 1,
+      },
+      {
+        source: { type: 'builtin', shape: 'torus' },
+        size: 50,
+        centerHeight: 60,
+        yaw: 30,
+        color: FORMATION_COLORS[2],
         holdSeconds: 10,
         seed: 1,
       },
     ],
+    landAtEnd: true,
+  };
+}
+
+/**
+ * Makes the formation that the Add button puts after one formation of the storyboard.
+ * The new formation keeps the size and place of that formation, so the next transition is short.
+ * It gets the next built-in shape and the next color, so the two are easy to tell apart.
+ * @param {Formation[]} formations the storyboard
+ * @param {number} index the formation that the new one comes after
+ * @returns {Formation}
+ */
+export function nextFormation(formations, index) {
+  const before = formations[index];
+  const shapes = Object.keys(BUILTIN_SHAPES);
+  const shape = before.source.type === 'builtin' ? shapes.indexOf(before.source.shape) : -1;
+  const color = FORMATION_COLORS.indexOf(before.color.toLowerCase());
+  return {
+    ...before,
+    source: { type: 'builtin', shape: shapes[(shape + 1) % shapes.length] },
+    color: FORMATION_COLORS[(color + 1) % FORMATION_COLORS.length],
   };
 }
 
@@ -163,21 +209,16 @@ export function parseProject(text) {
   if (!isObject(data) || data.app !== PROJECT_APP) {
     throw new Error('The file is not a drone show project.');
   }
-  if (data.version !== PROJECT_VERSION) {
+  if (!READABLE_VERSIONS.includes(data.version)) {
     throw new Error(
-      `The project file has version ${data.version}. This simulator reads version ${PROJECT_VERSION}.`,
+      `The project file has version ${data.version}. This simulator reads versions 1 and 2.`,
     );
   }
   if (!isObject(data.fleet)) throw new Error('The project file has no fleet.');
-  if (!Array.isArray(data.formations) || data.formations.length !== 1 || !isObject(data.formations[0])) {
-    throw new Error('The project file must have exactly one formation.');
+  const count = Array.isArray(data.formations) ? data.formations.length : 0;
+  if (count < 1 || count > MAX_FORMATIONS) {
+    throw new Error(`The project file must have 1 to ${MAX_FORMATIONS} formations.`);
   }
-
-  const saved = data.formations[0];
-  if (typeof saved.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(saved.color)) {
-    throw new Error('formation.color must be a color such as #66ccff.');
-  }
-  if (!Number.isInteger(saved.seed)) throw new Error('formation.seed must be a whole number.');
 
   // A project file from before the flight volume existed has no volume. It gets the default one.
   let volume = defaultState().volume;
@@ -186,18 +227,37 @@ export function parseProject(text) {
     volume = /** @type {Volume} */ (readFields('volume', data.volume, VOLUME_FIELDS));
   }
 
+  // A project file from before the storyboard existed has no landing.
+  if (data.landAtEnd !== undefined && typeof data.landAtEnd !== 'boolean') {
+    throw new Error('landAtEnd must be true or false.');
+  }
+
   return {
     fleet: /** @type {Fleet} */ (readFields('fleet', data.fleet, FLEET_FIELDS)),
     volume,
-    formations: [
-      /** @type {Formation} */ ({
-        ...readFields('formation', saved, FORMATION_FIELDS),
-        source: readSource(saved.source),
-        color: saved.color,
-        seed: saved.seed,
-      }),
-    ],
+    formations: data.formations.map(readFormation),
+    landAtEnd: data.landAtEnd === true,
   };
+}
+
+/**
+ * @param {unknown} saved
+ * @param {number} index place in the storyboard
+ * @returns {Formation}
+ */
+function readFormation(saved, index) {
+  const name = `formation ${index + 1}`;
+  if (!isObject(saved)) throw new Error(`${name} is not valid.`);
+  if (typeof saved.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(saved.color)) {
+    throw new Error(`${name}: color must be a color such as #66ccff.`);
+  }
+  if (!Number.isInteger(saved.seed)) throw new Error(`${name}: seed must be a whole number.`);
+  return /** @type {Formation} */ ({
+    ...readFields(name, saved, FORMATION_FIELDS),
+    source: readSource(name, saved.source),
+    color: saved.color,
+    seed: saved.seed,
+  });
 }
 
 /**
@@ -227,7 +287,7 @@ function readFields(name, data, fields) {
       (!field.integer || Number.isInteger(value));
     if (!valid) {
       const kind = field.integer ? 'a whole number' : 'a number';
-      throw new Error(`${name}.${field.key} must be ${kind} from ${field.min} to ${field.max}.`);
+      throw new Error(`${name}: ${field.key} must be ${kind} from ${field.min} to ${field.max}.`);
     }
     values[field.key] = value;
   }
@@ -235,13 +295,14 @@ function readFields(name, data, fields) {
 }
 
 /**
+ * @param {string} name name of the formation, for error messages
  * @param {unknown} source
  * @returns {Source}
  */
-function readSource(source) {
+function readSource(name, source) {
   if (isObject(source) && source.type === 'builtin') {
     if (!Object.hasOwn(BUILTIN_SHAPES, source.shape)) {
-      throw new Error(`The project file uses the unknown shape "${source.shape}".`);
+      throw new Error(`${name}: the shape "${source.shape}" is unknown.`);
     }
     return { type: 'builtin', shape: source.shape };
   }
@@ -250,8 +311,8 @@ function readSource(source) {
       typeof source.fileName === 'string' &&
       typeof source.text === 'string' &&
       (source.upAxis === 'y' || source.upAxis === 'z');
-    if (!valid) throw new Error('The OBJ model in the project file is not complete.');
+    if (!valid) throw new Error(`${name}: the OBJ model is not complete.`);
     return { type: 'obj', fileName: source.fileName, upAxis: source.upAxis, text: source.text };
   }
-  throw new Error('formation.source must be a built-in shape or an OBJ model.');
+  throw new Error(`${name}: source must be a built-in shape or an OBJ model.`);
 }

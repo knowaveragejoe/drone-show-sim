@@ -24,10 +24,10 @@ const AUDIENCE_EYE_HEIGHT = 1.7;
 /** @returns {Camera} */
 export function createCamera() {
   return {
-    target: [0, 0, 30],
-    distance: 190,
-    azimuth: (35 * Math.PI) / 180,
-    elevation: (12 * Math.PI) / 180,
+    target: [0, 0, 45],
+    distance: 240,
+    azimuth: (30 * Math.PI) / 180,
+    elevation: (10 * Math.PI) / 180,
     fovY: (50 * Math.PI) / 180,
   };
 }
