@@ -101,12 +101,12 @@
           <div class="field wide">
             <label for="shape">Shape</label>
             <select id="shape"></select>
-            <button id="import-obj" type="button" class="square" title="Import an OBJ model as the shape" aria-label="Import OBJ model">
+            <button id="import-shape" type="button" class="square" title="Import an OBJ model or an SVG drawing as the shape" aria-label="Import shape file">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.5 6L8 2.5 11.5 6M3 10.5v3h10v-3"/></svg>
             </button>
           </div>
-          <input id="obj-file" type="file" accept=".obj" hidden>
-          <p class="error" id="obj-error" role="alert" hidden></p>
+          <input id="shape-file" type="file" accept=".obj,.svg" hidden>
+          <p class="error" id="shape-error" role="alert" hidden></p>
           <div class="field" id="up-axis-row" hidden>
             <label for="up-axis">Model up axis</label>
             <select id="up-axis">

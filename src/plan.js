@@ -19,6 +19,7 @@ import {
 import { objCloud } from './obj.js';
 import { closestSpacing, farthestPointOrder } from './sample.js';
 import { builtinCloud } from './shapes.js';
+import { svgCloud } from './svg.js';
 import { MAX_DRONES } from './state.js';
 
 /**
@@ -111,7 +112,8 @@ const CHASE_TAIL = 3;
  * The function keeps the results of the slow stages (sampling, assignment, and the distance
  * checks) and runs them again only when their inputs change.
  *
- * The function throws when a shape is not usable, for example an OBJ file with no faces.
+ * The function throws when a shape is not usable, for example an OBJ model with no faces
+ * or an SVG drawing with no outlines.
  * It then keeps its stored results, so the next call with the old state is still fast.
  * @returns {(state: import('./state.js').State) => Plan}
  */
@@ -133,7 +135,9 @@ export function createPlanner() {
       const cloud =
         source.type === 'obj'
           ? objCloud(source.text, source.upAxis, seed)
-          : builtinCloud(source.shape, seed);
+          : source.type === 'svg'
+            ? svgCloud(source.text, seed)
+            : builtinCloud(source.shape, seed);
       sample = { seed, id: nextSampleId++, cloud, order: farthestPointOrder(cloud, MAX_DRONES) };
       samples.set(source, sample);
     }

@@ -96,11 +96,13 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  */
 
 /**
- * Where the shape of a formation comes from: a built-in shape, or the text of an OBJ file.
+ * Where the shape of a formation comes from: a built-in shape, the text of an OBJ model,
+ * or the text of an SVG drawing.
  * Treat a source as read-only: to change it, put a new object in its place.
  * The planner uses the object identity to know when it must sample the shape again.
  * @typedef {{type: 'builtin', shape: string}
- *   | {type: 'obj', fileName: string, upAxis: 'y' | 'z', text: string}} Source
+ *   | {type: 'obj', fileName: string, upAxis: 'y' | 'z', text: string}
+ *   | {type: 'svg', fileName: string, text: string}} Source
  */
 
 /**
@@ -358,5 +360,11 @@ function readSource(name, source) {
     if (!valid) throw new Error(`${name}: the OBJ model is not complete.`);
     return { type: 'obj', fileName: source.fileName, upAxis: source.upAxis, text: source.text };
   }
-  throw new Error(`${name}: source must be a built-in shape or an OBJ model.`);
+  if (isObject(source) && source.type === 'svg') {
+    if (typeof source.fileName !== 'string' || typeof source.text !== 'string') {
+      throw new Error(`${name}: the SVG drawing is not complete.`);
+    }
+    return { type: 'svg', fileName: source.fileName, text: source.text };
+  }
+  throw new Error(`${name}: source must be a built-in shape, an OBJ model, or an SVG drawing.`);
 }

@@ -22,7 +22,7 @@ A transition is the march between two pictures, and all marchers move on the sam
 |---|---|
 | Drone | One aircraft with one colored light. |
 | Fleet | All drones in the show. |
-| Shape | The geometry that a formation is made from: a built-in shape or an imported OBJ model. |
+| Shape | The geometry that a formation is made from: a built-in shape, an imported OBJ model, or an imported SVG drawing. |
 | Candidate cloud | A dense set of points on a shape. The sampler picks targets from it. |
 | Target | One position in a formation. Each drone gets one target. |
 | Formation | One static picture made of drones: a shape plus its size, position, and color. |
@@ -49,8 +49,8 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Language | Plain JavaScript, native ES modules, JSDoc types. No build step. |
 | Runtime dependencies | None. |
 | Fleet size | 1 to 1,000 drones. Default 100. |
-| Shape inputs | Built-in shapes and OBJ files. |
-| Drone placement | Even spread over the surface of the shape. |
+| Shape inputs | Built-in shapes, OBJ models, and SVG drawings. |
+| Drone placement | Even spread over the surface of a 3D shape, or along the outlines of a flat shape and of an SVG drawing. |
 | Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
 | Color | One color per formation. The light color blends in the transition between two formations. |
 | Slow turn | Each formation has a turn rate. The formation turns in its hold, so the audience sees its depth. |
@@ -131,6 +131,19 @@ For an OBJ file, the simulator does these steps:
 4. Pick random points on the triangles. A larger triangle gets more points in proportion to its area.
 
 The parser ignores materials, textures, and normals.
+
+For an SVG file, the simulator does these steps:
+
+1. Read the elements with a small tag reader in plain JavaScript. The reader needs no DOM, so Node can test it.
+2. Read the outlines of `path`, `rect` (also with round corners), `circle`, `ellipse`, `line`, `polyline`, and `polygon`.
+3. Read all path commands, also arcs and the short forms. Curves and arcs become short straight segments.
+4. Apply the `transform` of each element and of its groups.
+5. Skip the contents of elements that the browser does not draw where they stand, such as `defs`, `clipPath`, and `mask`, and elements with `display: none`.
+6. Center the drawing and scale it to unit size. It stands upright in the XZ plane and faces the audience. SVG y points down, so the reader turns it to point up.
+7. Pick random points along the outlines. A longer outline gets more points in proportion to its length.
+
+Like a browser, the path reader stops at the first error in path data and keeps what it read before it.
+The drones go on the outlines only, also for a filled shape.
 
 ### 2. Candidate cloud to targets
 
@@ -447,10 +460,11 @@ The project file is JSON with the extension `.droneshow.json`.
 }
 ```
 
-An OBJ formation stores the full OBJ text:
+An OBJ formation stores the full OBJ text, and an SVG formation stores the full SVG text:
 
 ```json
 { "type": "obj", "fileName": "whale.obj", "upAxis": "y", "text": "v 0 0 0\n..." }
+{ "type": "svg", "fileName": "logo.svg", "text": "<svg ...>...</svg>" }
 ```
 
 `formations` is the storyboard. It holds 1 to 20 entries, in show order.
@@ -479,6 +493,7 @@ src/
   rng.js          seeded random number generator
   shapes.js       built-in shape generators
   obj.js          OBJ parser and triangle sampler
+  svg.js          SVG reader: path data, basic shapes, transforms, and the outline sampler
   sample.js       farthest point sampling, smallest spacing
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn profile
@@ -492,7 +507,7 @@ tools/
   smoke.js        headless browser smoke test
 ```
 
-`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `sample.js`, `assign.js`, and `motion.js` are pure.
+`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, and `motion.js` are pure.
 They use no DOM and no WebGL, so Node can run their tests.
 
 ## Tests
@@ -514,6 +529,7 @@ No `npm install` is necessary.
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
+| `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
 | `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. |
 
@@ -552,6 +568,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 9 | Slow turn | A formation turns about its vertical axis in its hold. | Done |
 | 10 | Tune-up | Three sidebar tabs, overlays on the 3D view, one-line fields, a draggable playhead. | Done |
 | 11 | Light chase | Bright bands that travel across a formation in its hold. | Done |
+| 12 | SVG import | An SVG drawing as the shape of a formation, with drones on its outlines. | Done |
 
 ## Known limits
 
@@ -560,6 +577,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - Drones fly straight lines. The closest approach bound needs the spacing margin at both stops of a transition. The simulator does not plan a path around a conflict; it reports the conflict.
 - A drone can land on a grid cell that is not the one it started from.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
+- The SVG importer puts drones on outlines only. It does not fill a filled area. It does not read `text` (fonts), `use`, nested `svg` positions, CSS classes, or units such as percent.
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
@@ -571,7 +589,8 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 
 - Sway. A formation turns back and forth in its hold, so it ends where it started.
 - Drones that flow along an outline, so the drones themselves move, not only the lights.
-- More shape inputs: SVG outlines, point lists, GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
+- More shape inputs: point lists and GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
+- Filled SVG areas: drones spread over the inside of a filled shape, not only on its outline.
 - Edge placement, gradients, and color per drone.
 - Export to a show format such as VVIZ.
 

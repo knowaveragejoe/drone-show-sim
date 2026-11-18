@@ -135,8 +135,9 @@ test('import rejects a bad shape source', () => {
   assert.throws(() => parseProject(source({ type: 'builtin', shape: 'toString' })), /is unknown/);
   assert.throws(() => parseProject(source({ type: 'obj', fileName: 'a.obj', upAxis: 'x', text: '' })), /not complete/);
   assert.throws(() => parseProject(source({ type: 'obj', fileName: 'a.obj', upAxis: 'y' })), /not complete/);
-  assert.throws(() => parseProject(source({ type: 'svg' })), /built-in shape or an OBJ model/);
-  assert.throws(() => parseProject(source(undefined)), /built-in shape or an OBJ model/);
+  assert.throws(() => parseProject(source({ type: 'svg', fileName: 'logo.svg' })), /formation 1: the SVG drawing is not complete/);
+  assert.throws(() => parseProject(source({ type: 'gltf' })), /built-in shape, an OBJ model, or an SVG drawing/);
+  assert.throws(() => parseProject(source(undefined)), /built-in shape, an OBJ model, or an SVG drawing/);
 });
 
 test('a project file with no flight volume gets the default volume', () => {
@@ -206,4 +207,13 @@ test('import rejects a bad light chase', () => {
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 0))), /formation 1: chaseBands must be a whole number from 1 to 12/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 2.5))), /chaseBands/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseSpeed = 9))), /formation 1: chaseSpeed must be a number from -2 to 2/);
+});
+
+test('export then import keeps an SVG drawing', () => {
+  const state = defaultState();
+  const text = '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="5" r="4"/></svg>';
+  state.formations[1].source = { type: 'svg', fileName: 'ring.svg', text };
+  const loaded = parseProject(serializeProject(state));
+  assert.deepEqual(loaded, state);
+  assert.deepEqual(createPlanner()(loaded).steps[1].to, createPlanner()(state).steps[1].to);
 });

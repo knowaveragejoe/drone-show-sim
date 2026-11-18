@@ -730,3 +730,35 @@ test('a yaw does not change the chase path', () => {
   const sorted = (values) => Array.from(values).sort((a, b) => a - b);
   sorted(turned).forEach((value, i) => near(value, sorted(facing)[i], 1e-5));
 });
+
+// SVG drawings.
+
+test('the plan uses an SVG drawing as the shape, upright and facing the audience', () => {
+  const state = singleState();
+  // A wide rectangle with a circle above it.
+  const text =
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="0" y="40" width="100" height="20"/>' +
+    '<circle cx="50" cy="15" r="15"/></svg>';
+  state.formations[0].source = { type: 'svg', fileName: 'logo.svg', text };
+  const plan = createPlanner()(state);
+  const targets = plan.steps[0].to;
+  const { size, centerHeight } = state.formations[0];
+  let highest = -Infinity;
+  for (let i = 0; i < targets.length; i += 3) {
+    assert.ok(Math.abs(targets[i]) <= size / 2 + 1e-3);
+    assert.ok(Math.abs(targets[i + 1]) < 1e-3);
+    highest = Math.max(highest, targets[i + 2]);
+  }
+  // The circle is at the top of the drawing, so the highest targets are at the top of the formation.
+  near(highest, centerHeight + size * 0.3, 0.5);
+});
+
+test('an SVG drawing with no outlines does not break the planner', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  const good = planner(state);
+  const bad = structuredClone(state);
+  bad.formations[0].source = { type: 'svg', fileName: 'empty.svg', text: '<svg></svg>' };
+  assert.throws(() => planner(bad), /no outlines/);
+  assert.deepEqual(planner(state).steps.at(-1).to, good.steps.at(-1).to);
+});

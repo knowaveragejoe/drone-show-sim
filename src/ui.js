@@ -25,7 +25,8 @@ import {
  * @property {(land: boolean) => void} setLandAtEnd
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
- * @property {(fileName: string, text: string) => string | null} importObj returns an error message, or null
+ * @property {(fileName: string, text: string) => string | null} importShape imports an OBJ model or an
+ *   SVG drawing as the shape of the formation; returns an error message, or null
  * @property {(upAxis: 'y' | 'z') => void} setUpAxis
  * @property {() => void} fit
  * @property {() => string} projectText contents of the project file
@@ -116,13 +117,13 @@ export function createUi(actions) {
   for (const [key, { label }] of Object.entries(BUILTIN_SHAPES)) {
     shape.add(new Option(label, key));
   }
-  // This option is in the list only while the formation uses an imported model.
-  const objOption = new Option('', 'obj');
+  // This option is in the list only while the formation uses an imported shape.
+  const fileOption = new Option('', 'file');
   shape.addEventListener('change', () => {
-    if (shape.value !== 'obj') actions.setShape(shape.value);
+    if (shape.value !== 'file') actions.setShape(shape.value);
   });
 
-  wireFilePicker(byId('import-obj'), byId('obj-file'), byId('obj-error'), actions.importObj);
+  wireFilePicker(byId('import-shape'), byId('shape-file'), byId('shape-error'), actions.importShape);
   const upAxisRow = byId('up-axis-row');
   const upAxis = /** @type {HTMLSelectElement} */ (byId('up-axis'));
   upAxis.addEventListener('change', () => actions.setUpAxis(upAxis.value === 'z' ? 'z' : 'y'));
@@ -209,14 +210,14 @@ export function createUi(actions) {
     chaseFields.show(formation);
 
     const { source } = formation;
-    if (source.type === 'obj') {
-      objOption.textContent = `OBJ: ${source.fileName}`;
-      shape.add(objOption);
-      shape.value = 'obj';
-      upAxis.value = source.upAxis;
-    } else {
-      objOption.remove();
+    if (source.type === 'builtin') {
+      fileOption.remove();
       shape.value = source.shape;
+    } else {
+      fileOption.textContent = `${source.type.toUpperCase()}: ${source.fileName}`;
+      shape.add(fileOption);
+      shape.value = 'file';
+      if (source.type === 'obj') upAxis.value = source.upAxis;
     }
     upAxisRow.hidden = source.type !== 'obj';
 
@@ -330,7 +331,7 @@ function wireToggle(button, onChange) {
  * @param {import('./state.js').Formation} formation
  */
 function shapeLabel({ source }) {
-  return source.type === 'obj' ? source.fileName : BUILTIN_SHAPES[source.shape].label;
+  return source.type === 'builtin' ? BUILTIN_SHAPES[source.shape].label : source.fileName;
 }
 
 /**

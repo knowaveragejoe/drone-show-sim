@@ -180,8 +180,11 @@ function start() {
     setShape(shape) {
       changeFormation({ source: { type: 'builtin', shape } });
     },
-    importObj(fileName, text) {
-      return changeFormation({ source: { type: 'obj', fileName, upAxis: 'y', text } });
+    importShape(fileName, text) {
+      const source = /\.svg$/i.test(fileName)
+        ? { type: 'svg', fileName, text }
+        : { type: 'obj', fileName, upAxis: 'y', text };
+      return changeFormation({ source });
     },
     setUpAxis(upAxis) {
       const { source } = state.formations[view.formation];

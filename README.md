@@ -44,8 +44,10 @@ The Checks panel at the top right shows the show duration, the drones outside th
 
 The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show.
 
-A shape is one of seven built-in shapes or an OBJ model.
-The importer reads the vertices and faces of the model. It ignores materials and textures.
+A shape is one of seven built-in shapes, an OBJ model, or an SVG drawing. The button next to the Shape list imports a file.
+
+- An OBJ model gets drones on its surface. The importer reads vertices and faces. It ignores materials and textures.
+- An SVG drawing gets drones on its outlines, and it stands upright facing the audience. The importer reads paths, rectangles, circles, ellipses, lines, polylines, polygons, and transforms. It does not read text, so convert text to paths first.
 
 Above 250 drones, a slider applies its value when you let go.
 
