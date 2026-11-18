@@ -265,7 +265,7 @@ function buildStoryboard(list, onSelect) {
     state.formations.forEach((formation, index) => {
       const row = rows[index];
       const [swatch, number, name, problem] = /** @type {HTMLElement[]} */ ([...row.children]);
-      const problems = formationProblems(plan, index, state.fleet.minSpacing);
+      const problems = formationProblems(plan, index, state.fleet);
       row.setAttribute('aria-current', String(index === view.formation));
       swatch.style.background = formation.color;
       number.textContent = String(index + 1);
@@ -314,7 +314,7 @@ function buildTimeline(strip, actions) {
         ? isTooClose(step.closestApproach, minSpacing)
           ? [LANDING_PROBLEM]
           : []
-        : formationProblems(plan, step.formation, minSpacing);
+        : formationProblems(plan, step.formation, state.fleet);
 
       const flight = element('div', 'block flight');
       flight.style.flexGrow = String(step.timing.duration);

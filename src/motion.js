@@ -148,3 +148,85 @@ export function closestApproach(starts, targets, count) {
   }
   return Math.sqrt(smallest);
 }
+
+const TWO_PI = Math.PI * 2;
+
+/**
+ * A slow turn of a formation in its hold. The formation rotates about the vertical axis
+ * through the world origin as one rigid body. The turn starts and ends at rest.
+ * @typedef {object} Turn
+ * @property {number} angle total turn, radians; positive is counterclockwise seen from above
+ * @property {Timing} timing progress of the turn, from 0 to 1 over the hold
+ * @property {number} peakRate largest turn rate, radians per second
+ */
+
+/**
+ * Plans the turn of a formation in its hold.
+ * The turn speeds up to the turn rate, keeps it, and slows down to a stop at the end of the hold.
+ * The ramps use the acceleration limit at the target that is farthest from the axis.
+ * @param {number} rate turn rate, radians per second; the sign gives the direction
+ * @param {number} hold length of the hold, seconds
+ * @param {number} radius distance from the axis to the farthest target, meters
+ * @param {number} maxAcceleration m/s²
+ * @returns {Turn | null} null when the formation does not turn
+ */
+export function planTurn(rate, hold, radius, maxAcceleration) {
+  if (rate === 0 || hold <= 0 || radius <= 0) return null;
+  const acceleration = maxAcceleration / radius;
+  // A short hold has no time to reach the turn rate: speed up for half of the hold, then slow down.
+  const rampTime = Math.min(Math.abs(rate) / acceleration, hold / 2);
+  const peakRate = acceleration * rampTime;
+  const angle = peakRate * (hold - rampTime);
+  return {
+    angle: Math.sign(rate) * angle,
+    timing: { duration: hold, acceleration: acceleration / angle, rampTime, peakRate: peakRate / angle },
+    peakRate,
+  };
+}
+
+/**
+ * Turns points about the vertical axis through the world origin.
+ * @param {Float32Array} points xyz per point
+ * @param {number} angle radians; positive is counterclockwise seen from above
+ * @param {Float32Array} out xyz per point; can be `points`
+ * @returns {Float32Array} `out`
+ */
+export function turnAboutZ(points, angle, out) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  for (let i = 0; i < points.length; i += 3) {
+    const x = points[i];
+    const y = points[i + 1];
+    out[i] = x * cos - y * sin;
+    out[i + 1] = x * sin + y * cos;
+    out[i + 2] = points[i + 2];
+  }
+  return out;
+}
+
+/**
+ * The box around the arc that a point draws when it turns about the vertical axis.
+ * @param {number} x start of the arc
+ * @param {number} y start of the arc
+ * @param {number} angle turn, radians
+ * @returns {number[]} smallest x, largest x, smallest y, largest y
+ */
+export function arcBox(x, y, angle) {
+  const radius = Math.hypot(x, y);
+  const start = Math.atan2(y, x);
+  const end = start + angle;
+  const low = Math.min(start, end);
+  const high = Math.max(start, end);
+  // True when the arc passes the direction, or the direction plus full turns.
+  const passes = (/** @type {number} */ direction) =>
+    Math.ceil((low - direction) / TWO_PI) <= Math.floor((high - direction) / TWO_PI);
+  // The arc is farthest out where it crosses an axis. If it does not cross, at one of its ends.
+  const endX = radius * Math.cos(end);
+  const endY = radius * Math.sin(end);
+  return [
+    passes(Math.PI) ? -radius : Math.min(x, endX),
+    passes(0) ? radius : Math.max(x, endX),
+    passes(-Math.PI / 2) ? -radius : Math.min(y, endY),
+    passes(Math.PI / 2) ? radius : Math.max(y, endY),
+  ];
+}

@@ -13,6 +13,8 @@ import { BUILTIN_SHAPES } from './shapes.js';
  * @property {number} step
  * @property {boolean} [integer]
  * @property {boolean} [slider] show a slider next to the number box
+ * @property {number} [fallback] value for a project file that does not have the field,
+ *   because the file is older than the field
  */
 
 /** @type {NumberField[]} */
@@ -32,6 +34,7 @@ export const FORMATION_FIELDS = [
   { key: 'centerHeight', label: 'Center height', unit: 'm', min: 0, max: 500, step: 1, slider: true },
   { key: 'yaw', label: 'Yaw', unit: '°', min: -180, max: 180, step: 1, slider: true },
   { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
+  { key: 'turnRate', label: 'Turn rate', unit: '°/s', min: -45, max: 45, step: 0.5, slider: true, fallback: 0 },
 ];
 
 /** @type {NumberField[]} */
@@ -91,6 +94,8 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} yaw rotation about the vertical axis, degrees
  * @property {string} color light color, `#rrggbb`
  * @property {number} holdSeconds time that the drones hold the formation
+ * @property {number} turnRate how fast the formation turns about the vertical axis in its hold,
+ *   degrees per second; positive is counterclockwise seen from above
  * @property {number} seed seed of the random sampler
  */
 
@@ -128,6 +133,7 @@ export function defaultState() {
         yaw: 0,
         color: FORMATION_COLORS[0],
         holdSeconds: 10,
+        turnRate: 6,
         seed: 1,
       },
       {
@@ -137,6 +143,7 @@ export function defaultState() {
         yaw: 0,
         color: FORMATION_COLORS[1],
         holdSeconds: 10,
+        turnRate: 0,
         seed: 1,
       },
       {
@@ -146,6 +153,7 @@ export function defaultState() {
         yaw: 30,
         color: FORMATION_COLORS[2],
         holdSeconds: 10,
+        turnRate: -6,
         seed: 1,
       },
     ],
@@ -279,7 +287,7 @@ function readFields(name, data, fields) {
   /** @type {Record<string, number>} */
   const values = {};
   for (const field of fields) {
-    const value = data[field.key];
+    const value = data[field.key] ?? field.fallback;
     const valid =
       typeof value === 'number' &&
       value >= field.min &&

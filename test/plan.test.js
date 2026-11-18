@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { takeoffGrid } from '../src/motion.js';
+import { takeoffGrid, turnAboutZ } from '../src/motion.js';
 import {
   FLIGHT_MARGIN,
   countOutside,
@@ -14,15 +14,23 @@ import {
   lightColorAt,
   positionsAt,
   retime,
+  routeOf,
   speedAt,
   stepAt,
   volumeBounds,
 } from '../src/plan.js';
 import { defaultState } from '../src/state.js';
 
-/** A show with one formation and no landing: the first formation of the default show. */
-function singleState() {
+/** The default show, but no formation turns in its hold. */
+function stillState() {
   const state = defaultState();
+  state.formations = state.formations.map((formation) => ({ ...formation, turnRate: 0 }));
+  return state;
+}
+
+/** A show with one formation that stands still, and no landing. */
+function singleState() {
+  const state = stillState();
   state.formations = [state.formations[0]];
   state.landAtEnd = false;
   return state;
@@ -107,7 +115,7 @@ test('Fit gives the smallest size that keeps the minimum spacing, also in flight
   // The takeoff grid has the same margin, so the flight is safe too.
   assert.ok(state.fleet.gridSpacing >= target);
   assert.ok(!isTooClose(fitted.closestApproach, minSpacing), `closest approach ${fitted.closestApproach}`);
-  assert.deepEqual(formationProblems(fitted, 0, minSpacing), []);
+  assert.deepEqual(formationProblems(fitted, 0, state.fleet), []);
 
   // Two centimeters smaller is too small.
   state.formations[0].size -= 0.02;
@@ -289,7 +297,7 @@ test('each step starts where the step before it ends', () => {
   const plan = createPlanner()(state);
   assert.deepEqual(plan.steps[0].from, takeoffGrid(state.fleet.count, state.fleet.gridSpacing));
   for (let index = 1; index < plan.steps.length; index++) {
-    assert.deepEqual(plan.steps[index].from, plan.steps[index - 1].to);
+    assert.deepEqual(plan.steps[index].from, plan.steps[index - 1].end);
   }
 
   // No drone jumps at the border between two steps.
@@ -346,6 +354,10 @@ test('stored results give the same plan as a new planner', () => {
     { ...state, formations: [first, { ...second, size: 120, yaw: 45 }, third], landAtEnd: false },
     { ...state, fleet: { ...state.fleet, count: 60, gridSpacing: 4 } },
     { ...state, formations: [first, first, third, second] },
+    // A new turn changes the pose that the next flight starts from.
+    { ...state, formations: [{ ...first, turnRate: -12 }, second, { ...third, turnRate: 0 }] },
+    { ...state, fleet: { ...state.fleet, maxAcceleration: 1 } },
+    { ...state, formations: [{ ...first, holdSeconds: 4 }, second, third] },
     state,
   ];
   for (const changed of changes) {
@@ -362,7 +374,7 @@ test('stored results give the same plan as a new planner', () => {
 });
 
 test('two equal formations in a row need no flight', () => {
-  const state = defaultState();
+  const state = stillState();
   state.formations = [state.formations[0], state.formations[0]];
   const plan = createPlanner()(state);
   assert.equal(plan.steps[1].timing.duration, 0);
@@ -386,7 +398,7 @@ test('stepAt and holdStart find the parts of the timeline', () => {
 });
 
 test('drones hold their targets between transitions', () => {
-  const plan = createPlanner()(defaultState());
+  const plan = createPlanner()(stillState());
   const positions = new Float32Array(plan.count * 3);
   plan.formations.forEach((checks, index) => {
     const step = plan.steps[index];
@@ -451,22 +463,136 @@ test('retime keeps the same moment when the plan changes', () => {
 test('formationProblems lists what is wrong with a formation', () => {
   const planner = createPlanner();
   const state = defaultState();
-  const { minSpacing } = state.fleet;
   const plan = planner(state);
   state.formations.forEach((formation, index) => {
-    assert.deepEqual(formationProblems(plan, index, minSpacing), []);
+    assert.deepEqual(formationProblems(plan, index, state.fleet), []);
   });
 
   // A small, low second formation: crowded targets, below the ground, and a tight transition.
   state.formations[1] = { ...state.formations[1], size: 20, centerHeight: 5 };
   state.volume = { ...state.volume, x: 80 };
   const broken = planner(state);
-  const problems = formationProblems(broken, 1, minSpacing);
+  const problems = formationProblems(broken, 1, state.fleet);
   assert.equal(problems.length, 4);
   assert.match(problems[0], /closer than the minimum spacing/);
   assert.match(problems[1], /below the ground/);
   assert.match(problems[2], /outside the flight volume/);
   assert.match(problems[3], /too close in the transition/);
   // The first formation is far from the moved volume, but its own spacing is fine.
-  assert.deepEqual(formationProblems(broken, 0, minSpacing), ['Targets are outside the flight volume.']);
+  assert.deepEqual(formationProblems(broken, 0, state.fleet), ['Targets are outside the flight volume.']);
+});
+
+// Slow turn.
+
+test('a formation that turns ends its hold in a turned pose', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  const [first, second] = plan.steps;
+  // 6 degrees per second for 10 s, less the two ramps.
+  assert.ok(first.turn.angle > 0.95 && first.turn.angle < (60 * Math.PI) / 180, `angle ${first.turn.angle}`);
+  assert.deepEqual(first.end, turnAboutZ(first.to, first.turn.angle, new Float32Array(first.to.length)));
+  assert.deepEqual(second.from, first.end);
+  // The heart does not turn.
+  assert.equal(second.turn, null);
+  assert.equal(second.end, second.to);
+  assert.equal(second.turnSpeed, 0);
+
+  const positions = new Float32Array(plan.count * 3);
+  positionsAt(plan, holdStart(plan, 0), positions);
+  assert.deepEqual(positions, first.to);
+  positionsAt(plan, second.start - 1e-9, positions);
+  for (let i = 0; i < positions.length; i++) near(positions[i], first.end[i], 1e-4);
+
+  // In the hold each drone stays at its height and at its distance from the axis.
+  positionsAt(plan, holdStart(plan, 0) + 3, positions);
+  let moved = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    near(Math.hypot(positions[i], positions[i + 1]), Math.hypot(first.to[i], first.to[i + 1]), 1e-3);
+    assert.equal(positions[i + 2], first.to[i + 2]);
+    moved = Math.max(moved, Math.hypot(positions[i] - first.to[i], positions[i + 1] - first.to[i + 1]));
+  }
+  assert.ok(moved > 1, 'the formation turns');
+});
+
+test('each stop still has one drone on each target when formations turn', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  const still = createPlanner()(stillState());
+  plan.steps.forEach((step, index) => {
+    assert.deepEqual(pointSet(step.to), pointSet(still.steps[index].to));
+  });
+});
+
+test('the speed in a turn is the turn rate times the distance from the axis', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  const step = plan.steps[0];
+  const middle = holdStart(plan, 0) + step.hold / 2;
+  const rate = (6 * Math.PI) / 180;
+  let fastest = 0;
+  for (let drone = 0; drone < plan.count; drone++) {
+    const radius = Math.hypot(step.to[drone * 3], step.to[drone * 3 + 1]);
+    near(speedAt(plan, drone, middle), rate * radius, 1e-6);
+    fastest = Math.max(fastest, rate * radius);
+    // The turn starts and ends at rest.
+    assert.equal(speedAt(plan, drone, holdStart(plan, 0)), 0);
+  }
+  near(step.turnSpeed, fastest, 1e-6);
+  assert.ok(plan.peakSpeed >= step.turnSpeed);
+  assert.deepEqual(formationProblems(plan, 0, state.fleet), []);
+});
+
+test('a turn that is too fast is a problem', () => {
+  const state = defaultState();
+  // The 100 m heart, asked to turn at 45 degrees per second. Its tips are 50 m from the axis,
+  // so the 4 m/s² limit lets the turn rate grow by 0.08 rad/s each second. In a 10 s hold the
+  // turn speeds up for 5 s and then must slow down: the tips reach 0.4 rad/s × 50 m = 20 m/s.
+  state.formations[1] = { ...state.formations[1], turnRate: 45 };
+  const plan = createPlanner()(state);
+  near(plan.steps[1].turnSpeed, 20, 0.01);
+  assert.equal(plan.peakSpeed, plan.steps[1].turnSpeed);
+  assert.deepEqual(formationProblems(plan, 1, state.fleet), [
+    'The turn is faster than the maximum horizontal speed.',
+  ]);
+});
+
+test('a turn can take a formation out of the flight volume', () => {
+  const planner = createPlanner();
+  const state = stillState();
+  // The heart is flat and 100 m wide. This volume holds it only while it faces the audience.
+  state.volume = { size: 120, x: 0, y: 40, z: 0 };
+  const facing = planner(state);
+  assert.equal(facing.formations[1].outsideVolume, 0);
+
+  state.formations[1] = { ...state.formations[1], turnRate: 9 };
+  const turning = planner(state);
+  assert.ok(turning.formations[1].outsideVolume > 10, `outside ${turning.formations[1].outsideVolume}`);
+  assert.ok(turning.outsideVolume >= turning.formations[1].outsideVolume);
+  assert.match(formationProblems(turning, 1, state.fleet).join(), /outside the flight volume/);
+});
+
+test('routeOf gives the flight and the arc of one drone for each step', () => {
+  const plan = createPlanner()(defaultState());
+  const drone = 17;
+  const route = routeOf(plan, drone);
+  assert.equal(route.length, plan.steps.length);
+  plan.steps.forEach((step, index) => {
+    const points = route[index];
+    assert.deepEqual(points.subarray(0, 3), step.from.subarray(drone * 3, drone * 3 + 3));
+    assert.deepEqual(points.subarray(3, 6), step.to.subarray(drone * 3, drone * 3 + 3));
+    if (!step.turn) {
+      assert.equal(points.length, 6);
+      return;
+    }
+    // The arc ends where the hold ends, and each of its points is a short turn from the last.
+    assert.ok(points.length > 6 * 3);
+    const last = points.subarray(points.length - 3);
+    for (let axis = 0; axis < 3; axis++) near(last[axis], step.end[drone * 3 + axis], 1e-4);
+    const radius = Math.hypot(points[3], points[4]);
+    for (let i = 6; i < points.length; i += 3) {
+      near(Math.hypot(points[i], points[i + 1]), radius, 1e-3);
+      assert.equal(points[i + 2], points[5]);
+      assert.ok(Math.hypot(points[i] - points[i - 3], points[i + 1] - points[i - 2]) <= radius * 0.18);
+    }
+  });
 });

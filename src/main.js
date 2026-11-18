@@ -15,6 +15,7 @@ import {
   lightColorAt,
   positionsAt,
   retime,
+  routeOf,
   stepAt,
 } from './plan.js';
 import { createRenderer } from './renderer.js';
@@ -233,7 +234,7 @@ function start() {
     },
     select(drone) {
       view.selected = drone;
-      requestFrame();
+      showRoute();
     },
   });
 
@@ -242,6 +243,12 @@ function start() {
     renderer.setPaths(plan.steps, plan.count);
     renderer.setVolume(plan.volume);
     ui.refresh(state, plan, view);
+    showRoute();
+  }
+
+  /** Shows the route of the selected drone in the 3D view. */
+  function showRoute() {
+    renderer.setRoute(view.selected >= 0 ? routeOf(plan, view.selected) : []);
     requestFrame();
   }
 
@@ -271,7 +278,7 @@ function start() {
     }
     view.selected = nearest;
     if (nearest >= 0) ui.revealDrone(nearest);
-    requestFrame();
+    showRoute();
   }
 
   function requestFrame() {

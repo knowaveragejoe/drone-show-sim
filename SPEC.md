@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: the simulator plays a show of several formations. `README.md` tells how to run and publish it.
+Status: the simulator plays a show of several formations, and a formation can turn slowly in its hold. `README.md` tells how to run and publish it.
 
 ## Purpose
 
@@ -31,6 +31,7 @@ A transition is the march between two pictures, and all marchers move on the sam
 | Stop | A place where the fleet rests: the takeoff grid or a formation. |
 | Transition | The flight from one stop to the next. |
 | Hold | The time that the fleet stays at a stop. |
+| Turn | A slow rotation of a formation about the vertical axis during its hold. The formation turns as one rigid body. |
 | Step | One transition and the hold after it. A show is a list of steps. |
 | Assignment | The mapping from each drone to one target. The drill chart. |
 | Flight volume | The cube that the drones must stay inside. |
@@ -51,6 +52,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Drone placement | Even spread over the surface of the shape. |
 | Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
 | Color | One color per formation. The light color blends in the transition between two formations. |
+| Slow turn | Each formation has a turn rate. The formation turns in its hold, so the audience sees its depth. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
@@ -79,7 +81,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Takeoff grid spacing | 3 m |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
-| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. |
+| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn. |
 | Landing | On |
 
 The limits are starting values in the range that show design tools use.
@@ -224,17 +226,35 @@ The landing has no hold.
 Position is a direct function of time.
 The timeline can jump to any time with no simulation steps.
 
-### 8. Report the checks
+### 8. Plan the turns
+
+A formation with a turn rate turns in its hold.
+It rotates about the vertical axis through its center, as one rigid body.
+A rigid turn keeps every distance between two drones, so the formation spacing holds through the whole turn.
+
+The turn starts and ends at rest.
+It uses the same trapezoid profile as a transition: speed up, keep the rate, slow down.
+The ramps use the acceleration limit at the target that is farthest from the axis.
+A short hold has no time to reach the turn rate. The turn then speeds up to the middle of the hold and slows down.
+
+A drone that turns at rate `ω` at distance `r` from the axis moves at `ω × r`.
+The turn speed of a formation is this value for its farthest target, at the peak rate.
+
+A formation that turns leaves its hold in a new pose: the same shape at a new yaw.
+The next transition starts from that pose.
+The assignment key of the next transition names the new yaw, so a change of turn rate needs a new assignment for that transition only.
+
+### 9. Report the checks
 
 The Checks section shows the worst value of the whole show.
 
 | Readout | How it is computed |
 |---|---|
 | Show duration | The end of the last step. |
-| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight lines and the volume is a box, so the drone stays inside exactly when each of its stops is inside. A position on a face of the box is inside. |
+| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight lines and the volume is a box, so in a transition the drone stays inside exactly when both of its stops are inside. In a turn the drone draws an arc. The check takes the box around that arc. A position on a face of the box is inside. |
 | Lowest target | Height of the lowest target of any formation. Red when it is below the ground. |
 | Closest approach in flight | The smallest value of any transition. The value of a transition is exact: for each pair of drones, the relative position moves along a straight segment, and the simulator takes the shortest distance from that segment to zero. Red below the minimum spacing. |
-| Peak speed | The largest value of any transition: longest path × peak rate of `s`. |
+| Peak speed | The largest value of any step. In a transition: longest path × peak rate of `s`. In a turn: the turn speed. |
 
 A formation has a problem when one of these is true:
 
@@ -242,6 +262,7 @@ A formation has a problem when one of these is true:
 - A target is below the ground.
 - A target is outside the flight volume.
 - Drones come closer than the minimum spacing in the transition to it.
+- Its turn speed is more than the maximum horizontal speed.
 
 The storyboard list and the timeline mark each formation that has a problem.
 The timeline also marks a landing in which drones come too close.
@@ -262,7 +283,7 @@ The Settings tab holds the sections. Each section is a native `<details>` elemen
 | Fleet | Drone count. The five limits. Takeoff grid spacing. |
 | Flight volume | Size. Center X and Y. Floor height. |
 | Storyboard | One row per formation: color, number, shape name, and a problem marker. Add, Remove, Earlier, and Later buttons. Land at the end toggle. |
-| Formation | The settings of the formation that is selected in the storyboard: shape selector, Import OBJ button and up axis selector, size, center height, yaw, color, hold time. Spacing readout and Fit button. |
+| Formation | The settings of the formation that is selected in the storyboard: shape selector, Import OBJ button and up axis selector, size, center height, yaw, hold time, turn rate, color. Spacing readout and Fit button. |
 | Checks | Show duration, drones outside volume, lowest target, closest approach in flight, peak speed. |
 | View | Show paths toggle. Show flight volume toggle. Audience view button. |
 
@@ -326,7 +347,7 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Light color: the color of the formation of the current step. In a transition between two formations the color blends from one to the other. Takeoff uses the color of the first formation. The landing keeps the color of the last one.
 - Paths: one buffer holds one line per drone per step. The view draws the lines of the current step at low opacity. In a hold, the current step is the one that led to the hold.
-- Route: for the selected drone, the view draws its line in every step. The line of the current step is brightest.
+- Route: for the selected drone, the view draws its whole route: the flight of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
@@ -363,6 +384,7 @@ The project file is JSON with the extension `.droneshow.json`.
       "yaw": 0,
       "color": "#66ccff",
       "holdSeconds": 10,
+      "turnRate": 6,
       "seed": 1
     }
   ],
@@ -380,7 +402,7 @@ An OBJ formation stores the full OBJ text:
 
 The simulator writes version 2 and reads versions 1 and 2.
 Version 1 had exactly one formation and no landing.
-A file with no `landAtEnd` gets no landing, and a file with no `volume` gets the default flight volume. Older files then load with their old meaning.
+A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, and a formation with no `turnRate` does not turn. Older files then load with their old meaning.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -404,7 +426,7 @@ src/
   obj.js          OBJ parser and triangle sampler
   sample.js       farthest point sampling, smallest spacing
   assign.js       assignment solver (Jonker-Volgenant algorithm)
-  motion.js       takeoff grid, trapezoid timing, closest approach
+  motion.js       takeoff grid, trapezoid timing, closest approach, turn profile
   mat4.js         matrix helpers for the camera
   camera.js       orbit camera and mouse input
   renderer.js     WebGL2 shaders, buffers, and draw calls
@@ -435,10 +457,10 @@ No `npm install` is necessary.
 |---|---|
 | `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. |
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. |
-| `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. |
+| `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
-| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. |
+| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -472,6 +494,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 6 | Publish | README and GitHub Pages. | Done |
 | 7 | Flight volume | A cube that shows where the drones can fly, with a check. | Done |
 | 8 | Storyboard | Several formations in one show, a timeline strip, and a landing. | Done |
+| 9 | Slow turn | A formation turns about its vertical axis in its hold. | Done |
 
 ## Known limits
 
@@ -482,10 +505,13 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
+- A turn goes one way at one rate. There is no sway back and forth, and no tilt.
+- In a short hold the turn does not reach its turn rate. No readout shows the rate that it reaches.
+- A turn moves the end pose of a formation. The transition after it then needs a new assignment, which at 1,000 drones costs the same pause as other changes.
 
 ## Future features
 
-- Slow turn. A formation rotates or sways as one rigid body in its hold, so the audience sees its depth. The rotation angle is a direct function of time, so the timeline still jumps to any time. The speed check is `turn rate × largest radius ≤ maximum horizontal speed`.
+- Sway. A formation turns back and forth in its hold, so it ends where it started.
 - Motion inside a formation, for example drones that move along an outline like marquee lights.
 - More shape inputs: SVG outlines, point lists, GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
 - Edge placement, gradients, and color per drone.

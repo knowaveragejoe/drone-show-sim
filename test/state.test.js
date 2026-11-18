@@ -176,3 +176,12 @@ test('nextFormation gives the next shape and the next color, and keeps the rest'
   // A color that is not in the list is followed by the first color of the list.
   assert.match(nextFormation([{ ...formations[0], color: '#123456' }], 0).color, /^#[0-9a-f]{6}$/);
 });
+
+test('a project file from before the turn rate existed loads with no turn', () => {
+  const text = fileWith((data) => data.formations.forEach((formation) => delete formation.turnRate));
+  const loaded = parseProject(text);
+  for (const formation of loaded.formations) assert.equal(formation.turnRate, 0);
+  // A field that never had a fallback is still required.
+  assert.throws(() => parseProject(fileWith((data) => delete data.formations[0].size)), /formation 1: size/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].turnRate = 90))), /formation 1: turnRate must be a number from -45 to 45/);
+});

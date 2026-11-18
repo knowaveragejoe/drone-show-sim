@@ -2,10 +2,19 @@
 //
 // A show is a list of steps. In each step the fleet flies to a stop and then holds there.
 // The stops are the formations in storyboard order, and then the takeoff grid again
-// when the show ends with a landing.
+// when the show ends with a landing. A formation can turn slowly while it holds.
 
 import { assignTargets } from './assign.js';
-import { closestApproach, planTiming, progressAt, rateAt, takeoffGrid } from './motion.js';
+import {
+  arcBox,
+  closestApproach,
+  planTiming,
+  planTurn,
+  progressAt,
+  rateAt,
+  takeoffGrid,
+  turnAboutZ,
+} from './motion.js';
 import { objCloud } from './obj.js';
 import { closestSpacing, farthestPointOrder } from './sample.js';
 import { builtinCloud } from './shapes.js';
@@ -20,16 +29,19 @@ import { MAX_DRONES } from './state.js';
  * @property {number} hold time at the stop after the transition, seconds
  * @property {Float32Array} from position of each drone when the transition starts, xyz
  * @property {Float32Array} to position of each drone when the transition ends, xyz
+ * @property {import('./motion.js').Turn | null} turn the turn of the formation in the hold, if any
+ * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
  * @property {Float32Array} pathLengths flight distance of each drone in the transition, meters
  * @property {number} closestApproach smallest distance between two drones in the transition, meters
- * @property {number} peakSpeed speed of the fastest drone in the transition, m/s
+ * @property {number} turnSpeed speed of the fastest drone in the turn, m/s; 0 when the formation does not turn
+ * @property {number} peakSpeed speed of the fastest drone in the step, m/s
  */
 
 /**
  * @typedef {object} FormationChecks
  * @property {number} spacing smallest distance between two targets, meters
  * @property {number} lowestTarget height of the lowest target, meters; negative is below the ground
- * @property {number} outsideVolume number of targets outside the flight volume
+ * @property {number} outsideVolume number of targets that are outside the flight volume at some time in the hold
  */
 
 /**
@@ -53,8 +65,30 @@ import { MAX_DRONES } from './state.js';
  */
 
 /**
+ * A place where the fleet rests. Its points are in a fixed order that does not depend on
+ * the drones: grid order for the takeoff grid, pick order for a formation.
+ *
+ * A key names the shape of a pose but not its place. A shift of a whole stop changes neither
+ * the best assignment nor a distance between two drones, so results stored under a key stay
+ * valid when only a formation height changes.
+ * @typedef {object} Stop
+ * @property {number} formation index of the formation, or -1 for the takeoff grid
+ * @property {string} key shape of the stop when the fleet arrives
+ * @property {Float32Array} points xyz per point when the fleet arrives
+ * @property {import('./motion.js').Turn | null} turn the turn in the hold, if any
+ * @property {number} radius distance from the turn axis to the farthest point, meters
+ * @property {string} leaveKey shape of the stop when the hold ends
+ * @property {Float32Array} leavePoints xyz per point when the hold ends
+ */
+
+const DEGREE = Math.PI / 180;
+
+// The route of a drone shows a turn as short straight lines. Each covers this much of the turn.
+const ROUTE_ARC_STEP = 10 * DEGREE;
+
+/**
  * Makes a function that builds the plan for a state.
- * The function keeps the results of the slow steps (sampling, assignment, and the distance
+ * The function keeps the results of the slow stages (sampling, assignment, and the distance
  * checks) and runs them again only when their inputs change.
  *
  * The function throws when a shape is not usable, for example an OBJ file with no faces.
@@ -69,7 +103,7 @@ export function createPlanner() {
   const samples = new WeakMap();
   let nextSampleId = 1;
 
-  /** Results of the slow steps, by a key made from their inputs. @type {Map<string, any>} */
+  /** Results of the slow stages, by a key made from their inputs. @type {Map<string, any>} */
   let stored = new Map();
 
   /** @param {import('./state.js').Formation} formation */
@@ -87,7 +121,7 @@ export function createPlanner() {
   }
 
   return (state) => {
-    const { count, gridSpacing } = state.fleet;
+    const { count, gridSpacing, maxAcceleration } = state.fleet;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
     const shapes = state.formations.map(sampleOf);
 
@@ -105,27 +139,44 @@ export function createPlanner() {
       return value;
     };
 
-    // Each stop, with its points in a fixed order that does not depend on the drones:
-    // grid order for the takeoff grid, pick order for a formation.
-    //
-    // A key names the shape of a stop but not its place. A shift of a whole stop changes
-    // neither the best assignment nor a distance between two drones, so the stored
-    // results stay valid when only a formation height changes.
-    const grid = { formation: -1, key: `grid:${gridSpacing}`, points: takeoffGrid(count, gridSpacing) };
+    const gridPoints = takeoffGrid(count, gridSpacing);
+    const gridKey = `grid:${gridSpacing}`;
+    /** @type {Stop} */
+    const grid = {
+      formation: -1,
+      key: gridKey,
+      points: gridPoints,
+      turn: null,
+      radius: 0,
+      leaveKey: gridKey,
+      leavePoints: gridPoints,
+    };
     const stops = [grid];
     state.formations.forEach((formation, index) => {
       const { id, cloud, order } = shapes[index];
+      const points = placeTargets(cloud, order, count, formation);
+      const key = `${id}:${formation.size}:${formation.yaw}`;
+      let radius = 0;
+      for (let i = 0; i < points.length; i += 3) {
+        radius = Math.max(radius, Math.hypot(points[i], points[i + 1]));
+      }
+      const turn = planTurn(formation.turnRate * DEGREE, formation.holdSeconds, radius, maxAcceleration);
+      // A formation that turns leaves its hold in a new pose: the same shape at a new yaw.
       stops.push({
         formation: index,
-        key: `${id}:${formation.size}:${formation.yaw}`,
-        points: placeTargets(cloud, order, count, formation),
+        key,
+        points,
+        turn,
+        radius,
+        leaveKey: turn ? `${id}:${formation.size}:${formation.yaw + turn.angle / DEGREE}` : key,
+        leavePoints: turn ? turnAboutZ(points, turn.angle, new Float32Array(points.length)) : points,
       });
     });
     if (state.landAtEnd) stops.push(grid);
 
     const volume = volumeBounds(state.volume);
     const outside = new Uint8Array(count);
-    markOutside(grid.points, count, volume, outside);
+    markOutside(grid.points, count, 0, volume, outside);
 
     // slots[drone] is the point of the current stop where the drone is.
     let slots = Int32Array.from({ length: count }, (unused, drone) => drone);
@@ -139,17 +190,18 @@ export function createPlanner() {
 
       // The assignment pairs the points of two stops. It does not depend on which drone
       // is at which point, so one result serves every order of the stops before it.
-      const link = remember(`link|${count}|${previous.key}|${stop.key}`, () => {
-        const match = assignTargets(previous.points, stop.points, count);
+      const link = remember(`link|${count}|${previous.leaveKey}|${stop.key}`, () => {
+        const match = assignTargets(previous.leavePoints, stop.points, count);
         return {
           match,
-          closestApproach: closestApproach(previous.points, gather(stop.points, match), count),
+          closestApproach: closestApproach(previous.leavePoints, gather(stop.points, match), count),
         };
       });
 
       slots = slots.map((slot) => link.match[slot]);
       const to = gather(stop.points, slots);
-      markOutside(to, count, volume, outside);
+      const end = stop.turn ? gather(stop.leavePoints, slots) : to;
+      markOutside(to, count, stop.turn?.angle ?? 0, volume, outside);
 
       const pathLengths = new Float32Array(count);
       let longest = 0;
@@ -161,6 +213,7 @@ export function createPlanner() {
 
       const timing = planTiming(from, to, count, state.fleet);
       const hold = stop.formation >= 0 ? state.formations[stop.formation].holdSeconds : 0;
+      const turnSpeed = stop.turn ? stop.turn.peakRate * stop.radius : 0;
       steps.push({
         formation: stop.formation,
         start,
@@ -168,22 +221,25 @@ export function createPlanner() {
         hold,
         from,
         to,
+        turn: stop.turn,
+        end,
         pathLengths,
         closestApproach: link.closestApproach,
-        peakSpeed: longest * timing.peakRate,
+        turnSpeed,
+        peakSpeed: Math.max(longest * timing.peakRate, turnSpeed),
       });
       start += timing.duration + hold;
-      from = to;
+      from = end;
     }
 
     const formations = state.formations.map((formation, index) => {
-      const { key, points } = stops[index + 1];
+      const { key, points, turn } = stops[index + 1];
       let lowestTarget = Infinity;
       for (let i = 0; i < count; i++) lowestTarget = Math.min(lowestTarget, points[i * 3 + 2]);
       return {
         spacing: remember(`spacing|${count}|${key}`, () => closestSpacing(points, count)),
         lowestTarget,
-        outsideVolume: markOutside(points, count, volume, new Uint8Array(count)),
+        outsideVolume: markOutside(points, count, turn?.angle ?? 0, volume, new Uint8Array(count)),
       };
     });
 
@@ -231,23 +287,33 @@ export function volumeBounds(volume) {
 }
 
 /**
- * Sets the flag of each position that is outside a box. A position on a face of the box is inside.
- * @param {Float32Array} positions xyz per drone
+ * Sets the flag of each drone that is outside a box at a stop. A position on a face of
+ * the box is inside. When the stop turns, the whole arc of the drone must be inside.
+ * @param {Float32Array} positions xyz per drone when the fleet arrives at the stop
  * @param {number} count
+ * @param {number} turn angle that the stop turns in its hold, radians; 0 for no turn
  * @param {Bounds} bounds
  * @param {Uint8Array} flags one flag per drone; the function only sets flags
- * @returns {number} number of positions outside the box
+ * @returns {number} number of drones outside the box
  */
-function markOutside(positions, count, bounds, flags) {
+function markOutside(positions, count, turn, bounds, flags) {
+  const { low, high } = bounds;
   let outside = 0;
   for (let drone = 0; drone < count; drone++) {
-    for (let axis = 0; axis < 3; axis++) {
-      const value = positions[drone * 3 + axis];
-      if (value < bounds.low[axis] - ROUNDING_SLACK || value > bounds.high[axis] + ROUNDING_SLACK) {
-        flags[drone] = 1;
-        outside++;
-        break;
-      }
+    const x = positions[drone * 3];
+    const y = positions[drone * 3 + 1];
+    const z = positions[drone * 3 + 2];
+    const [minX, maxX, minY, maxY] = turn === 0 ? [x, x, y, y] : arcBox(x, y, turn);
+    const inside =
+      minX >= low[0] - ROUNDING_SLACK &&
+      maxX <= high[0] + ROUNDING_SLACK &&
+      minY >= low[1] - ROUNDING_SLACK &&
+      maxY <= high[1] + ROUNDING_SLACK &&
+      z >= low[2] - ROUNDING_SLACK &&
+      z <= high[2] + ROUNDING_SLACK;
+    if (!inside) {
+      flags[drone] = 1;
+      outside++;
     }
   }
   return outside;
@@ -263,7 +329,7 @@ function markOutside(positions, count, bounds, flags) {
  */
 export function countOutside(stops, count, bounds) {
   const flags = new Uint8Array(count);
-  for (const positions of stops) markOutside(positions, count, bounds, flags);
+  for (const positions of stops) markOutside(positions, count, 0, bounds, flags);
   return flags.reduce((sum, flag) => sum + flag, 0);
 }
 
@@ -276,7 +342,7 @@ export function countOutside(stops, count, bounds) {
  * @returns {Float32Array} xyz per target
  */
 function placeTargets(cloud, order, count, formation) {
-  const yaw = (formation.yaw * Math.PI) / 180;
+  const yaw = formation.yaw * DEGREE;
   const cos = Math.cos(yaw) * formation.size;
   const sin = Math.sin(yaw) * formation.size;
   const targets = new Float32Array(count * 3);
@@ -337,19 +403,23 @@ export function isBelowGround(height) {
  * Lists what is wrong with one formation, in words for the user.
  * @param {Plan} plan
  * @param {number} formation index of the formation
- * @param {number} minSpacing meters
+ * @param {{minSpacing: number, maxHorizontalSpeed: number}} limits the fleet limits
  * @returns {string[]} empty when the formation passes every check
  */
-export function formationProblems(plan, formation, minSpacing) {
+export function formationProblems(plan, formation, limits) {
   const checks = plan.formations[formation];
+  const step = plan.steps[formation];
   const problems = [];
-  if (isTooClose(checks.spacing, minSpacing)) {
+  if (isTooClose(checks.spacing, limits.minSpacing)) {
     problems.push('Targets are closer than the minimum spacing.');
   }
   if (isBelowGround(checks.lowestTarget)) problems.push('Targets are below the ground.');
   if (checks.outsideVolume > 0) problems.push('Targets are outside the flight volume.');
-  if (isTooClose(plan.steps[formation].closestApproach, minSpacing)) {
+  if (isTooClose(step.closestApproach, limits.minSpacing)) {
     problems.push('Drones come too close in the transition to this formation.');
+  }
+  if (step.turnSpeed > limits.maxHorizontalSpeed + ROUNDING_SLACK) {
+    problems.push('The turn is faster than the maximum horizontal speed.');
   }
   return problems;
 }
@@ -384,13 +454,19 @@ export function holdStart(plan, formation) {
  * @param {Float32Array} out xyz per drone; length at least `plan.count × 3`
  */
 export function positionsAt(plan, time, out) {
-  const { start, timing, from, to } = plan.steps[stepAt(plan, time)];
-  const progress = progressAt(timing, time - start);
-  // A drone that holds is exactly on its target. The formula below can be off in the last bit.
-  if (progress === 1) {
-    out.set(to);
+  const step = plan.steps[stepAt(plan, time)];
+  const { timing, from, to } = step;
+  const held = time - step.start - timing.duration;
+  if (held >= 0) {
+    // In the hold a drone is exactly on its target, or on the arc of the turn.
+    if (step.turn && held < step.hold) {
+      turnAboutZ(to, step.turn.angle * progressAt(step.turn.timing, held), out);
+    } else {
+      out.set(step.end);
+    }
     return;
   }
+  const progress = progressAt(timing, time - step.start);
   for (let i = 0; i < plan.count * 3; i++) {
     out[i] = from[i] + progress * (to[i] - from[i]);
   }
@@ -405,7 +481,34 @@ export function positionsAt(plan, time, out) {
  */
 export function speedAt(plan, drone, time) {
   const step = plan.steps[stepAt(plan, time)];
-  return rateAt(step.timing, time - step.start) * step.pathLengths[drone];
+  const held = time - step.start - step.timing.duration;
+  if (held < 0) return rateAt(step.timing, time - step.start) * step.pathLengths[drone];
+  if (!step.turn) return 0;
+  const radius = Math.hypot(step.to[drone * 3], step.to[drone * 3 + 1]);
+  return rateAt(step.turn.timing, held) * Math.abs(step.turn.angle) * radius;
+}
+
+/**
+ * The route of one drone through the show: for each step, the points that it passes.
+ * The first two points are the ends of the flight. More points follow when the formation
+ * turns in the hold; they trace the arc of the drone.
+ * @param {Plan} plan
+ * @param {number} drone index
+ * @returns {Float32Array[]} xyz per point, one list per step
+ */
+export function routeOf(plan, drone) {
+  return plan.steps.map(({ from, to, turn }) => {
+    const arcPoints = turn ? Math.ceil(Math.abs(turn.angle) / ROUTE_ARC_STEP) : 0;
+    const route = new Float32Array((2 + arcPoints) * 3);
+    route.set(from.subarray(drone * 3, drone * 3 + 3), 0);
+    const target = to.subarray(drone * 3, drone * 3 + 3);
+    route.set(target, 3);
+    for (let point = 1; point <= arcPoints; point++) {
+      const turned = route.subarray((1 + point) * 3, (2 + point) * 3);
+      turnAboutZ(target, (turn.angle * point) / arcPoints, turned);
+    }
+    return route;
+  });
 }
 
 /**

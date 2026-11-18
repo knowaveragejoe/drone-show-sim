@@ -39,7 +39,7 @@ The Settings tab has seven sections.
 | Fleet | Sets the drone count, the speed and acceleration limits, and the spacing. |
 | Flight volume | Sets the size and position of the cube that the drones must stay inside. The cube turns red when a drone leaves it. |
 | Storyboard | Lists the formations of the show in order. Adds, removes, and moves formations. Turns the landing on or off. A red mark shows a formation that breaks a limit. |
-| Formation | Sets the shape, size, height, rotation, color, and hold time of the selected formation. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
+| Formation | Sets the shape, size, height, rotation, hold time, turn rate, and color of the selected formation. A formation with a turn rate turns slowly in its hold. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
 | Checks | Shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. A value turns red when it breaks a limit. |
 | View | Hides the flight paths or the flight volume. Moves the camera to where the audience stands. |
 

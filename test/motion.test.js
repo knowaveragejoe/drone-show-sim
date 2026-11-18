@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { closestApproach, planTiming, progressAt, rateAt, takeoffGrid } from '../src/motion.js';
+import {
+  arcBox,
+  closestApproach,
+  planTiming,
+  planTurn,
+  progressAt,
+  rateAt,
+  takeoffGrid,
+  turnAboutZ,
+} from '../src/motion.js';
 import { createRng } from '../src/rng.js';
 
 const LIMITS = { maxHorizontalSpeed: 8, maxClimbSpeed: 3, maxDescentSpeed: 2, maxAcceleration: 4 };
@@ -147,4 +156,83 @@ test('closestApproach equals a dense scan over time', () => {
 
 test('closestApproach is infinite for one drone', () => {
   assert.equal(closestApproach(new Float32Array(3), new Float32Array(3), 1), Infinity);
+});
+
+test('planTurn: a long hold reaches the turn rate and cruises', () => {
+  // Rim at 20 m, limit 4 m/s²: the turn can speed up by 0.2 rad/s each second.
+  const turn = planTurn(0.1, 10, 20, 4);
+  near(turn.timing.rampTime, 0.5);
+  near(turn.peakRate, 0.1);
+  // 0.5 s up, 9 s at 0.1 rad/s, 0.5 s down.
+  near(turn.angle, 0.1 * 9.5);
+  assert.equal(turn.timing.duration, 10);
+  assert.equal(progressAt(turn.timing, 0), 0);
+  near(progressAt(turn.timing, 5), 0.5);
+  assert.equal(progressAt(turn.timing, 10), 1);
+  // The turn rate is the progress rate times the angle.
+  near(rateAt(turn.timing, 5) * turn.angle, 0.1);
+  assert.equal(rateAt(turn.timing, 10), 0);
+});
+
+test('planTurn: a short hold speeds up to its middle and then slows down', () => {
+  // The turn rate needs 5 s to reach, but the hold is 4 s.
+  const turn = planTurn(1, 4, 20, 4);
+  near(turn.timing.rampTime, 2);
+  near(turn.peakRate, 0.4);
+  near(turn.angle, 0.4 * 2);
+  near(progressAt(turn.timing, 2), 0.5);
+  assert.equal(progressAt(turn.timing, 4), 1);
+});
+
+test('planTurn: the sign of the turn rate gives the direction', () => {
+  const left = planTurn(0.1, 10, 20, 4);
+  const right = planTurn(-0.1, 10, 20, 4);
+  near(right.angle, -left.angle);
+  assert.deepEqual(right.timing, left.timing);
+});
+
+test('planTurn: no turn rate, no hold, or no radius gives no turn', () => {
+  assert.equal(planTurn(0, 10, 20, 4), null);
+  assert.equal(planTurn(0.1, 0, 20, 4), null);
+  assert.equal(planTurn(0.1, 10, 0, 4), null);
+});
+
+test('planTurn: no target exceeds the acceleration limit along its path', () => {
+  const turn = planTurn(0.3, 12, 35, 4);
+  // Along the path, the acceleration is the progress acceleration × angle × radius.
+  near(turn.timing.acceleration * turn.angle * 35, 4);
+});
+
+test('turnAboutZ turns points about the vertical axis', () => {
+  const points = new Float32Array([1, 0, 5, 0, 2, -3]);
+  const turned = turnAboutZ(points, Math.PI / 2, new Float32Array(6));
+  [0, 1, 5, -2, 0, -3].forEach((value, i) => near(turned[i], value, 1e-6));
+  // The output can be the input.
+  turnAboutZ(points, Math.PI, points);
+  [-1, 0, 5, 0, -2, -3].forEach((value, i) => near(points[i], value, 1e-6));
+});
+
+test('arcBox equals a dense scan of the arc', () => {
+  const random = createRng(21);
+  for (let round = 0; round < 200; round++) {
+    const x = random() * 40 - 20;
+    const y = random() * 40 - 20;
+    const angle = (random() * 2 - 1) * (round % 4 === 0 ? 9 : 2.5);
+    const radius = Math.hypot(x, y);
+    const start = Math.atan2(y, x);
+    const scan = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let step = 0; step <= 4000; step++) {
+      const at = start + (angle * step) / 4000;
+      scan[0] = Math.min(scan[0], radius * Math.cos(at));
+      scan[1] = Math.max(scan[1], radius * Math.cos(at));
+      scan[2] = Math.min(scan[2], radius * Math.sin(at));
+      scan[3] = Math.max(scan[3], radius * Math.sin(at));
+    }
+    arcBox(x, y, angle).forEach((value, i) => near(value, scan[i], 1e-3));
+  }
+});
+
+test('arcBox of a full turn is the whole circle, and of no turn is the point', () => {
+  arcBox(3, 4, 7).forEach((value, i) => near(value, [-5, 5, -5, 5][i], 1e-9));
+  arcBox(3, 4, 0).forEach((value, i) => near(value, [3, 3, 4, 4][i], 1e-9));
 });

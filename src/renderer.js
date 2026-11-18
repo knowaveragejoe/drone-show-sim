@@ -73,7 +73,7 @@ const PATH_PARTS = 8;
 const VOLUME_EDGE_PARTS = 16;
 // Brightness of a path that is not selected, as a share of the light color.
 const PATH_BRIGHTNESS = 0.1;
-// Brightness of the selected drone's path in the steps that are not the current one.
+// Brightness of the selected drone's route in the steps that are not the current one.
 const OTHER_STEP_BRIGHTNESS = 0.3;
 
 /**
@@ -117,6 +117,7 @@ export function createRenderer(canvas) {
   ]);
   const volume = createLines(gl, lineProgram);
   const paths = createLines(gl, lineProgram);
+  const route = createLines(gl, lineProgram);
   const drones = createVertexArray(gl, pointProgram);
 
   gl.disable(gl.DEPTH_TEST);
@@ -124,7 +125,6 @@ export function createRenderer(canvas) {
   gl.blendFunc(gl.ONE, gl.ONE);
   gl.clearColor(0.016, 0.02, 0.043, 1);
 
-  let pathSteps = 0;
   let pathDrones = 0;
 
   /**
@@ -150,8 +150,30 @@ export function createRenderer(canvas) {
       }
     }
     paths.set(vertices);
-    pathSteps = steps.length;
     pathDrones = count;
+  }
+
+  /** First segment and number of segments of each step of the route. @type {number[][]} */
+  let routeRanges = [];
+
+  /**
+   * Stores the route of the selected drone.
+   * @param {Float32Array[]} steps for each step, the points that the drone passes, xyz per point;
+   *   empty when no drone is selected
+   */
+  function setRoute(steps) {
+    /** @type {number[]} */
+    const vertices = [];
+    routeRanges = steps.map((points) => {
+      const first = vertices.length / 6;
+      for (let i = 3; i < points.length; i += 3) {
+        // The first line is the flight, which is long. The lines of a turn are short already.
+        const parts = i === 3 ? PATH_PARTS : 1;
+        addLine(vertices, points.subarray(i - 3, i), points.subarray(i, i + 3), parts);
+      }
+      return [first, vertices.length / 6 - first];
+    });
+    route.set(vertices);
   }
 
   /**
@@ -212,7 +234,7 @@ export function createRenderer(canvas) {
       volume.draw();
     }
 
-    const selected = frame.selected >= 0 && frame.selected < pathDrones ? frame.selected : -1;
+    const selected = frame.selected >= 0 && frame.selected < frame.count ? frame.selected : -1;
     if (frame.showPaths) {
       // All paths of one step: the transition in flight, or the one that led to the current hold.
       gl.uniform3fv(
@@ -221,14 +243,12 @@ export function createRenderer(canvas) {
       );
       paths.draw(frame.pathStep * pathDrones * PATH_PARTS, pathDrones * PATH_PARTS);
     }
-    if (selected >= 0) {
-      // The whole route of the selected drone, with the current step brightest.
-      for (let step = 0; step < pathSteps; step++) {
-        const brightness = step === frame.pathStep ? 1 : OTHER_STEP_BRIGHTNESS;
-        gl.uniform3f(lineUniforms.uColor, brightness, brightness, brightness);
-        paths.draw((step * pathDrones + selected) * PATH_PARTS, PATH_PARTS);
-      }
-    }
+    // The whole route of the selected drone, with the current step brightest.
+    routeRanges.forEach(([first, count], step) => {
+      const brightness = step === frame.pathStep ? 1 : OTHER_STEP_BRIGHTNESS;
+      gl.uniform3f(lineUniforms.uColor, brightness, brightness, brightness);
+      route.draw(first, count);
+    });
 
     gl.useProgram(pointProgram);
     gl.uniformMatrix4fv(pointUniforms.uViewProj, false, frame.viewProj);
@@ -242,7 +262,7 @@ export function createRenderer(canvas) {
     gl.uniform3fv(pointUniforms.uColor, frame.color);
     gl.drawArrays(gl.POINTS, 0, frame.count);
 
-    if (selected >= 0 && selected < frame.count) {
+    if (selected >= 0) {
       gl.uniform1f(pointUniforms.uSize, SELECTED_LIGHT_SIZE);
       gl.uniform1f(pointUniforms.uMinPixels, MIN_SELECTED_PIXELS * dpr);
       gl.uniform3f(pointUniforms.uColor, 1, 1, 1);
@@ -251,7 +271,7 @@ export function createRenderer(canvas) {
     gl.bindVertexArray(null);
   }
 
-  return { draw, setPaths, setVolume };
+  return { draw, setPaths, setRoute, setVolume };
 }
 
 /**
