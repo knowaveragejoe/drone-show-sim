@@ -255,6 +255,7 @@ test('the plan counts the drones outside the flight volume', () => {
   const state = singleState();
   // The show fits in the default volume. The takeoff grid is on the floor, which is inside.
   assert.equal(planner(state).outsideVolume, 0);
+  assert.equal(planner(state).takeoffOutsideVolume, 0);
 
   // A ceiling at 60 m cuts the sphere, which is centered at 60 m, in half.
   state.volume = { ...state.volume, size: 60 };
@@ -265,6 +266,7 @@ test('the plan counts the drones outside the flight volume', () => {
   // A volume that floats above the ground does not hold the takeoff grid.
   state.volume = { size: 120, x: 0, y: 0, z: 10 };
   assert.equal(planner(state).outsideVolume, state.fleet.count);
+  assert.equal(planner(state).takeoffOutsideVolume, state.fleet.count);
   assert.equal(planner(state).formations[0].outsideVolume, 0);
 
   // A volume far to the side holds no drone.

@@ -1,4 +1,5 @@
-// Sidebar tabs and controls, the storyboard, the drone list, and the transport bar.
+// Sidebar tabs and controls, the storyboard, the drone list, the overlays on the 3D view,
+// and the transport bar.
 
 import { formationProblems, isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
@@ -50,7 +51,14 @@ import {
 // each step of a drag. Above it, a slider applies its value when the user lets go.
 const LIVE_SLIDER_MAX_DRONES = 250;
 
+// The Fleet section of the Fleet tab holds these fields. The Limits section holds the others.
+const FLEET_KEYS = ['count', 'gridSpacing'];
+
+// The checks panel lists this many problems. A last line counts the rest.
+const MAX_LISTED_PROBLEMS = 4;
+
 const LANDING_PROBLEM = 'Drones come too close in the landing.';
+const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
 
 /**
  * @param {Actions} actions
@@ -61,7 +69,18 @@ export function createUi(actions) {
   const isLive = (key, value) =>
     Math.max(droneCount, key === 'count' ? value : 0) <= LIVE_SLIDER_MAX_DRONES;
 
-  const fleetFields = buildFields(byId('fleet-fields'), FLEET_FIELDS, actions.setFleet, isLive);
+  const fleetFields = buildFields(
+    byId('fleet-fields'),
+    FLEET_FIELDS.filter((field) => FLEET_KEYS.includes(field.key)),
+    actions.setFleet,
+    isLive,
+  );
+  const limitFields = buildFields(
+    byId('limit-fields'),
+    FLEET_FIELDS.filter((field) => !FLEET_KEYS.includes(field.key)),
+    actions.setFleet,
+    isLive,
+  );
   // A new flight volume needs no new assignment, so its slider is live for every fleet size.
   const volumeFields = buildFields(byId('volume-fields'), VOLUME_FIELDS, actions.setVolume, () => true);
   const formationFields = buildFields(
@@ -113,26 +132,28 @@ export function createUi(actions) {
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
 
+  const checksStatus = byId('checks-status');
+  const checksSummary = byId('checks-summary');
+  const checksProblems = byId('checks-problems');
   const duration = byId('duration');
   const outside = byId('outside');
   const lowest = byId('lowest');
   const approach = byId('approach');
   const peakSpeed = byId('peak-speed');
 
-  const showPaths = /** @type {HTMLInputElement} */ (byId('show-paths'));
-  showPaths.addEventListener('change', () => actions.setShowPaths(showPaths.checked));
-  const showVolume = /** @type {HTMLInputElement} */ (byId('show-volume'));
-  showVolume.addEventListener('change', () => actions.setShowVolume(showVolume.checked));
+  const showPaths = wireToggle(byId('show-paths'), actions.setShowPaths);
+  const showVolume = wireToggle(byId('show-volume'), actions.setShowVolume);
   byId('audience-view').addEventListener('click', actions.audienceView);
 
   const play = byId('play');
+  const playLabel = byId('play-label');
   const scrub = /** @type {HTMLInputElement} */ (byId('scrub'));
   const time = byId('time');
-  const playhead = byId('playhead');
   play.addEventListener('click', actions.togglePlay);
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
   const timeline = buildTimeline(byId('timeline-blocks'), actions);
 
+  const droneCountBadge = byId('drone-count');
   const droneList = buildDroneList(byId('drone-list'), actions.select);
   buildTabs((name) => {
     if (name === 'drones') droneList.opened();
@@ -160,7 +181,9 @@ export function createUi(actions) {
     const { minSpacing } = state.fleet;
     droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
+    limitFields.show(state.fleet);
     volumeFields.show(state.volume);
+    droneCountBadge.textContent = String(plan.count);
 
     storyboard.show(state, plan, view);
     addFormation.disabled = formations.length >= MAX_FORMATIONS;
@@ -169,7 +192,7 @@ export function createUi(actions) {
     moveLater.disabled = view.formation === formations.length - 1;
     landAtEnd.checked = state.landAtEnd;
 
-    formationTitle.textContent = `Formation ${view.formation + 1}`;
+    formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
     color.value = formation.color;
 
@@ -190,7 +213,25 @@ export function createUi(actions) {
     spacing.classList.toggle('warn', isTooClose(formationSpacing, minSpacing));
     fit.disabled = !Number.isFinite(formationSpacing) || formationSpacing <= 0;
 
-    duration.textContent = `${plan.total.toFixed(1)} s`;
+    const problems = showProblems(state, plan);
+    checksStatus.classList.toggle('warn', problems.length > 0);
+    checksSummary.textContent =
+      problems.length === 0
+        ? 'All checks pass'
+        : `${problems.length} ${problems.length === 1 ? 'problem' : 'problems'}`;
+    const listed = problems.slice(0, MAX_LISTED_PROBLEMS);
+    if (problems.length > listed.length) listed.push(`${problems.length - listed.length} more`);
+    checksProblems.replaceChildren(
+      ...listed.map((problem) => {
+        const item = element('li');
+        item.textContent = problem;
+        item.title = problem;
+        return item;
+      }),
+    );
+    checksProblems.hidden = problems.length === 0;
+
+    duration.textContent = clock(plan.total);
     outside.textContent =
       plan.outsideVolume === 0 ? '0' : `${plan.outsideVolume} of ${plan.count}`;
     outside.classList.toggle('warn', plan.outsideVolume > 0);
@@ -200,8 +241,8 @@ export function createUi(actions) {
     approach.classList.toggle('warn', isTooClose(plan.closestApproach, minSpacing));
     peakSpeed.textContent = `${plan.peakSpeed.toFixed(1)} m/s`;
 
-    showPaths.checked = view.showPaths;
-    showVolume.checked = view.showVolume;
+    showPaths.show(view.showPaths);
+    showVolume.show(view.showVolume);
     scrub.max = String(plan.total);
     timeline.show(state, plan, view);
   }
@@ -214,13 +255,62 @@ export function createUi(actions) {
    */
   function showFrame(plan, view, positions) {
     scrub.value = String(view.time);
-    playhead.style.left = `${plan.total > 0 ? (view.time / plan.total) * 100 : 0}%`;
-    time.textContent = `${view.time.toFixed(1)} / ${plan.total.toFixed(1)} s`;
-    play.textContent = view.playing ? 'Pause' : 'Play';
+    time.textContent = `${clock(view.time)} / ${clock(plan.total)}`;
+    play.dataset.playing = String(view.playing);
+    playLabel.textContent = view.playing ? 'Pause' : 'Play';
     droneList.show(plan, view, positions);
   }
 
   return { refresh, showFrame, revealDrone: droneList.reveal };
+}
+
+/**
+ * Lists every problem of the show, in words for the user.
+ * @param {import('./state.js').State} state
+ * @param {import('./plan.js').Plan} plan
+ * @returns {string[]}
+ */
+function showProblems(state, plan) {
+  const problems = [];
+  if (plan.takeoffOutsideVolume > 0) problems.push(TAKEOFF_PROBLEM);
+  state.formations.forEach((formation, index) => {
+    for (const problem of formationProblems(plan, index, state.fleet)) {
+      problems.push(`Formation ${index + 1}: ${problem}`);
+    }
+  });
+  const last = plan.steps.at(-1);
+  if (last.formation < 0 && isTooClose(last.closestApproach, state.fleet.minSpacing)) {
+    problems.push(LANDING_PROBLEM);
+  }
+  return problems;
+}
+
+/**
+ * Formats a time for the transport bar and the checks panel.
+ * @param {number} seconds
+ * @returns {string} minutes, seconds, and tenths, for example "1:05.3"
+ */
+function clock(seconds) {
+  const tenths = Math.round(seconds * 10);
+  const minutes = Math.floor(tenths / 600);
+  const rest = ((tenths % 600) / 10).toFixed(1).padStart(4, '0');
+  return `${minutes}:${rest}`;
+}
+
+/**
+ * Makes a button an on and off switch. The button shows its state in `aria-pressed`.
+ * @param {HTMLElement} button
+ * @param {(on: boolean) => void} onChange
+ */
+function wireToggle(button, onChange) {
+  /** @param {boolean} on */
+  const show = (on) => button.setAttribute('aria-pressed', String(on));
+  button.addEventListener('click', () => {
+    const on = button.getAttribute('aria-pressed') !== 'true';
+    show(on);
+    onChange(on);
+  });
+  return { show };
 }
 
 /**
@@ -253,7 +343,7 @@ function buildStoryboard(list, onSelect) {
       const row = element('button', 'formation-row');
       row.type = 'button';
       row.append(element('span', 'swatch'), element('span', 'number'), element('span', 'name'));
-      row.append(element('span', 'problem'));
+      row.append(element('span', 'meta'), element('span', 'problem'));
       row.addEventListener('click', () => onSelect(index));
       const item = element('li');
       item.append(row);
@@ -264,12 +354,14 @@ function buildStoryboard(list, onSelect) {
 
     state.formations.forEach((formation, index) => {
       const row = rows[index];
-      const [swatch, number, name, problem] = /** @type {HTMLElement[]} */ ([...row.children]);
+      const [swatch, number, name, meta, problem] = /** @type {HTMLElement[]} */ ([...row.children]);
       const problems = formationProblems(plan, index, state.fleet);
       row.setAttribute('aria-current', String(index === view.formation));
-      swatch.style.background = formation.color;
+      swatch.style.color = formation.color;
       number.textContent = String(index + 1);
       name.textContent = shapeLabel(formation);
+      const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
+      meta.textContent = `${formation.holdSeconds} s${turn}`;
       problem.textContent = problems.length > 0 ? '!' : '';
       row.title = problems.join(' ');
     });
@@ -334,6 +426,7 @@ function buildTimeline(strip, actions) {
         hold.textContent = String(step.formation + 1);
         hold.title = `Formation ${step.formation + 1}: ${shapeLabel(formations[step.formation])}. Hold ${step.hold} s`;
         hold.classList.toggle('current', current);
+        hold.classList.toggle('problem', problems.length > 0);
         hold.dataset.block = String(clicks.push(select) - 1);
         blocks.push(hold);
       }
@@ -344,10 +437,10 @@ function buildTimeline(strip, actions) {
   return { show };
 }
 
-const TAB_NAMES = ['settings', 'drones'];
+const TAB_NAMES = ['show', 'fleet', 'drones'];
 
 /**
- * Connects the sidebar tabs. A click on a tab shows its panel and hides the other panel.
+ * Connects the sidebar tabs. A click on a tab shows its panel and hides the other panels.
  * The left and right arrow keys move between tabs.
  * @param {(name: string) => void} onShow called after a panel comes into view
  */
@@ -359,7 +452,7 @@ function buildTabs(onShow) {
   function select(selected) {
     tabs.forEach((tab, index) => {
       tab.setAttribute('aria-selected', String(index === selected));
-      // Only the selected tab is a Tab key stop. The arrow keys reach the other tab.
+      // Only the selected tab is a Tab key stop. The arrow keys reach the other tabs.
       tab.tabIndex = index === selected ? 0 : -1;
       panels[index].hidden = index !== selected;
     });
@@ -387,6 +480,7 @@ const DRONE_ROW_HEIGHT = 22;
  * @param {(drone: number) => void} onSelect
  */
 function buildDroneList(container, onSelect) {
+  const header = /** @type {HTMLElement} */ (container.firstElementChild);
   // An empty box as tall as all rows. It gives the scroll bar the right range.
   const body = element('div', 'drone-list-body');
   container.append(body);
@@ -414,6 +508,8 @@ function buildDroneList(container, onSelect) {
     selected = view.selected;
     body.style.height = `${plan.count * DRONE_ROW_HEIGHT}px`;
 
+    // The sticky header covers the top of the box, and the body starts below the header,
+    // so the first row in view is at the scroll offset.
     const first = Math.floor(container.scrollTop / DRONE_ROW_HEIGHT);
     const visible = Math.ceil(container.clientHeight / DRONE_ROW_HEIGHT) + 1;
     const last = Math.min(plan.count, first + visible);
@@ -448,8 +544,7 @@ function buildDroneList(container, onSelect) {
     // A hidden box has no height and cannot scroll. `opened` does the scroll later.
     if (container.clientHeight === 0) return;
     const top = drone * DRONE_ROW_HEIGHT;
-    // The sticky header covers the first row height of the box.
-    const room = container.clientHeight - 2 * DRONE_ROW_HEIGHT;
+    const room = container.clientHeight - header.offsetHeight - DRONE_ROW_HEIGHT;
     if (top < container.scrollTop) container.scrollTop = top;
     else if (top > container.scrollTop + room) container.scrollTop = top - room;
   }
@@ -521,7 +616,7 @@ function meters(distance) {
  */
 
 /**
- * Builds one labeled number box per field, plus a slider for fields that ask for one.
+ * Builds one row per field: a label, a slider for fields that ask for one, and a number box.
  * @param {HTMLElement} container
  * @param {import('./state.js').NumberField[]} fields
  * @param {(key: string, value: number) => void} onChange
@@ -535,11 +630,12 @@ function buildFields(container, fields, onChange, isLive) {
 
   for (const field of fields) {
     const id = `${container.id}-${field.key}`;
-    const row = element('div', 'field');
+    const row = element('div', field.slider ? 'field with-slider' : 'field');
 
     const label = element('label');
     label.htmlFor = id;
     label.textContent = field.label;
+    row.append(label);
 
     const box = element('span', 'number-box');
     const number = numberInput(field, 'number');
@@ -547,7 +643,6 @@ function buildFields(container, fields, onChange, isLive) {
     const unit = element('span', 'unit');
     unit.textContent = field.unit;
     box.append(number, unit);
-    row.append(label, box);
 
     const fieldInputs = [number];
     // A number box reports a change when the user commits the value.
@@ -555,8 +650,10 @@ function buildFields(container, fields, onChange, isLive) {
 
     if (field.slider) {
       const slider = numberInput(field, 'range');
+      slider.className = 'slider';
       slider.setAttribute('aria-label', field.label);
       slider.addEventListener('input', () => {
+        setFill(slider);
         const value = clampToField(field, slider.valueAsNumber);
         if (value !== null && isLive(field.key, value)) onChange(field.key, value);
         // Not live: the number box shows the value that the slider will apply.
@@ -567,6 +664,7 @@ function buildFields(container, fields, onChange, isLive) {
       fieldInputs.push(slider);
     }
 
+    row.append(box);
     inputs.set(field.key, fieldInputs);
     container.append(row);
   }
@@ -589,11 +687,25 @@ function buildFields(container, fields, onChange, isLive) {
     shown = values;
     for (const [key, fieldInputs] of inputs) {
       const text = String(Math.round(values[key] * 1000) / 1000);
-      for (const input of fieldInputs) input.value = text;
+      for (const input of fieldInputs) {
+        input.value = text;
+        if (input.type === 'range') setFill(input);
+      }
     }
   }
 
   return { show };
+}
+
+/**
+ * Colors the track of a slider up to its thumb.
+ * @param {HTMLInputElement} slider
+ */
+function setFill(slider) {
+  const min = Number(slider.min);
+  const max = Number(slider.max);
+  const share = Math.min(1, Math.max(0, (slider.valueAsNumber - min) / (max - min)));
+  slider.style.setProperty('--fill', `${share * 100}%`);
 }
 
 /**

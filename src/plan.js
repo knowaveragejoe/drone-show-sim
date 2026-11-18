@@ -55,6 +55,7 @@ import { MAX_DRONES } from './state.js';
  * @property {number} peakSpeed speed of the fastest drone of the show, m/s
  * @property {Bounds} volume corners of the flight volume
  * @property {number} outsideVolume number of drones that leave the flight volume at some time
+ * @property {number} takeoffOutsideVolume number of takeoff grid cells outside the flight volume
  */
 
 /**
@@ -176,7 +177,7 @@ export function createPlanner() {
 
     const volume = volumeBounds(state.volume);
     const outside = new Uint8Array(count);
-    markOutside(grid.points, count, 0, volume, outside);
+    const takeoffOutsideVolume = markOutside(grid.points, count, 0, volume, outside);
 
     // slots[drone] is the point of the current stop where the drone is.
     let slots = Int32Array.from({ length: count }, (unused, drone) => drone);
@@ -254,6 +255,7 @@ export function createPlanner() {
       peakSpeed: Math.max(...steps.map((step) => step.peakSpeed)),
       volume,
       outsideVolume: outside.reduce((sum, flag) => sum + flag, 0),
+      takeoffOutsideVolume,
     };
   };
 }

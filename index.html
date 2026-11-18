@@ -8,15 +8,45 @@
 </head>
 <body>
   <main id="stage">
-    <canvas id="view" aria-label="3D view of the drone show"></canvas>
-    <p id="fatal" role="alert" hidden></p>
-    <footer id="transport">
-      <button id="play" type="button" title="Play or pause (Space)">Play</button>
-      <div id="track">
-        <div id="timeline">
-          <div id="timeline-blocks"></div>
-          <div id="playhead"></div>
+    <div id="viewport">
+      <canvas id="view" aria-label="3D view of the drone show"></canvas>
+
+      <div id="view-tools" class="hud" role="toolbar" aria-label="View">
+        <button id="show-paths" type="button" aria-pressed="true" title="Show the flight paths of the current step">Paths</button>
+        <button id="show-volume" type="button" aria-pressed="true" title="Show the flight volume">Volume</button>
+        <button id="audience-view" type="button" title="Move the camera to where the audience stands">Audience view</button>
+      </div>
+
+      <details id="checks" class="hud" open>
+        <summary>
+          <span id="checks-status" class="status-dot"></span>
+          <span id="checks-summary"></span>
+          <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+        </summary>
+        <div class="checks-body">
+          <dl>
+            <div><dt>Show duration</dt><dd><output id="duration"></output></dd></div>
+            <div><dt>Drones outside volume</dt><dd><output id="outside"></output></dd></div>
+            <div><dt>Lowest target</dt><dd><output id="lowest"></output></dd></div>
+            <div><dt>Closest approach in flight</dt><dd><output id="approach"></output></dd></div>
+            <div><dt>Peak speed</dt><dd><output id="peak-speed"></output></dd></div>
+          </dl>
+          <ul id="checks-problems" hidden></ul>
         </div>
+      </details>
+
+      <p id="view-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a drone to select it</p>
+      <p id="fatal" role="alert" hidden></p>
+    </div>
+
+    <footer id="transport">
+      <button id="play" type="button" title="Play or pause (Space)">
+        <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
+        <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
+        <span id="play-label" class="visually-hidden">Play</span>
+      </button>
+      <div id="track">
+        <div id="timeline-blocks"></div>
         <input id="scrub" type="range" min="0" max="1" step="any" aria-label="Timeline">
       </div>
       <output id="time"></output>
@@ -24,65 +54,58 @@
   </main>
 
   <aside id="sidebar">
-    <h1>Drone show simulator</h1>
+    <header id="sidebar-header">
+      <h1>Drone show simulator</h1>
+      <div class="header-actions">
+        <button id="import-project" type="button" class="ghost" title="Load a project file">Import</button>
+        <button id="export-project" type="button" class="ghost" title="Save the project as a file">Export</button>
+        <input id="project-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </header>
+    <p class="error banner" id="project-error" role="alert" hidden></p>
 
     <div id="tabs" role="tablist" aria-label="Sidebar">
-      <button id="tab-settings" type="button" role="tab" aria-controls="panel-settings" aria-selected="true">Settings</button>
-      <button id="tab-drones" type="button" role="tab" aria-controls="panel-drones" aria-selected="false" tabindex="-1">Drones</button>
+      <button id="tab-show" type="button" role="tab" aria-controls="panel-show" aria-selected="true">Show</button>
+      <button id="tab-fleet" type="button" role="tab" aria-controls="panel-fleet" aria-selected="false" tabindex="-1">Fleet</button>
+      <button id="tab-drones" type="button" role="tab" aria-controls="panel-drones" aria-selected="false" tabindex="-1">Drones <span id="drone-count" class="badge"></span></button>
     </div>
 
-    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
-      <details open>
-        <summary>Project</summary>
-        <div class="section">
-          <div class="button-row">
-            <button id="export-project" type="button">Export</button>
-            <button id="import-project" type="button">Import</button>
-            <input id="project-file" type="file" accept=".json,application/json" hidden>
+    <div id="panel-show" class="panel" role="tabpanel" aria-labelledby="tab-show">
+      <section class="group">
+        <header class="group-header">
+          <h2>Storyboard</h2>
+          <div class="icon-buttons">
+            <button id="add-formation" type="button" class="icon" title="Add a formation after the selected one" aria-label="Add formation">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
+            <button id="move-formation-earlier" type="button" class="icon" title="Move the selected formation earlier in the show" aria-label="Move formation earlier">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4"/></svg>
+            </button>
+            <button id="move-formation-later" type="button" class="icon" title="Move the selected formation later in the show" aria-label="Move formation later">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4"/></svg>
+            </button>
+            <button id="remove-formation" type="button" class="icon" title="Remove the selected formation" aria-label="Remove formation">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/></svg>
+            </button>
           </div>
-          <p class="error" id="project-error" role="alert" hidden></p>
-        </div>
-      </details>
+        </header>
+        <ol id="formation-list"></ol>
+        <label class="check"><input id="land-at-end" type="checkbox"> Land at the end</label>
+      </section>
 
-      <details open>
-        <summary>Fleet</summary>
-        <div class="section">
-          <div class="fields" id="fleet-fields"></div>
-        </div>
-      </details>
-
-      <details open>
-        <summary>Flight volume</summary>
-        <div class="section">
-          <div class="fields" id="volume-fields"></div>
-        </div>
-      </details>
-
-      <details open>
-        <summary>Storyboard</summary>
-        <div class="section">
-          <ol id="formation-list"></ol>
-          <div class="button-row">
-            <button id="add-formation" type="button" title="Add a formation after the selected one">Add</button>
-            <button id="remove-formation" type="button" title="Remove the selected formation">Remove</button>
-            <button id="move-formation-earlier" type="button" title="Move the selected formation earlier in the show">Earlier</button>
-            <button id="move-formation-later" type="button" title="Move the selected formation later in the show">Later</button>
-          </div>
-          <label class="check"><input id="land-at-end" type="checkbox"> Land at the end</label>
-        </div>
-      </details>
-
-      <details open>
-        <summary id="formation-title">Formation</summary>
-        <div class="section">
+      <section class="group">
+        <header class="group-header">
+          <h2 id="formation-title">Formation</h2>
+        </header>
+        <div class="fields">
           <div class="field wide">
             <label for="shape">Shape</label>
             <select id="shape"></select>
+            <button id="import-obj" type="button" class="square" title="Import an OBJ model as the shape" aria-label="Import OBJ model">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.5 6L8 2.5 11.5 6M3 10.5v3h10v-3"/></svg>
+            </button>
           </div>
-          <div class="button-row">
-            <button id="import-obj" type="button">Import OBJ model</button>
-            <input id="obj-file" type="file" accept=".obj" hidden>
-          </div>
+          <input id="obj-file" type="file" accept=".obj" hidden>
           <p class="error" id="obj-error" role="alert" hidden></p>
           <div class="field" id="up-axis-row" hidden>
             <label for="up-axis">Model up axis</label>
@@ -96,53 +119,31 @@
             <label for="color">Color</label>
             <input id="color" type="color">
           </div>
-          <div class="field">
+          <div class="field readout">
             <span class="label">Closest spacing</span>
-            <span class="readout-with-button">
-              <output id="spacing"></output>
-              <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing, also in flight">Fit</button>
-            </span>
+            <output id="spacing"></output>
+            <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing, also in flight">Fit</button>
           </div>
         </div>
-      </details>
-
-      <details open>
-        <summary>Checks</summary>
-        <div class="section">
-          <div class="field">
-            <span class="label">Show duration</span>
-            <output id="duration"></output>
-          </div>
-          <div class="field">
-            <span class="label">Drones outside volume</span>
-            <output id="outside"></output>
-          </div>
-          <div class="field">
-            <span class="label">Lowest target</span>
-            <output id="lowest"></output>
-          </div>
-          <div class="field">
-            <span class="label">Closest approach in flight</span>
-            <output id="approach"></output>
-          </div>
-          <div class="field">
-            <span class="label">Peak speed</span>
-            <output id="peak-speed"></output>
-          </div>
-        </div>
-      </details>
-
-      <details open>
-        <summary>View</summary>
-        <div class="section">
-          <label class="check"><input id="show-paths" type="checkbox"> Show paths</label>
-          <label class="check"><input id="show-volume" type="checkbox"> Show flight volume</label>
-          <button id="audience-view" type="button">Audience view</button>
-        </div>
-      </details>
+      </section>
     </div>
 
-    <div id="panel-drones" role="tabpanel" aria-labelledby="tab-drones" hidden>
+    <div id="panel-fleet" class="panel" role="tabpanel" aria-labelledby="tab-fleet" hidden>
+      <section class="group">
+        <header class="group-header"><h2>Fleet</h2></header>
+        <div class="fields" id="fleet-fields"></div>
+      </section>
+      <section class="group">
+        <header class="group-header"><h2>Limits</h2></header>
+        <div class="fields" id="limit-fields"></div>
+      </section>
+      <section class="group">
+        <header class="group-header"><h2>Flight volume</h2></header>
+        <div class="fields" id="volume-fields"></div>
+      </section>
+    </div>
+
+    <div id="panel-drones" class="panel" role="tabpanel" aria-labelledby="tab-drones" hidden>
       <div id="drone-list">
         <div class="drone-row drone-list-header">
           <span>#</span><span>x (m)</span><span>y (m)</span><span>z (m)</span><span>m/s</span>

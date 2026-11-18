@@ -29,21 +29,20 @@ Open `http://localhost:8000/`. The browser must support WebGL2.
 | Click empty space, or Escape | Clear the selection |
 | Space | Play or pause |
 
-The sidebar has two tabs.
-The Drones tab lists each drone with its position and speed at the current time.
-The Settings tab has seven sections.
+The sidebar has three tabs.
 
-| Section | What it does |
+| Tab | What it does |
 |---|---|
-| Project | Saves the project to a JSON file and loads it again. |
-| Fleet | Sets the drone count, the speed and acceleration limits, and the spacing. |
-| Flight volume | Sets the size and position of the cube that the drones must stay inside. The cube turns red when a drone leaves it. |
-| Storyboard | Lists the formations of the show in order. Adds, removes, and moves formations. Turns the landing on or off. A red mark shows a formation that breaks a limit. |
-| Formation | Sets the shape, size, height, rotation, hold time, turn rate, and color of the selected formation. A formation with a turn rate turns slowly in its hold. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
-| Checks | Shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. A value turns red when it breaks a limit. |
-| View | Hides the flight paths or the flight volume. Moves the camera to where the audience stands. |
+| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, turn rate, hold time, and color of the selected formation. A formation with a turn rate turns slowly in its hold. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
+| Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. |
+| Drones | Lists each drone with its position and speed at the current time. |
 
-The timeline strip under the 3D view shows the whole show: one block per flight and one per hold.
+The sidebar header has Import and Export buttons. They load and save the project as a JSON file.
+
+Overlays on the 3D view show or hide the flight paths and the flight volume, and move the camera to where the audience stands.
+The Checks panel at the top right shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. It lists each problem in words. A click on its status line folds it.
+
+The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show.
 
 A shape is one of seven built-in shapes or an OBJ model.
 The importer reads the vertices and faces of the model. It ignores materials and textures.

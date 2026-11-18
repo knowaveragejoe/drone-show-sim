@@ -33,8 +33,8 @@ export const FORMATION_FIELDS = [
   { key: 'size', label: 'Size', unit: 'm', min: 1, max: 500, step: 1, slider: true },
   { key: 'centerHeight', label: 'Center height', unit: 'm', min: 0, max: 500, step: 1, slider: true },
   { key: 'yaw', label: 'Yaw', unit: '°', min: -180, max: 180, step: 1, slider: true },
-  { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
   { key: 'turnRate', label: 'Turn rate', unit: '°/s', min: -45, max: 45, step: 0.5, slider: true, fallback: 0 },
+  { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
 ];
 
 /** @type {NumberField[]} */

@@ -269,23 +269,39 @@ The timeline also marks a landing in which drones come too close.
 
 ## User interface
 
-The 3D view fills the page.
-A sidebar sits on the right. It has two tabs: Settings and Drones.
+The 3D view fills the page. Overlays on the view hold the view controls and the checks.
+A sidebar sits on the right. Its header holds the title and the Import and Export buttons for the project file.
+Under the header, three tabs: Show, Fleet, and Drones.
 A transport bar sits under the 3D view.
 
-### Settings tab
+Each field takes one line: a label, a slider for fields that have one, and a number box with its unit.
 
-The Settings tab holds the sections. Each section is a native `<details>` element.
+### Show tab
 
 | Section | Contents |
 |---|---|
-| Project | Export button. Import button. |
-| Fleet | Drone count. The five limits. Takeoff grid spacing. |
+| Storyboard | One row per formation: color, number, shape name, hold time, turn rate, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
+| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color. Spacing readout and Fit button. |
+
+### Fleet tab
+
+| Section | Contents |
+|---|---|
+| Fleet | Drone count. Takeoff grid spacing. |
+| Limits | The four speed and acceleration limits. Minimum spacing. |
 | Flight volume | Size. Center X and Y. Floor height. |
-| Storyboard | One row per formation: color, number, shape name, and a problem marker. Add, Remove, Earlier, and Later buttons. Land at the end toggle. |
-| Formation | The settings of the formation that is selected in the storyboard: shape selector, Import OBJ button and up axis selector, size, center height, yaw, hold time, turn rate, color. Spacing readout and Fit button. |
-| Checks | Show duration, drones outside volume, lowest target, closest approach in flight, peak speed. |
-| View | Show paths toggle. Show flight volume toggle. Audience view button. |
+
+### Overlays on the 3D view
+
+| Place | Contents |
+|---|---|
+| Top left | Paths and Volume toggle buttons. Audience view button. |
+| Top right | The Checks panel: a status line, the five readouts, and a list of problems. A click on the status line folds the panel to one line. |
+| Bottom left | A short hint for the mouse controls. |
+
+The status line says "All checks pass", or counts the problems.
+The problem list names each one in words, for example "Formation 2: Targets are below the ground."
+It shows four lines at most, and a last line counts the rest.
 
 ### Storyboard
 
@@ -300,6 +316,7 @@ Earlier and Later swap the selected formation with its neighbor.
 ### Drones tab
 
 The Drones tab holds the drone list: the id, position, and speed of each drone at the current time.
+The tab shows the drone count.
 The list fills the height of the sidebar.
 It draws only the rows that are visible, so 1,000 drones stay fast.
 
@@ -325,13 +342,17 @@ It aims the camera at the center of the selected formation.
 
 ### Transport bar
 
-Play and pause button, timeline strip, scrubber, and time readout.
+Play and pause button, timeline strip with a playhead, and time readout.
+Times show as minutes, seconds, and tenths, for example `1:05.3`.
 The Space key toggles play and pause.
 
 The timeline strip shows the whole show.
 Each transition and each hold is one block, and the width of a block shows how long it takes.
 A hold block has the number and the color of its formation.
-A white line shows the current time.
+A red line under a block marks a problem.
+
+The playhead is a white line with a knob. A drag on the playhead moves the timeline.
+The playhead is the thumb of a range input that lies on top of the strip. Only the thumb takes the pointer, so a click on a block reaches the block.
 A click on a block selects its formation. A click on the landing block moves the timeline to the start of the landing.
 
 The page opens on the first formation.
@@ -495,6 +516,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 7 | Flight volume | A cube that shows where the drones can fly, with a check. | Done |
 | 8 | Storyboard | Several formations in one show, a timeline strip, and a landing. | Done |
 | 9 | Slow turn | A formation turns about its vertical axis in its hold. | Done |
+| 10 | Tune-up | Three sidebar tabs, overlays on the 3D view, one-line fields, a draggable playhead. | Done |
 
 ## Known limits
 
