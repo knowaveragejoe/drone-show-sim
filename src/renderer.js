@@ -5,11 +5,14 @@ import { AUDIENCE_DISTANCE } from './camera.js';
 
 const POINT_VERTEX_SHADER = `#version 300 es
 in vec3 aPosition;
+in float aBrightness;
 uniform mat4 uViewProj;
 uniform float uPixelsPerMeter;
 uniform float uSize;
 uniform float uMinPixels;
+out float vBrightness;
 void main() {
+  vBrightness = aBrightness;
   gl_Position = uViewProj * vec4(aPosition, 1.0);
   gl_PointSize = max(uSize * uPixelsPerMeter / gl_Position.w, uMinPixels);
 }`;
@@ -17,13 +20,14 @@ void main() {
 const POINT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 uniform vec3 uColor;
+in float vBrightness;
 out vec4 outColor;
 void main() {
   // 0 at the center of the point, 1 at its edge.
   float d = length(gl_PointCoord - 0.5) * 2.0;
   float halo = pow(max(1.0 - d, 0.0), 2.5);
   float core = smoothstep(0.4, 0.1, d);
-  outColor = vec4(uColor * halo + vec3(0.55) * core, 1.0);
+  outColor = vec4((uColor * halo + vec3(0.55) * core) * vBrightness, 1.0);
 }`;
 
 const LINE_VERTEX_SHADER = `#version 300 es
@@ -81,6 +85,7 @@ const OTHER_STEP_BRIGHTNESS = 0.3;
  * @property {Float32Array} viewProj
  * @property {number} pixelsPerMeter screen pixels that 1 m covers at a distance of 1 m
  * @property {Float32Array} positions xyz per drone
+ * @property {Float32Array} brightness brightness of each drone light, 0 to 1
  * @property {number} count number of drones
  * @property {number[]} color light color, each channel 0 to 1
  * @property {number} selected index of the selected drone, or -1
@@ -119,6 +124,14 @@ export function createRenderer(canvas) {
   const paths = createLines(gl, lineProgram);
   const route = createLines(gl, lineProgram);
   const drones = createVertexArray(gl, pointProgram);
+  // A second buffer feeds the brightness of each light.
+  const brightnessLocation = gl.getAttribLocation(pointProgram, 'aBrightness');
+  const brightnessBuffer = gl.createBuffer();
+  gl.bindVertexArray(drones.vertexArray);
+  gl.bindBuffer(gl.ARRAY_BUFFER, brightnessBuffer);
+  gl.enableVertexAttribArray(brightnessLocation);
+  gl.vertexAttribPointer(brightnessLocation, 1, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
 
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
@@ -256,6 +269,8 @@ export function createRenderer(canvas) {
     gl.bindVertexArray(drones.vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, drones.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, frame.positions, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, brightnessBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, frame.brightness, gl.DYNAMIC_DRAW);
 
     gl.uniform1f(pointUniforms.uSize, LIGHT_SIZE);
     gl.uniform1f(pointUniforms.uMinPixels, MIN_LIGHT_PIXELS * dpr);
@@ -263,10 +278,14 @@ export function createRenderer(canvas) {
     gl.drawArrays(gl.POINTS, 0, frame.count);
 
     if (selected >= 0) {
+      // The selected drone stays at full brightness, also in a light chase.
+      gl.disableVertexAttribArray(brightnessLocation);
+      gl.vertexAttrib1f(brightnessLocation, 1);
       gl.uniform1f(pointUniforms.uSize, SELECTED_LIGHT_SIZE);
       gl.uniform1f(pointUniforms.uMinPixels, MIN_SELECTED_PIXELS * dpr);
       gl.uniform3f(pointUniforms.uColor, 1, 1, 1);
       gl.drawArrays(gl.POINTS, selected, 1);
+      gl.enableVertexAttribArray(brightnessLocation);
     }
     gl.bindVertexArray(null);
   }

@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: the simulator plays a show of several formations, and a formation can turn slowly in its hold. `README.md` tells how to run and publish it.
+Status: the simulator plays a show of several formations. A formation can turn slowly in its hold, and a light chase can run across it. `README.md` tells how to run and publish it.
 
 ## Purpose
 
@@ -32,6 +32,7 @@ A transition is the march between two pictures, and all marchers move on the sam
 | Transition | The flight from one stop to the next. |
 | Hold | The time that the fleet stays at a stop. |
 | Turn | A slow rotation of a formation about the vertical axis during its hold. The formation turns as one rigid body. |
+| Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
 | Step | One transition and the hold after it. A show is a list of steps. |
 | Assignment | The mapping from each drone to one target. The drill chart. |
 | Flight volume | The cube that the drones must stay inside. |
@@ -53,6 +54,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
 | Color | One color per formation. The light color blends in the transition between two formations. |
 | Slow turn | Each formation has a turn rate. The formation turns in its hold, so the audience sees its depth. |
+| Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
@@ -81,7 +83,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Takeoff grid spacing | 3 m |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
-| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn. |
+| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s. |
 | Landing | On |
 
 The limits are starting values in the range that show design tools use.
@@ -244,7 +246,35 @@ A formation that turns leaves its hold in a new pose: the same shape at a new ya
 The next transition starts from that pose.
 The assignment key of the next transition names the new yaw, so a change of turn rate needs a new assignment for that transition only.
 
-### 9. Report the checks
+### 9. Plan the light chase
+
+A light chase gives each drone a place `u` on the path of the bands, from 0 to 1. One lap of the path is 0 to 1.
+The path uses the axes of the formation itself, before its yaw, so a turning formation keeps its pattern.
+
+| Pattern | Path |
+|---|---|
+| Around | The angle around the formation center, in the plane that faces the audience. 0 is at the top, and the angle grows clockwise as the audience sees it. On an outline such as the heart or the ring, the bands circle the outline. |
+| Rising | The height, from the lowest target (0) to the highest (1). |
+| Across | The side position, from the left end as the audience sees it (0) to the right end (1). |
+
+At `held` seconds into the hold, with `bands` bands and a speed of `speed` laps per second:
+
+```
+phase      = fraction of ((u − speed × held) × bands)
+glow       = phase³              (speed ≥ 0)
+             (1 − phase)³        (speed < 0)
+level      = dim + (1 − dim) × glow
+brightness = 1 − fade × (1 − level)
+```
+
+Each band has a bright head and a tail that fades behind it. The head leads in the direction that the band moves.
+`dim` is 0.12, so the drones outside a band keep the shape visible.
+`fade` grows from 0 to 1 over the first second of the hold, and falls back to 0 over the last second.
+Outside a hold, and in a formation with no chase, every light is at full brightness.
+
+The chase uses the targets of the drones, so it does not change the assignment or any check.
+
+### 10. Report the checks
 
 The Checks section shows the worst value of the whole show.
 
@@ -280,8 +310,8 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 | Section | Contents |
 |---|---|
-| Storyboard | One row per formation: color, number, shape name, hold time, turn rate, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
-| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color. Spacing readout and Fit button. |
+| Storyboard | One row per formation: color, number, shape name, hold time, turn rate, a chase marker, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
+| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color, light chase pattern. When the chase is on: chase bands and chase speed. Spacing readout and Fit button. |
 
 ### Fleet tab
 
@@ -366,6 +396,7 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Audience: a short line on the ground marks where the audience stands.
 - Flight volume: one `gl.LINES` draw call for the edges of the cube.
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
+- Brightness: a second buffer holds the brightness of each light, from stage 9. The page writes it each frame. The selected drone stays at full brightness.
 - Light color: the color of the formation of the current step. In a transition between two formations the color blends from one to the other. Takeoff uses the color of the first formation. The landing keeps the color of the last one.
 - Paths: one buffer holds one line per drone per step. The view draws the lines of the current step at low opacity. In a hold, the current step is the one that led to the hold.
 - Route: for the selected drone, the view draws its whole route: the flight of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
@@ -406,6 +437,9 @@ The project file is JSON with the extension `.droneshow.json`.
       "color": "#66ccff",
       "holdSeconds": 10,
       "turnRate": 6,
+      "chase": "off",
+      "chaseBands": 4,
+      "chaseSpeed": 0.5,
       "seed": 1
     }
   ],
@@ -423,7 +457,7 @@ An OBJ formation stores the full OBJ text:
 
 The simulator writes version 2 and reads versions 1 and 2.
 Version 1 had exactly one formation and no landing.
-A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, and a formation with no `turnRate` does not turn. Older files then load with their old meaning.
+A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, and a formation with no `chase` has no light chase. Older files then load with their old meaning.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -481,7 +515,7 @@ No `npm install` is necessary.
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
-| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. |
+| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -517,6 +551,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 8 | Storyboard | Several formations in one show, a timeline strip, and a landing. | Done |
 | 9 | Slow turn | A formation turns about its vertical axis in its hold. | Done |
 | 10 | Tune-up | Three sidebar tabs, overlays on the 3D view, one-line fields, a draggable playhead. | Done |
+| 11 | Light chase | Bright bands that travel across a formation in its hold. | Done |
 
 ## Known limits
 
@@ -527,6 +562,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
+- A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
 - A turn goes one way at one rate. There is no sway back and forth, and no tilt.
 - In a short hold the turn does not reach its turn rate. No readout shows the rate that it reaches.
 - A turn moves the end pose of a formation. The transition after it then needs a new assignment, which at 1,000 drones costs the same pause as other changes.
@@ -534,7 +570,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 ## Future features
 
 - Sway. A formation turns back and forth in its hold, so it ends where it started.
-- Motion inside a formation, for example drones that move along an outline like marquee lights.
+- Drones that flow along an outline, so the drones themselves move, not only the lights.
 - More shape inputs: SVG outlines, point lists, GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
 - Edge placement, gradients, and color per drone.
 - Export to a show format such as VVIZ.

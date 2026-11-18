@@ -4,6 +4,8 @@
 import { formationProblems, isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
 import {
+  CHASE_FIELDS,
+  CHASE_PATTERNS,
   FLEET_FIELDS,
   FORMATION_FIELDS,
   MAX_FORMATIONS,
@@ -128,6 +130,13 @@ export function createUi(actions) {
   const color = /** @type {HTMLInputElement} */ (byId('color'));
   color.addEventListener('input', () => actions.setFormation('color', color.value));
 
+  const chase = /** @type {HTMLSelectElement} */ (byId('chase'));
+  for (const [key, label] of Object.entries(CHASE_PATTERNS)) chase.add(new Option(label, key));
+  chase.addEventListener('change', () => actions.setFormation('chase', chase.value));
+  const chaseBox = byId('chase-fields');
+  // A light chase needs no new assignment, so its sliders are live for every fleet size.
+  const chaseFields = buildFields(chaseBox, CHASE_FIELDS, actions.setFormation, () => true);
+
   const spacing = byId('spacing');
   const fit = /** @type {HTMLButtonElement} */ (byId('fit'));
   fit.addEventListener('click', actions.fit);
@@ -195,6 +204,9 @@ export function createUi(actions) {
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
     color.value = formation.color;
+    chase.value = formation.chase;
+    chaseBox.hidden = formation.chase === 'off';
+    chaseFields.show(formation);
 
     const { source } = formation;
     if (source.type === 'obj') {
@@ -361,7 +373,8 @@ function buildStoryboard(list, onSelect) {
       number.textContent = String(index + 1);
       name.textContent = shapeLabel(formation);
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
-      meta.textContent = `${formation.holdSeconds} s${turn}`;
+      const lights = formation.chase === 'off' ? '' : ' · chase';
+      meta.textContent = `${formation.holdSeconds} s${turn}${lights}`;
       problem.textContent = problems.length > 0 ? '!' : '';
       row.title = problems.join(' ');
     });

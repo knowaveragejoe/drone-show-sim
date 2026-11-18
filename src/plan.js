@@ -2,7 +2,8 @@
 //
 // A show is a list of steps. In each step the fleet flies to a stop and then holds there.
 // The stops are the formations in storyboard order, and then the takeoff grid again
-// when the show ends with a landing. A formation can turn slowly while it holds.
+// when the show ends with a landing. A formation can turn slowly while it holds, and a
+// light chase can run across it.
 
 import { assignTargets } from './assign.js';
 import {
@@ -30,6 +31,7 @@ import { MAX_DRONES } from './state.js';
  * @property {Float32Array} from position of each drone when the transition starts, xyz
  * @property {Float32Array} to position of each drone when the transition ends, xyz
  * @property {import('./motion.js').Turn | null} turn the turn of the formation in the hold, if any
+ * @property {Chase | null} chase the light chase of the formation in the hold, if any
  * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
  * @property {Float32Array} pathLengths flight distance of each drone in the transition, meters
  * @property {number} closestApproach smallest distance between two drones in the transition, meters
@@ -59,6 +61,15 @@ import { MAX_DRONES } from './state.js';
  */
 
 /**
+ * A light chase: bright bands that travel across a formation in its hold.
+ * The drones do not move. Only their brightness changes.
+ * @typedef {object} Chase
+ * @property {Float32Array} u place of each drone along the path of the bands, 0 to 1; one lap is 0 to 1
+ * @property {number} bands number of bright bands on the path at one time
+ * @property {number} speed laps per second; a negative speed moves the bands the other way
+ */
+
+/**
  * A box with sides along the world axes.
  * @typedef {object} Bounds
  * @property {number[]} low corner with the smallest x, y, and z
@@ -80,12 +91,20 @@ import { MAX_DRONES } from './state.js';
  * @property {number} radius distance from the turn axis to the farthest point, meters
  * @property {string} leaveKey shape of the stop when the hold ends
  * @property {Float32Array} leavePoints xyz per point when the hold ends
+ * @property {Chase | null} chase the light chase in the hold, with `u` in point order, if any
  */
 
 const DEGREE = Math.PI / 180;
 
 // The route of a drone shows a turn as short straight lines. Each covers this much of the turn.
 const ROUTE_ARC_STEP = 10 * DEGREE;
+
+// Brightness of a drone outside the bands of a light chase. The shape stays visible.
+export const CHASE_DIM = 0.12;
+// A light chase fades in at the start of the hold and out at its end, over this time, seconds.
+const CHASE_FADE = 1;
+// How fast the tail of a band fades. A larger number gives a shorter tail.
+const CHASE_TAIL = 3;
 
 /**
  * Makes a function that builds the plan for a state.
@@ -151,6 +170,7 @@ export function createPlanner() {
       radius: 0,
       leaveKey: gridKey,
       leavePoints: gridPoints,
+      chase: null,
     };
     const stops = [grid];
     state.formations.forEach((formation, index) => {
@@ -171,6 +191,14 @@ export function createPlanner() {
         radius,
         leaveKey: turn ? `${id}:${formation.size}:${formation.yaw + turn.angle / DEGREE}` : key,
         leavePoints: turn ? turnAboutZ(points, turn.angle, new Float32Array(points.length)) : points,
+        chase:
+          formation.chase === 'off'
+            ? null
+            : {
+                u: chasePath(points, count, formation),
+                bands: formation.chaseBands,
+                speed: formation.chaseSpeed,
+              },
       });
     });
     if (state.landAtEnd) stops.push(grid);
@@ -223,6 +251,7 @@ export function createPlanner() {
         from,
         to,
         turn: stop.turn,
+        chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
         end,
         pathLengths,
         closestApproach: link.closestApproach,
@@ -274,6 +303,56 @@ function gather(points, indices) {
     out[i * 3 + 2] = points[indices[i] * 3 + 2];
   }
   return out;
+}
+
+/**
+ * Picks one value per output position from a list.
+ * @param {Float32Array} values one value per point
+ * @param {Int32Array} indices index of the value to take, per output position
+ */
+function gatherValues(values, indices) {
+  return Float32Array.from(indices, (index) => values[index]);
+}
+
+/**
+ * Places each target of a formation on the path of its light chase. The path uses the
+ * axes of the formation itself, before its yaw, so a turned formation keeps its pattern.
+ *
+ * - Around: the angle around the formation center, in the plane that faces the audience.
+ *   0 is at the top, and the angle grows clockwise as the audience sees it.
+ * - Rising: the height, from the lowest target (0) to the highest (1).
+ * - Across: the side position, from the left end as the audience sees it (0) to the right (1).
+ * @param {Float32Array} points xyz per target
+ * @param {number} count
+ * @param {import('./state.js').Formation} formation
+ * @returns {Float32Array} one value per target, 0 to 1
+ */
+function chasePath(points, count, formation) {
+  const yaw = formation.yaw * DEGREE;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const side = new Float32Array(count);
+  const up = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    // Undo the yaw: the side axis of the formation, and the height above its center.
+    side[i] = points[i * 3] * cos + points[i * 3 + 1] * sin;
+    up[i] = points[i * 3 + 2] - formation.centerHeight;
+  }
+  if (formation.chase === 'around') {
+    return side.map((x, i) => {
+      const turn = Math.atan2(x, up[i]) / (2 * Math.PI);
+      return turn < 0 ? turn + 1 : turn;
+    });
+  }
+  const values = formation.chase === 'rising' ? up : side;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const value of values) {
+    low = Math.min(low, value);
+    high = Math.max(high, value);
+  }
+  const range = high - low;
+  return values.map((value) => (range > 0 ? (value - low) / range : 0));
 }
 
 /**
@@ -488,6 +567,36 @@ export function speedAt(plan, drone, time) {
   if (!step.turn) return 0;
   const radius = Math.hypot(step.to[drone * 3], step.to[drone * 3 + 1]);
   return rateAt(step.turn.timing, held) * Math.abs(step.turn.angle) * radius;
+}
+
+/**
+ * Writes the brightness of every drone light at one time: 1 for full, down to `CHASE_DIM`.
+ * Outside a hold with a light chase, every light is at full brightness.
+ *
+ * Each band has a bright head and a tail that fades behind it. The head leads in the
+ * direction that the band moves.
+ * @param {Plan} plan
+ * @param {number} time seconds from the start of the timeline
+ * @param {Float32Array} out one value per drone; length at least `plan.count`
+ */
+export function brightnessAt(plan, time, out) {
+  const step = plan.steps[stepAt(plan, time)];
+  const held = time - step.start - step.timing.duration;
+  const { chase } = step;
+  if (!chase || held < 0 || held >= step.hold) {
+    out.fill(1, 0, plan.count);
+    return;
+  }
+  const fade = Math.min(1, held / CHASE_FADE, (step.hold - held) / CHASE_FADE);
+  const shift = chase.speed * held;
+  for (let drone = 0; drone < plan.count; drone++) {
+    // 0 just ahead of a head, rising to 1 at the head.
+    let phase = (chase.u[drone] - shift) * chase.bands;
+    phase -= Math.floor(phase);
+    const glow = (chase.speed >= 0 ? phase : 1 - phase) ** CHASE_TAIL;
+    const level = CHASE_DIM + (1 - CHASE_DIM) * glow;
+    out[drone] = 1 - fade * (1 - level);
+  }
 }
 
 /**

@@ -33,7 +33,7 @@ The sidebar has three tabs.
 
 | Tab | What it does |
 |---|---|
-| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, turn rate, hold time, and color of the selected formation. A formation with a turn rate turns slowly in its hold. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
+| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, turn rate, hold time, color, and light chase of the selected formation. A formation with a turn rate turns slowly in its hold. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
 | Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. |
 | Drones | Lists each drone with its position and speed at the current time. |
 

@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: the simulator plays a storyboard of several formations, and a formation can turn slowly in its hold. `SPEC.md` lists the milestones, the known limits, and the future features.
+Status: the simulator plays a storyboard of several formations. A formation can turn slowly in its hold, and a light chase can run across it. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 
@@ -19,7 +19,7 @@ Status: the simulator plays a storyboard of several formations, and a formation 
 
 - Units: meters, seconds, degrees.
 - Axes: right-handed, Z up. The audience stands on the negative Y axis and looks toward positive Y.
-- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, storyboard, takeoff grid, stop, transition, hold, turn, step, assignment, flight volume.
+- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, storyboard, takeoff grid, stop, transition, hold, turn, light chase, step, assignment, flight volume.
 - Math modules stay pure: no DOM and no WebGL. Node runs their tests.
 - Random sampling uses the seeded generator, so results repeat.
 

@@ -3,7 +3,9 @@ import { test } from 'node:test';
 
 import { takeoffGrid, turnAboutZ } from '../src/motion.js';
 import {
+  CHASE_DIM,
   FLIGHT_MARGIN,
+  brightnessAt,
   countOutside,
   createPlanner,
   fitSize,
@@ -597,4 +599,134 @@ test('routeOf gives the flight and the arc of one drone for each step', () => {
       assert.ok(Math.hypot(points[i] - points[i - 3], points[i + 1] - points[i - 2]) <= radius * 0.18);
     }
   });
+});
+
+// Light chase.
+
+/** A plan with one step: a hold of 10 s that runs a light chase over the given drones. */
+function chasePlan(u, bands, speed) {
+  const count = u.length;
+  return {
+    count,
+    steps: [{ start: 0, timing: { duration: 0 }, hold: 10, chase: { u: Float32Array.from(u), bands, speed } }],
+  };
+}
+
+test('a chase band has a bright head and a dim side ahead of it', () => {
+  // One band, 0.1 laps per second. At 5 s the head is at u = 0.5.
+  const plan = chasePlan([0.49, 0.51, 0.3], 1, 0.1);
+  const light = new Float32Array(3);
+  brightnessAt(plan, 5, light);
+  assert.ok(light[0] > 0.95, `head ${light[0]}`);
+  near(light[1], CHASE_DIM, 0.01);
+  // Behind the head, the tail fades.
+  assert.ok(light[2] > CHASE_DIM && light[2] < light[0], `tail ${light[2]}`);
+  // 0.2 s later the head has moved past u = 0.51.
+  brightnessAt(plan, 5.2, light);
+  assert.ok(light[1] > 0.95, `head moved ${light[1]}`);
+});
+
+test('a negative chase speed moves the bands the other way', () => {
+  // At 5 s the head is at u = 0.5, and it moves toward smaller u.
+  const plan = chasePlan([0.49, 0.51], 1, -0.1);
+  const light = new Float32Array(2);
+  brightnessAt(plan, 5, light);
+  near(light[0], CHASE_DIM, 0.01);
+  assert.ok(light[1] > 0.95, `head ${light[1]}`);
+});
+
+test('the chase pattern repeats after the time that one band needs to reach the next', () => {
+  const u = Array.from({ length: 50 }, (unused, i) => i / 50);
+  const plan = chasePlan(u, 4, 0.5);
+  const first = new Float32Array(50);
+  const later = new Float32Array(50);
+  brightnessAt(plan, 3, first);
+  // The bands are 1/4 lap apart and move 0.5 laps per second: the same pattern after 0.5 s.
+  brightnessAt(plan, 3.5, later);
+  for (let i = 0; i < 50; i++) near(later[i], first[i], 1e-5);
+  for (const value of first) assert.ok(value >= CHASE_DIM - 1e-6 && value <= 1 + 1e-6);
+});
+
+test('the chase fades in and out at the ends of the hold', () => {
+  // A chase that stands still, so that only the fade changes the brightness.
+  const plan = chasePlan([0.2, 0.7], 2, 0);
+  const light = new Float32Array(2);
+  brightnessAt(plan, 0, light);
+  assert.deepEqual(Array.from(light), [1, 1]);
+  brightnessAt(plan, 10, light);
+  assert.deepEqual(Array.from(light), [1, 1]);
+  // Half way through the fade, a drone is half way between full and its chase level.
+  const full = new Float32Array(2);
+  brightnessAt(plan, 0.5, light);
+  brightnessAt(plan, 1, full);
+  near(light[0], (1 + full[0]) / 2, 0.02);
+});
+
+test('lights are at full brightness outside a hold with a chase', () => {
+  const plan = createPlanner()(defaultState());
+  const light = new Float32Array(plan.count);
+  // The sphere has no chase. Its hold and the flights stay at full brightness.
+  for (const time of [5, holdStart(plan, 0) + 3, plan.steps[1].start + 2]) {
+    brightnessAt(plan, time, light);
+    assert.ok(light.every((value) => value === 1), `time ${time}`);
+  }
+  // The heart runs a chase around its outline.
+  brightnessAt(plan, holdStart(plan, 1) + 5, light);
+  const dim = light.filter((value) => value < 0.3).length;
+  const bright = light.filter((value) => value > 0.8).length;
+  assert.ok(dim > 30 && bright > 5, `dim ${dim}, bright ${bright}`);
+});
+
+test('the chase path of each pattern runs from 0 to 1 over the formation', () => {
+  const state = stillState();
+  state.landAtEnd = false;
+  for (const chase of ['around', 'rising', 'across']) {
+    state.formations[1] = { ...state.formations[1], chase };
+    const step = createPlanner()(state).steps[1];
+    const { u } = step.chase;
+    assert.equal(u.length, 100);
+    assert.ok(Math.min(...u) >= 0 && Math.max(...u) < 1 + 1e-6, chase);
+    assert.ok(Math.min(...u) < 0.05 && Math.max(...u) > 0.95, chase);
+    for (let drone = 0; drone < 100; drone++) {
+      const [x, , z] = step.to.subarray(drone * 3, drone * 3 + 3);
+      const center = state.formations[1].centerHeight;
+      if (chase === 'rising') {
+        // The highest drone has the largest value.
+        assert.equal(z === Math.max(...Array.from({ length: 100 }, (n, d) => step.to[d * 3 + 2])), u[drone] === Math.max(...u));
+      }
+      if (chase === 'around' && Math.abs(x) < 1 && z > center) {
+        // A drone at the top of the heart is near the start of a lap, or near its end.
+        assert.ok(u[drone] < 0.05 || u[drone] > 0.95, `top drone ${u[drone]}`);
+      }
+    }
+  }
+  state.formations[1] = { ...state.formations[1], chase: 'off' };
+  assert.equal(createPlanner()(state).steps[1].chase, null);
+});
+
+test('the chase path follows the drones through the assignment', () => {
+  // The same formation gives each target the same path value, whatever drone flies to it.
+  const state = stillState();
+  const plan = createPlanner()(state);
+  const alone = createPlanner()({ ...state, formations: [state.formations[1]], landAtEnd: false });
+  const byTarget = (step) => {
+    const values = new Map();
+    for (let drone = 0; drone < 100; drone++) {
+      values.set(pointSet(step.to.subarray(drone * 3, drone * 3 + 3))[0], step.chase.u[drone]);
+    }
+    return values;
+  };
+  const inShow = byTarget(plan.steps[1]);
+  for (const [target, value] of byTarget(alone.steps[0])) near(inShow.get(target), value, 1e-6);
+});
+
+test('a yaw does not change the chase path', () => {
+  const state = stillState();
+  state.landAtEnd = false;
+  const planner = createPlanner();
+  const facing = planner(state).steps[1].chase.u;
+  state.formations[1] = { ...state.formations[1], yaw: 40 };
+  const turned = planner(state).steps[1].chase.u;
+  const sorted = (values) => Array.from(values).sort((a, b) => a - b);
+  sorted(turned).forEach((value, i) => near(value, sorted(facing)[i], 1e-5));
 });

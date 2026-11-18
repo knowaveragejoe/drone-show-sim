@@ -37,6 +37,23 @@ export const FORMATION_FIELDS = [
   { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
 ];
 
+/** The patterns of a light chase. The first one turns the chase off. */
+export const CHASE_PATTERNS = {
+  off: 'Off',
+  around: 'Around',
+  rising: 'Rising',
+  across: 'Across',
+};
+
+/**
+ * Fields of the light chase. The sidebar shows them only when the chase is on.
+ * @type {NumberField[]}
+ */
+export const CHASE_FIELDS = [
+  { key: 'chaseBands', label: 'Chase bands', unit: '', min: 1, max: 12, step: 1, integer: true, slider: true, fallback: 4 },
+  { key: 'chaseSpeed', label: 'Chase speed', unit: 'laps/s', min: -2, max: 2, step: 0.05, slider: true, fallback: 0.5 },
+];
+
 /** @type {NumberField[]} */
 export const VOLUME_FIELDS = [
   { key: 'size', label: 'Size', unit: 'm', min: 10, max: 1000, step: 1, slider: true },
@@ -96,6 +113,9 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} holdSeconds time that the drones hold the formation
  * @property {number} turnRate how fast the formation turns about the vertical axis in its hold,
  *   degrees per second; positive is counterclockwise seen from above
+ * @property {keyof typeof CHASE_PATTERNS} chase the pattern of the light chase in the hold
+ * @property {number} chaseBands number of bright bands of the light chase
+ * @property {number} chaseSpeed laps per second of the light chase; negative runs the other way
  * @property {number} seed seed of the random sampler
  */
 
@@ -134,6 +154,9 @@ export function defaultState() {
         color: FORMATION_COLORS[0],
         holdSeconds: 10,
         turnRate: 6,
+        chase: 'off',
+        chaseBands: 4,
+        chaseSpeed: 0.5,
         seed: 1,
       },
       {
@@ -144,6 +167,9 @@ export function defaultState() {
         color: FORMATION_COLORS[1],
         holdSeconds: 10,
         turnRate: 0,
+        chase: 'around',
+        chaseBands: 5,
+        chaseSpeed: 0.25,
         seed: 1,
       },
       {
@@ -154,6 +180,9 @@ export function defaultState() {
         color: FORMATION_COLORS[2],
         holdSeconds: 10,
         turnRate: -6,
+        chase: 'off',
+        chaseBands: 4,
+        chaseSpeed: 0.5,
         seed: 1,
       },
     ],
@@ -260,10 +289,17 @@ function readFormation(saved, index) {
     throw new Error(`${name}: color must be a color such as #66ccff.`);
   }
   if (!Number.isInteger(saved.seed)) throw new Error(`${name}: seed must be a whole number.`);
+  // A project file from before the light chase existed has no chase.
+  const chase = saved.chase ?? 'off';
+  if (!Object.hasOwn(CHASE_PATTERNS, chase)) {
+    throw new Error(`${name}: chase must be one of ${Object.keys(CHASE_PATTERNS).join(', ')}.`);
+  }
   return /** @type {Formation} */ ({
     ...readFields(name, saved, FORMATION_FIELDS),
+    ...readFields(name, saved, CHASE_FIELDS),
     source: readSource(name, saved.source),
     color: saved.color,
+    chase,
     seed: saved.seed,
   });
 }

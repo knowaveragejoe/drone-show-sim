@@ -185,3 +185,25 @@ test('a project file from before the turn rate existed loads with no turn', () =
   assert.throws(() => parseProject(fileWith((data) => delete data.formations[0].size)), /formation 1: size/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].turnRate = 90))), /formation 1: turnRate must be a number from -45 to 45/);
 });
+
+test('a project file from before the light chase existed loads with no chase', () => {
+  const text = fileWith((data) =>
+    data.formations.forEach((formation) => {
+      delete formation.chase;
+      delete formation.chaseBands;
+      delete formation.chaseSpeed;
+    }),
+  );
+  for (const formation of parseProject(text).formations) {
+    assert.equal(formation.chase, 'off');
+    assert.equal(formation.chaseBands, 4);
+    assert.equal(formation.chaseSpeed, 0.5);
+  }
+});
+
+test('import rejects a bad light chase', () => {
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].chase = 'spiral'))), /formation 2: chase must be one of off, around, rising, across/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 0))), /formation 1: chaseBands must be a whole number from 1 to 12/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 2.5))), /chaseBands/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseSpeed = 9))), /formation 1: chaseSpeed must be a number from -2 to 2/);
+});

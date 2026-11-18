@@ -16,7 +16,7 @@
   --ok: #4ade80;
   --radius: 6px;
   --control-height: 28px;
-  --number-width: 84px;
+  --number-width: 92px;
   --label-width: 96px;
   color-scheme: dark;
   font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -327,6 +327,7 @@ button.square:hover:not(:disabled) {
 .unit {
   padding-right: 8px;
   color: var(--faint);
+  font-size: 12px;
   white-space: nowrap;
 }
 

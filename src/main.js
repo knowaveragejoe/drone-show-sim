@@ -9,6 +9,7 @@ import {
 } from './camera.js';
 import { projectToScreen } from './mat4.js';
 import {
+  brightnessAt,
   createPlanner,
   fitSize,
   holdStart,
@@ -89,6 +90,7 @@ function start() {
   };
 
   const positions = new Float32Array(MAX_DRONES * 3);
+  const brightness = new Float32Array(MAX_DRONES);
   const viewProj = new Float32Array(16);
   let frameRequested = false;
   let firstFrame = true;
@@ -302,11 +304,13 @@ function start() {
     lastFrameTime = now;
 
     positionsAt(plan, view.time, positions);
+    brightnessAt(plan, view.time, brightness);
     viewProjection(camera, canvas.clientWidth / Math.max(1, canvas.clientHeight), viewProj);
     renderer.draw({
       viewProj,
       pixelsPerMeter: pixelsPerMeter(camera, canvas.clientHeight),
       positions: positions.subarray(0, plan.count * 3),
+      brightness: brightness.subarray(0, plan.count),
       count: plan.count,
       color: lightColorAt(plan, colors, view.time),
       selected: view.selected,
