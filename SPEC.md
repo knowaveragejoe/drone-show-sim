@@ -160,6 +160,12 @@ The sampler picks only as many targets as there are drones, and keeps its work.
 When the drone count grows, it picks more from where it stopped. When the count shrinks, the first picks stay the same.
 A change of drone count then needs no new sampling, and existing targets do not move.
 
+The sampler uses a grid of cells, about 8 candidates per cell.
+Each candidate keeps its squared distance to its nearest pick. After a pick, no candidate is farther from its nearest pick than the farthest candidate, so a new pick can only change the candidates within that distance of it.
+A pick visits only the cells within that distance. Each cell keeps its farthest candidate, so the search for the next pick visits one value per cell.
+The picks are the same as those of a plain search of every candidate, also for ties: of candidates at the same distance, the one with the lowest index wins.
+At 1,000 picks this is 5 to 16 times faster than a plain search.
+
 ### 3. Place the formation
 
 The simulator scales each unit point by the formation size.
@@ -217,6 +223,7 @@ Several measures make the solver fast:
 | Warm start | A solve that is not in the store starts from the last solution between the same two shapes. It keeps each earlier pair that is still the cheapest of its row, and the solver assigns only the other drones. A small change of drone count then frees only the drones that changed, and a yaw change gets 2 to 5 times faster. The canonical grid keeps each drone at the same cell for every drone count with the same grid width, so the warm start stays good. A warm start from a solution with fewer than 75% of the drones is not used. |
 | Coarse to fine | A cold solve of 400 drones or more first solves a spread sample of a quarter of the drones and targets, in farthest point order. That solution is the warm start of the full solve. This halves the time of a cold solve. |
 | Lazy sampling | The sampler picks only as many targets as there are drones, and picks more when the count grows. |
+| Stored pairings | Autosave keeps the pairings of the last plan with the project. On the next page load, they are the warm starts of the first plan, so each solve only checks them. |
 
 The result does not depend on which measures ran.
 A tie-break term makes the best pairing unique: each drone and target pair gets an extra cost of up to one part in 100 million of the largest cost, from a fixed hash of the pair.
@@ -230,8 +237,9 @@ Measured on a slow cloud CPU at 1,000 drones:
 | Size, height, grid spacing, color, chase, undo, redo | 3 to 30 ms |
 | Turn rate of a turning formation, size of a turning formation | about 50 ms |
 | Drone count by a few drones | about 130 ms |
-| A new shape, or a yaw change | 0.3 to 0.5 seconds |
-| A cold plan of the default show, as on page open | about 1.2 seconds |
+| A new shape, or a yaw change | 0.2 to 0.5 seconds |
+| A cold plan of the default show | about 1 second |
+| A page open with stored pairings | about 0.2 seconds of planning |
 
 A slider for drone count, yaw, or turn rate applies each step of a drag up to 250 drones. Above 250 drones, it applies its value when the user lets go. The other sliders apply each step at every fleet size.
 
@@ -419,6 +427,8 @@ The history keeps 200 steps. It does not survive a page reload.
 ### Autosave
 
 The page saves the project in the browser storage (`localStorage`), as the text of a project file.
+Under a second key, it also saves the pairings of the last plan, with their column prices, in Base64. The pairings are only a speed-up: the solver checks every pair that it keeps from them, so a stale or broken entry can cost time but never give a wrong plan. A failed save of the pairings shows no message.
+On page open, the page plans the saved show before any other show, because another plan would replace the stored pairings with its own.
 It saves 0.4 seconds after the last change, so a slider drag saves one time.
 It also saves at once when the user hides or leaves the page.
 
@@ -589,13 +599,13 @@ No `npm install` is necessary.
 
 | Module | What the tests check |
 |---|---|
-| `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. |
+| `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. The grid sampler picks the same points as a plain search, for each built-in shape, an SVG drawing, an OBJ model, points on a line, and points with many ties. |
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. A warm start from a changed problem, or from a problem of another size, is still optimal. The prices prove the solution optimal. Scaling or moving a point set keeps the best pairing. Cold, warm, and coarse to fine solves of a large fleet with ties give the same pairing. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
-| `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. |
+| `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
 | `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. |
 
@@ -637,11 +647,12 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 12 | SVG import | An SVG drawing as the shape of a formation, with drones on its outlines. | Done |
 | 13 | Undo and autosave | Undo and redo of every change. The project saves in the browser. | Done |
 | 14 | Performance | Canonical copies, a result store, warm starts, coarse to fine solves, and lazy sampling. | Done |
+| 15 | Faster page open | A grid for the sampler, and pairings stored with the autosave. | Done |
 
 ## Known limits
 
 - Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
-- A cold plan of a large show, a new shape, or a yaw change still pauses the page at 1,000 drones: about 1.2 seconds for a cold plan of the default show, and 0.3 to 0.5 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
+- A cold plan of a large show, a new shape, or a yaw change still pauses the page at 1,000 drones: about 1 second for a cold plan of the default show (a page open with stored pairings plans in about 0.2 seconds), and 0.2 to 0.5 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
 - Drones fly straight lines. The closest approach bound needs the spacing margin at both stops of a transition. The simulator does not plan a path around a conflict; it reports the conflict.
 - A drone can land on a grid cell that is not the one it started from.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.

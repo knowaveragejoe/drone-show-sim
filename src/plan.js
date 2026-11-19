@@ -128,42 +128,48 @@ const CACHE_LIMIT = 256;
  * The function throws when a shape is not usable, for example an OBJ model with no faces
  * or an SVG drawing with no outlines.
  * It then keeps its stored results, so the next call with the old state is still fast.
- * @returns {(state: import('./state.js').State) => Plan}
+ * @returns {((state: import('./state.js').State) => Plan) & {
+ *   warmStarts: () => WarmStart[],
+ *   addWarmStarts: (entries: WarmStart[]) => void,
+ * }}
  */
 export function createPlanner() {
   /**
    * @typedef {object} Sample
-   * @property {number} id
+   * @property {string} name names the shape by its contents, so that a name stays the same
+   *   from one page load to the next
    * @property {Float32Array} cloud
    * @property {ReturnType<typeof farthestPointSampler>} sampler
    */
-  /** Samples of built-in shapes, by shape and seed. @type {Map<string, Sample>} */
+  /** Samples of built-in shapes, by name. @type {Map<string, Sample>} */
   const builtinSamples = new Map();
   /**
    * Samples of imported files, by source. A copy of a formation shares its source, and so its sample.
    * @type {WeakMap<import('./state.js').Source, {seed: number, sample: Sample}>}
    */
   const fileSamples = new WeakMap();
-  let nextSampleId = 1;
 
-  /** @param {Float32Array} cloud */
-  const newSample = (cloud) => ({ id: nextSampleId++, cloud, sampler: farthestPointSampler(cloud) });
+  /** @param {string} name @param {Float32Array} cloud @returns {Sample} */
+  const newSample = (name, cloud) => ({ name, cloud, sampler: farthestPointSampler(cloud) });
 
   /** @param {import('./state.js').Formation} formation */
   function sampleOf({ source, seed }) {
     if (source.type === 'builtin') {
-      const key = `${source.shape}:${seed}`;
-      let sample = builtinSamples.get(key);
+      const name = `builtin:${source.shape}:${seed}`;
+      let sample = builtinSamples.get(name);
       if (!sample) {
-        sample = newSample(builtinCloud(source.shape, seed));
-        builtinSamples.set(key, sample);
+        sample = newSample(name, builtinCloud(source.shape, seed));
+        builtinSamples.set(name, sample);
       }
       return sample;
     }
     const entry = fileSamples.get(source);
     if (entry && entry.seed === seed) return entry.sample;
-    const cloud = source.type === 'obj' ? objCloud(source.text, source.upAxis, seed) : svgCloud(source.text, seed);
-    const sample = newSample(cloud);
+    const contents = `${textHash(source.text)}:${source.text.length}:${seed}`;
+    const sample =
+      source.type === 'obj'
+        ? newSample(`obj:${source.upAxis}:${contents}`, objCloud(source.text, source.upAxis, seed))
+        : newSample(`svg:${contents}`, svgCloud(source.text, seed));
     fileSamples.set(source, { seed, sample });
     return sample;
   }
@@ -185,10 +191,16 @@ export function createPlanner() {
    */
   const remember = (key, compute) => store(key, cache.has(key) ? cache.get(key) : compute());
 
-  return (state) => {
+  /** The assignments of the last plan, as warm starts for a later page load. @type {WarmStart[]} */
+  let lastWarmStarts = [];
+
+  /** @param {import('./state.js').State} state */
+  const plan = (state) => {
     const { count, gridSpacing, maxAcceleration } = state.fleet;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
     const shapes = state.formations.map(sampleOf);
+    /** @type {WarmStart[]} */
+    const warmStarts = [];
     const orders = shapes.map((sample) => sample.sampler.order(count));
 
     const gridPoints = takeoffGrid(count, gridSpacing);
@@ -210,7 +222,7 @@ export function createPlanner() {
     };
     const stops = [grid];
     state.formations.forEach((formation, index) => {
-      const { id, cloud } = shapes[index];
+      const { name, cloud } = shapes[index];
       const points = placeTargets(cloud, orders[index], count, formation);
       const unit = placeTargets(cloud, orders[index], count, { ...formation, size: 1, centerHeight: 0 });
       let radius = 0;
@@ -218,7 +230,7 @@ export function createPlanner() {
         radius = Math.max(radius, Math.hypot(points[i], points[i + 1]));
       }
       const turn = planTurn(formation.turnRate * DEGREE, formation.holdSeconds, radius, maxAcceleration);
-      const family = String(id);
+      const family = name;
       const key = `${family}:${formation.yaw}`;
       // A formation that turns leaves its hold in a new pose: the same shape at a new yaw.
       stops.push({
@@ -267,6 +279,7 @@ export function createPlanner() {
         assignTargets(previous.leaveUnit, stop.unit, count, cache.get(familyKey) ?? null),
       );
       store(familyKey, match);
+      warmStarts.push({ key: familyKey, ...match });
       // The closest approach depends on the sizes, but not on the heights.
       const approach = remember(`approach|${linkKey}|${previous.scale}|${stop.scale}`, () =>
         closestApproach(previous.leavePoints, gather(stop.points, match.columnOfRow), count),
@@ -318,6 +331,7 @@ export function createPlanner() {
       };
     });
 
+    lastWarmStarts = warmStarts;
     return {
       count,
       steps,
@@ -331,6 +345,55 @@ export function createPlanner() {
       takeoffOutsideVolume,
     };
   };
+
+  return Object.assign(plan, {
+    /**
+     * The assignments of the last plan. A later page load can start from them.
+     * @returns {WarmStart[]}
+     */
+    warmStarts: () => lastWarmStarts,
+    /**
+     * Adds assignments to start from, for example from an earlier page load. The solver
+     * checks each pair it keeps, so a start that does not fit only costs time.
+     * @param {WarmStart[]} entries
+     */
+    addWarmStarts(entries) {
+      for (const { key, columnOfRow, price } of entries) {
+        const valid =
+          key.startsWith('family|') &&
+          columnOfRow.length === price.length &&
+          columnOfRow.every((column) => column >= 0 && column < columnOfRow.length) &&
+          price.every(Number.isFinite);
+        if (valid) store(key, { columnOfRow, price });
+      }
+    },
+  });
+}
+
+/**
+ * An assignment between two shapes, for a warm start.
+ * @typedef {object} WarmStart
+ * @property {string} key names the two shapes
+ * @property {Int32Array} columnOfRow
+ * @property {Float64Array} price
+ */
+
+/**
+ * A 53-bit hash of a text (cyrb53). It names an imported file by its contents.
+ * @param {string} text
+ * @returns {string}
+ */
+function textHash(text) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
 /**

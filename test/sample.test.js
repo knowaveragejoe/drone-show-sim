@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { objCloud } from '../src/obj.js';
+import { createRng } from '../src/rng.js';
 import { closestSpacing, farthestPointOrder, farthestPointSampler } from '../src/sample.js';
-import { builtinCloud } from '../src/shapes.js';
+import { BUILTIN_SHAPES, builtinCloud } from '../src/shapes.js';
+import { svgCloud } from '../src/svg.js';
 
 /** Points 0, 1, ... n-1 on the x axis. */
 function line(n) {
@@ -64,4 +67,50 @@ test('the sampler picks more points when asked, and they equal a single run', ()
   assert.deepEqual(more, Array.from(farthestPointOrder(cloud, 200)));
   assert.deepEqual(more.slice(0, 30), first);
   assert.deepEqual(fewer, first.slice(0, 10));
+});
+
+/** The plain farthest point search, one full pass per pick. The grid sampler must match it. */
+function plainOrder(points, count) {
+  const total = points.length / 3;
+  const picks = new Uint32Array(Math.min(count, total));
+  const nearest = new Float32Array(total).fill(Infinity);
+  let current = 0;
+  for (let pick = 0; pick < picks.length; pick++) {
+    picks[pick] = current;
+    const cx = points[current * 3];
+    const cy = points[current * 3 + 1];
+    const cz = points[current * 3 + 2];
+    let farthest = -1;
+    let next = 0;
+    for (let i = 0; i < total; i++) {
+      const dx = points[i * 3] - cx;
+      const dy = points[i * 3 + 1] - cy;
+      const dz = points[i * 3 + 2] - cz;
+      const distance = dx * dx + dy * dy + dz * dz;
+      if (distance < nearest[i]) nearest[i] = distance;
+      if (nearest[i] > farthest) {
+        farthest = nearest[i];
+        next = i;
+      }
+    }
+    current = next;
+  }
+  return picks;
+}
+
+test('the grid sampler picks the same points as a plain search, for every kind of cloud', () => {
+  const random = createRng(41);
+  const clouds = {
+    ...Object.fromEntries(Object.keys(BUILTIN_SHAPES).map((shape) => [shape, builtinCloud(shape, 3)])),
+    svg: svgCloud('<svg><rect x="0" y="0" width="40" height="10" rx="3"/><circle cx="20" cy="5" r="4"/></svg>', 1),
+    obj: objCloud('v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 0 0 1\nf 1 2 3 4\nf 1 2 5\nf 2 3 5\n', 'y', 1),
+    // All points on one line: two flat axes.
+    line: Float32Array.from({ length: 3000 }, (unused, i) => (i % 3 === 0 ? random() : 0)),
+    // Many exact duplicates: the lowest index must win each tie.
+    duplicates: Float32Array.from({ length: 6000 }, (unused, i) => Math.floor(random() * 4) / 4 + (i % 3) * 0.25),
+  };
+  for (const [name, cloud] of Object.entries(clouds)) {
+    const count = Math.min(1000, cloud.length / 3);
+    assert.deepEqual(farthestPointOrder(cloud, count), plainOrder(cloud, count), name);
+  }
 });

@@ -41,6 +41,8 @@ const WARM_TOLERANCE = 1e-10;
  * @returns {Solution}
  */
 export function solveAssignment(cost, n, warm = null) {
+  // A start with a price that is not a number could keep a pair that is not optimal.
+  if (warm && !warm.price.every(Number.isFinite)) warm = null;
   const columnOfRow = new Int32Array(n).fill(-1);
   const rowOfColumn = new Int32Array(n).fill(-1);
   // Column prices. The reduced cost of a cell is its cost minus the price of its column.
@@ -246,12 +248,13 @@ export function solveAssignment(cost, n, warm = null) {
  */
 function warmStart(cost, n, warm, price, columnOfRow, rowOfColumn, free) {
   const earlierColumns = warm.price.length;
-  // Keep each earlier pair whose row and column still exist.
+  // Keep each earlier pair whose row and column still exist. A column that an earlier row
+  // already took stays with that row; this only happens with a corrupt start.
   /** @type {number[]} */
   const kept = [];
   for (let row = 0; row < Math.min(n, warm.columnOfRow.length); row++) {
     const column = warm.columnOfRow[row];
-    if (column >= 0 && column < n) {
+    if (column >= 0 && column < n && column < earlierColumns && rowOfColumn[column] < 0) {
       columnOfRow[row] = column;
       rowOfColumn[column] = row;
       kept.push(row);

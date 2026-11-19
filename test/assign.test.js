@@ -301,3 +301,24 @@ test('a large fleet gets the same assignment from a cold start, a warm start, an
   const best = totalCost(cost, count, hungarian(cost, count));
   assert.ok(Math.abs(totalCost(cost, count, cold.columnOfRow) - best) <= TIE_BREAK * largest(cost) * count);
 });
+
+test('a corrupt warm start still gives an optimal assignment', () => {
+  const random = createRng(35);
+  const n = 50;
+  const cost = randomCost(random, n, 1000);
+  const best = totalCost(cost, n, hungarian(cost, n));
+  const good = solveAssignment(cost, n);
+  const starts = [
+    // Every row on the same column.
+    { columnOfRow: new Int32Array(n).fill(7), price: good.price },
+    // Prices that are not numbers.
+    { columnOfRow: good.columnOfRow, price: new Float64Array(n).fill(NaN) },
+    // Columns out of range, and huge prices.
+    { columnOfRow: Int32Array.from({ length: n }, (unused, i) => (i % 2 ? -1 : n + i)), price: new Float64Array(n).fill(1e12) },
+  ];
+  for (const warm of starts) {
+    const assignment = solveAssignment(cost, n, warm).columnOfRow;
+    assertValid(assignment, n);
+    assert.equal(totalCost(cost, n, assignment), best);
+  }
+});

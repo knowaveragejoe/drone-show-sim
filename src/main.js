@@ -103,23 +103,28 @@ function start() {
   const planner = createPlanner();
   /** @type {import('./history.js').History<Snapshot>} */
   const history = createHistory();
-  const autosave = createAutosave(browserStorage(), showAutosaveProblem);
+  const autosave = createAutosave(browserStorage(), showAutosaveProblem, () => planner.warmStarts());
 
   // The state is never changed in place. Each change makes a new state object,
   // so a change that the planner rejects leaves the old state as it was, and an old
   // state can serve as an undo snapshot.
   let state = defaultState();
-  let plan = planner(state);
+  /** @type {import('./plan.js').Plan | null} */
+  let firstPlan = null;
   const saved = autosave.load();
   if (saved) {
+    // The assignments of the saved show make its first plan fast. Plan the saved show
+    // before any other: another plan would replace the stored starts with its own.
+    planner.addWarmStarts(autosave.loadPairings());
     try {
-      plan = planner(saved);
+      firstPlan = planner(saved);
       state = saved;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       showAutosaveProblem(`The saved show could not be loaded, so the default show is open. ${reason}`);
     }
   }
+  let plan = firstPlan ?? planner(state);
   let colors = state.formations.map((formation) => hexToRgb(formation.color));
   // The page opens on the first formation. Play runs the show from there.
   /** @type {import('./ui.js').View} */
