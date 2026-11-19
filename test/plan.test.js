@@ -362,6 +362,12 @@ test('stored results give the same plan as a new planner', () => {
     { ...state, formations: [{ ...first, turnRate: -12 }, second, { ...third, turnRate: 0 }] },
     { ...state, fleet: { ...state.fleet, maxAcceleration: 1 } },
     { ...state, formations: [{ ...first, holdSeconds: 4 }, second, third] },
+    // Size and grid spacing changes reuse the assignments. Count changes start warm.
+    { ...state, formations: [first, { ...second, size: 140 }, { ...third, size: 30 }] },
+    { ...state, fleet: { ...state.fleet, gridSpacing: 5 } },
+    { ...state, fleet: { ...state.fleet, count: 97 } },
+    { ...state, fleet: { ...state.fleet, count: 103 } },
+    { ...state, formations: [first, second, { ...third, yaw: 50 }] },
     state,
   ];
   for (const changed of changes) {
@@ -761,4 +767,32 @@ test('an SVG drawing with no outlines does not break the planner', () => {
   bad.formations[0].source = { type: 'svg', fileName: 'empty.svg', text: '<svg></svg>' };
   assert.throws(() => planner(bad), /no outlines/);
   assert.deepEqual(planner(state).steps.at(-1).to, good.steps.at(-1).to);
+});
+
+test('a change of formation size, formation height, or grid spacing keeps every pair', () => {
+  // A turn's angle depends on the radius of the formation, so this test uses formations
+  // that do not turn.
+  const planner = createPlanner();
+  const state = stillState();
+  const before = planner(state);
+  const changes = [
+    { ...state, formations: state.formations.map((formation) => ({ ...formation, size: formation.size * 1.6 })) },
+    { ...state, formations: state.formations.map((formation) => ({ ...formation, centerHeight: 90 })) },
+    { ...state, fleet: { ...state.fleet, gridSpacing: 4.5 } },
+  ];
+  for (const changed of changes) {
+    const plan = planner(changed);
+    const fresh = createPlanner()(changed);
+    plan.steps.forEach((step, index) => assert.deepEqual(step.to, fresh.steps[index].to));
+  }
+  // Each drone flies to the same target as before, at its new place: a size change scales
+  // each target about the formation center.
+  const bigger = planner(changes[0]);
+  const center = state.formations[1].centerHeight;
+  const earlier = before.steps[1].to;
+  const later = bigger.steps[1].to;
+  for (let i = 0; i < earlier.length; i += 3) {
+    near(later[i], earlier[i] * 1.6, 1e-3);
+    near(later[i + 2] - center, (earlier[i + 2] - center) * 1.6, 1e-3);
+  }
 });

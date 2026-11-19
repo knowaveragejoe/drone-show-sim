@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { closestSpacing, farthestPointOrder } from '../src/sample.js';
+import { closestSpacing, farthestPointOrder, farthestPointSampler } from '../src/sample.js';
 import { builtinCloud } from '../src/shapes.js';
 
 /** Points 0, 1, ... n-1 on the x axis. */
@@ -53,4 +53,15 @@ test('closestSpacing finds the smallest distance', () => {
 test('closestSpacing is infinite for fewer than two points', () => {
   assert.equal(closestSpacing(new Float32Array(3), 1), Infinity);
   assert.equal(closestSpacing(new Float32Array(0), 0), Infinity);
+});
+
+test('the sampler picks more points when asked, and they equal a single run', () => {
+  const cloud = builtinCloud('torus', 2);
+  const sampler = farthestPointSampler(cloud);
+  const first = Array.from(sampler.order(30));
+  const more = Array.from(sampler.order(200));
+  const fewer = Array.from(sampler.order(10));
+  assert.deepEqual(more, Array.from(farthestPointOrder(cloud, 200)));
+  assert.deepEqual(more.slice(0, 30), first);
+  assert.deepEqual(fewer, first.slice(0, 10));
 });

@@ -52,7 +52,7 @@ A shape is one of seven built-in shapes, an OBJ model, or an SVG drawing. The bu
 - An OBJ model gets drones on its surface. The importer reads vertices and faces. It ignores materials and textures.
 - An SVG drawing gets drones on its outlines, and it stands upright facing the audience. The importer reads paths, rectangles, circles, ellipses, lines, polylines, polygons, and transforms. It does not read text, so convert text to paths first.
 
-Above 250 drones, a slider applies its value when you let go.
+Above 250 drones, the sliders for drone count, yaw, and turn rate apply their value when you let go. The others apply at once at every fleet size.
 
 ## How it works
 

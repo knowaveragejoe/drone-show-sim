@@ -17,10 +17,9 @@ import {
   turnAboutZ,
 } from './motion.js';
 import { objCloud } from './obj.js';
-import { closestSpacing, farthestPointOrder } from './sample.js';
+import { closestSpacing, farthestPointSampler } from './sample.js';
 import { builtinCloud } from './shapes.js';
 import { svgCloud } from './svg.js';
-import { MAX_DRONES } from './state.js';
 
 /**
  * One step of the show: a transition to a stop, then a hold at that stop.
@@ -81,17 +80,23 @@ import { MAX_DRONES } from './state.js';
  * A place where the fleet rests. Its points are in a fixed order that does not depend on
  * the drones: grid order for the takeoff grid, pick order for a formation.
  *
- * A key names the shape of a pose but not its place. A shift of a whole stop changes neither
- * the best assignment nor a distance between two drones, so results stored under a key stay
- * valid when only a formation height changes.
+ * The best assignment between two stops does not change when a stop grows, shrinks, or
+ * moves: the total cost then changes by a positive factor and by a constant. So the
+ * planner solves each assignment on canonical copies of the stops (unit size, centered),
+ * and the key of a pose names only its shape and its rotation. A change of formation size,
+ * formation height, or grid spacing then needs no new assignment.
  * @typedef {object} Stop
  * @property {number} formation index of the formation, or -1 for the takeoff grid
- * @property {string} key shape of the stop when the fleet arrives
+ * @property {string} family the shape of the stop, without its pose
+ * @property {number} scale size of the formation, or spacing of the grid, meters
+ * @property {string} key shape and rotation of the stop when the fleet arrives
  * @property {Float32Array} points xyz per point when the fleet arrives
+ * @property {Float32Array} unit canonical copy of `points`
  * @property {import('./motion.js').Turn | null} turn the turn in the hold, if any
  * @property {number} radius distance from the turn axis to the farthest point, meters
- * @property {string} leaveKey shape of the stop when the hold ends
+ * @property {string} leaveKey shape and rotation of the stop when the hold ends
  * @property {Float32Array} leavePoints xyz per point when the hold ends
+ * @property {Float32Array} leaveUnit canonical copy of `leavePoints`
  * @property {Chase | null} chase the light chase in the hold, with `u` in point order, if any
  */
 
@@ -107,10 +112,18 @@ const CHASE_FADE = 1;
 // How fast the tail of a band fades. A larger number gives a shorter tail.
 const CHASE_TAIL = 3;
 
+// The planner keeps this many results of its slow stages. Recent results stay, so undo,
+// redo, and a value that goes back and forth need no new work.
+const CACHE_LIMIT = 256;
+
 /**
  * Makes a function that builds the plan for a state.
- * The function keeps the results of the slow stages (sampling, assignment, and the distance
- * checks) and runs them again only when their inputs change.
+ * The function keeps the recent results of the slow stages (sampling, assignment, and the
+ * distance checks) and runs a stage again only for inputs that it has not seen.
+ *
+ * An assignment that is not in the store starts from the last assignment between the same
+ * two shapes, if there is one. That warm start makes a change of rotation, turn, or drone
+ * count much faster, and gives the same result as a cold start.
  *
  * The function throws when a shape is not usable, for example an OBJ model with no faces
  * or an SVG drawing with no outlines.
@@ -119,82 +132,107 @@ const CHASE_TAIL = 3;
  */
 export function createPlanner() {
   /**
-   * The sampled shape of each source. A copy of a formation shares its source, and so its sample.
-   * @type {WeakMap<import('./state.js').Source, {seed: number, id: number, cloud: Float32Array, order: Uint32Array}>}
+   * @typedef {object} Sample
+   * @property {number} id
+   * @property {Float32Array} cloud
+   * @property {ReturnType<typeof farthestPointSampler>} sampler
    */
-  const samples = new WeakMap();
+  /** Samples of built-in shapes, by shape and seed. @type {Map<string, Sample>} */
+  const builtinSamples = new Map();
+  /**
+   * Samples of imported files, by source. A copy of a formation shares its source, and so its sample.
+   * @type {WeakMap<import('./state.js').Source, {seed: number, sample: Sample}>}
+   */
+  const fileSamples = new WeakMap();
   let nextSampleId = 1;
 
-  /** Results of the slow stages, by a key made from their inputs. @type {Map<string, any>} */
-  let stored = new Map();
+  /** @param {Float32Array} cloud */
+  const newSample = (cloud) => ({ id: nextSampleId++, cloud, sampler: farthestPointSampler(cloud) });
 
   /** @param {import('./state.js').Formation} formation */
   function sampleOf({ source, seed }) {
-    let sample = samples.get(source);
-    if (!sample || sample.seed !== seed) {
-      const cloud =
-        source.type === 'obj'
-          ? objCloud(source.text, source.upAxis, seed)
-          : source.type === 'svg'
-            ? svgCloud(source.text, seed)
-            : builtinCloud(source.shape, seed);
-      sample = { seed, id: nextSampleId++, cloud, order: farthestPointOrder(cloud, MAX_DRONES) };
-      samples.set(source, sample);
+    if (source.type === 'builtin') {
+      const key = `${source.shape}:${seed}`;
+      let sample = builtinSamples.get(key);
+      if (!sample) {
+        sample = newSample(builtinCloud(source.shape, seed));
+        builtinSamples.set(key, sample);
+      }
+      return sample;
     }
+    const entry = fileSamples.get(source);
+    if (entry && entry.seed === seed) return entry.sample;
+    const cloud = source.type === 'obj' ? objCloud(source.text, source.upAxis, seed) : svgCloud(source.text, seed);
+    const sample = newSample(cloud);
+    fileSamples.set(source, { seed, sample });
     return sample;
   }
+
+  /** Results of the slow stages, by a key made from their inputs, oldest use first. @type {Map<string, any>} */
+  const cache = new Map();
+  /** @param {string} key @param {any} value */
+  const store = (key, value) => {
+    cache.delete(key);
+    cache.set(key, value);
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+    return value;
+  };
+  /**
+   * @template T
+   * @param {string} key
+   * @param {() => T} compute
+   * @returns {T}
+   */
+  const remember = (key, compute) => store(key, cache.has(key) ? cache.get(key) : compute());
 
   return (state) => {
     const { count, gridSpacing, maxAcceleration } = state.fleet;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
     const shapes = state.formations.map(sampleOf);
-
-    /** @type {Map<string, any>} */
-    const used = new Map();
-    /**
-     * @template T
-     * @param {string} key
-     * @param {() => T} compute
-     * @returns {T}
-     */
-    const remember = (key, compute) => {
-      const value = used.get(key) ?? stored.get(key) ?? compute();
-      used.set(key, value);
-      return value;
-    };
+    const orders = shapes.map((sample) => sample.sampler.order(count));
 
     const gridPoints = takeoffGrid(count, gridSpacing);
-    const gridKey = `grid:${gridSpacing}`;
+    const gridUnit = anchored(takeoffGrid(count, 1));
     /** @type {Stop} */
     const grid = {
       formation: -1,
-      key: gridKey,
+      family: 'grid',
+      scale: gridSpacing,
+      key: 'grid',
       points: gridPoints,
+      unit: gridUnit,
       turn: null,
       radius: 0,
-      leaveKey: gridKey,
+      leaveKey: 'grid',
       leavePoints: gridPoints,
+      leaveUnit: gridUnit,
       chase: null,
     };
     const stops = [grid];
     state.formations.forEach((formation, index) => {
-      const { id, cloud, order } = shapes[index];
-      const points = placeTargets(cloud, order, count, formation);
-      const key = `${id}:${formation.size}:${formation.yaw}`;
+      const { id, cloud } = shapes[index];
+      const points = placeTargets(cloud, orders[index], count, formation);
+      const unit = placeTargets(cloud, orders[index], count, { ...formation, size: 1, centerHeight: 0 });
       let radius = 0;
       for (let i = 0; i < points.length; i += 3) {
         radius = Math.max(radius, Math.hypot(points[i], points[i + 1]));
       }
       const turn = planTurn(formation.turnRate * DEGREE, formation.holdSeconds, radius, maxAcceleration);
+      const family = String(id);
+      const key = `${family}:${formation.yaw}`;
       // A formation that turns leaves its hold in a new pose: the same shape at a new yaw.
       stops.push({
         formation: index,
+        family,
+        scale: formation.size,
         key,
         points,
+        unit,
         turn,
         radius,
-        leaveKey: turn ? `${id}:${formation.size}:${formation.yaw + turn.angle / DEGREE}` : key,
+        leaveKey: turn ? `${family}:${formation.yaw + turn.angle / DEGREE}` : key,
         leavePoints: turn ? turnAboutZ(points, turn.angle, new Float32Array(points.length)) : points,
+        leaveUnit: turn ? turnAboutZ(unit, turn.angle, new Float32Array(unit.length)) : unit,
         chase:
           formation.chase === 'off'
             ? null
@@ -223,15 +261,18 @@ export function createPlanner() {
 
       // The assignment pairs the points of two stops. It does not depend on which drone
       // is at which point, so one result serves every order of the stops before it.
-      const link = remember(`link|${count}|${previous.leaveKey}|${stop.key}`, () => {
-        const match = assignTargets(previous.leavePoints, stop.points, count);
-        return {
-          match,
-          closestApproach: closestApproach(previous.leavePoints, gather(stop.points, match), count),
-        };
-      });
+      const linkKey = `${count}|${previous.leaveKey}|${stop.key}`;
+      const familyKey = `family|${previous.family}|${stop.family}`;
+      const match = remember(`link|${linkKey}`, () =>
+        assignTargets(previous.leaveUnit, stop.unit, count, cache.get(familyKey) ?? null),
+      );
+      store(familyKey, match);
+      // The closest approach depends on the sizes, but not on the heights.
+      const approach = remember(`approach|${linkKey}|${previous.scale}|${stop.scale}`, () =>
+        closestApproach(previous.leavePoints, gather(stop.points, match.columnOfRow), count),
+      );
 
-      slots = slots.map((slot) => link.match[slot]);
+      slots = slots.map((slot) => match.columnOfRow[slot]);
       const to = gather(stop.points, slots);
       const end = stop.turn ? gather(stop.leavePoints, slots) : to;
       markOutside(to, count, stop.turn?.angle ?? 0, volume, outside);
@@ -258,7 +299,7 @@ export function createPlanner() {
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
         end,
         pathLengths,
-        closestApproach: link.closestApproach,
+        closestApproach: approach,
         turnSpeed,
         peakSpeed: Math.max(longest * timing.peakRate, turnSpeed),
       });
@@ -267,17 +308,16 @@ export function createPlanner() {
     }
 
     const formations = state.formations.map((formation, index) => {
-      const { key, points, turn } = stops[index + 1];
+      const { key, scale, points, turn } = stops[index + 1];
       let lowestTarget = Infinity;
       for (let i = 0; i < count; i++) lowestTarget = Math.min(lowestTarget, points[i * 3 + 2]);
       return {
-        spacing: remember(`spacing|${count}|${key}`, () => closestSpacing(points, count)),
+        spacing: remember(`spacing|${count}|${key}|${scale}`, () => closestSpacing(points, count)),
         lowestTarget,
         outsideVolume: markOutside(points, count, turn?.angle ?? 0, volume, new Uint8Array(count)),
       };
     });
 
-    stored = used;
     return {
       count,
       steps,
@@ -291,6 +331,24 @@ export function createPlanner() {
       takeoffOutsideVolume,
     };
   };
+}
+
+/**
+ * Moves points so that the first one is at the origin. The canonical copy of the takeoff
+ * grid uses this. A change of drone count moves the centered grid by half a cell, but in
+ * this copy each drone keeps its place, so a warm start from the old count stays good.
+ * A move of a whole stop does not change the best assignment.
+ * @param {Float32Array} points xyz per point; the function changes them
+ * @returns {Float32Array} `points`
+ */
+function anchored(points) {
+  const [x, y, z] = points.slice(0, 3);
+  for (let i = 0; i < points.length; i += 3) {
+    points[i] -= x;
+    points[i + 1] -= y;
+    points[i + 2] -= z;
+  }
+  return points;
 }
 
 /**

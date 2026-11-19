@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { assignTargets, solveAssignment } from '../src/assign.js';
+import { TIE_BREAK, assignTargets, solveAssignment } from '../src/assign.js';
 import { takeoffGrid } from '../src/motion.js';
 import { createRng } from '../src/rng.js';
 import { farthestPointOrder } from '../src/sample.js';
@@ -80,6 +80,11 @@ function hungarian(cost, n) {
   return columnOfRow;
 }
 
+/** The largest value of a long array. Spread arguments would overflow the call stack. */
+function largest(values) {
+  return values.reduce((most, value) => Math.max(most, value), -Infinity);
+}
+
 function totalCost(cost, n, assignment) {
   let total = 0;
   for (let row = 0; row < n; row++) total += cost[row * n + assignment[row]];
@@ -95,7 +100,7 @@ function assertValid(assignment, n) {
 test('solveAssignment solves a known case', () => {
   // The cheapest choice per row is column 0 each time. The best assignment is 1, 0, 2.
   const cost = new Float64Array([1, 2, 9, 1, 9, 9, 9, 9, 3]);
-  assert.deepEqual(Array.from(solveAssignment(cost, 3)), [1, 0, 2]);
+  assert.deepEqual(Array.from(solveAssignment(cost, 3).columnOfRow), [1, 0, 2]);
 });
 
 test('solveAssignment equals a brute-force search on small cases', () => {
@@ -105,7 +110,7 @@ test('solveAssignment equals a brute-force search on small cases', () => {
     // Few different cost values, so ties are common.
     const range = round % 3 === 0 ? 3 : 50;
     const cost = Float64Array.from({ length: n * n }, () => Math.floor(random() * range));
-    const assignment = solveAssignment(cost, n);
+    const assignment = solveAssignment(cost, n).columnOfRow;
     assertValid(assignment, n);
     assert.equal(totalCost(cost, n, assignment), bruteForce(cost, n));
   }
@@ -116,21 +121,21 @@ test('solveAssignment equals the plain Hungarian algorithm on larger cases', () 
   for (const n of [20, 63, 150]) {
     for (const range of [5, 1000]) {
       const cost = Float64Array.from({ length: n * n }, () => Math.floor(random() * range));
-      const assignment = solveAssignment(cost, n);
+      const assignment = solveAssignment(cost, n).columnOfRow;
       assertValid(assignment, n);
       assert.equal(totalCost(cost, n, assignment), totalCost(cost, n, hungarian(cost, n)));
     }
     const real = Float64Array.from({ length: n * n }, () => random() * 100);
-    const fast = totalCost(real, n, solveAssignment(real, n));
+    const fast = totalCost(real, n, solveAssignment(real, n).columnOfRow);
     const slow = totalCost(real, n, hungarian(real, n));
     assert.ok(Math.abs(fast - slow) < 1e-7 * slow, `${fast} is not ${slow}`);
   }
 });
 
 test('solveAssignment handles all costs equal, one row, and no rows', () => {
-  assertValid(solveAssignment(new Float64Array(25).fill(7), 5), 5);
-  assert.deepEqual(Array.from(solveAssignment(new Float64Array([4]), 1)), [0]);
-  assert.equal(solveAssignment(new Float64Array(0), 0).length, 0);
+  assertValid(solveAssignment(new Float64Array(25).fill(7), 5).columnOfRow, 5);
+  assert.deepEqual(Array.from(solveAssignment(new Float64Array([4]), 1).columnOfRow), [0]);
+  assert.equal(solveAssignment(new Float64Array(0), 0).columnOfRow.length, 0);
 });
 
 test('assignTargets is optimal from the takeoff grid to each kind of shape', () => {
@@ -155,11 +160,12 @@ test('assignTargets is optimal from the takeoff grid to each kind of shape', () 
           (targets[j * 3 + 2] - starts[i * 3 + 2]) ** 2;
       }
     }
-    const assignment = assignTargets(starts, targets, count);
+    const assignment = assignTargets(starts, targets, count).columnOfRow;
     assertValid(assignment, count);
+    // The tie-break term can cost at most its share of the largest cost per drone.
     const fast = totalCost(cost, count, assignment);
     const slow = totalCost(cost, count, hungarian(cost, count));
-    assert.ok(Math.abs(fast - slow) < 1e-9 * slow, `${shape}: ${fast} is not ${slow}`);
+    assert.ok(Math.abs(fast - slow) <= TIE_BREAK * largest(cost) * count, `${shape}: ${fast} is not ${slow}`);
   }
 });
 
@@ -167,7 +173,7 @@ test('assignTargets removes a crossing', () => {
   // Two drones on the ground, two targets above them in swapped order.
   const starts = new Float32Array([0, 0, 0, 10, 0, 0]);
   const targets = new Float32Array([10, 0, 5, 0, 0, 5]);
-  assert.deepEqual(Array.from(assignTargets(starts, targets, 2)), [1, 0]);
+  assert.deepEqual(Array.from(assignTargets(starts, targets, 2).columnOfRow), [1, 0]);
 });
 
 test('assignTargets uses squared distance', () => {
@@ -175,5 +181,123 @@ test('assignTargets uses squared distance', () => {
   // Squared distance prefers two medium flights (25 + 25) to one long and one short (81 + 1).
   const starts = new Float32Array([0, 0, 0, 4, 0, 0]);
   const targets = new Float32Array([5, 0, 0, 9, 0, 0]);
-  assert.deepEqual(Array.from(assignTargets(starts, targets, 2)), [0, 1]);
+  assert.deepEqual(Array.from(assignTargets(starts, targets, 2).columnOfRow), [0, 1]);
+});
+
+// Warm starts.
+
+/** A random cost matrix with values from 0 to range. */
+function randomCost(random, n, range) {
+  return Float64Array.from({ length: n * n }, () => Math.floor(random() * range));
+}
+
+test('a warm start from the same problem gives an optimal assignment at once', () => {
+  const random = createRng(31);
+  const n = 60;
+  const cost = randomCost(random, n, 1000);
+  const cold = solveAssignment(cost, n);
+  const warm = solveAssignment(cost, n, cold);
+  assert.deepEqual(warm.columnOfRow, cold.columnOfRow);
+});
+
+test('a warm start from a changed problem still gives an optimal assignment', () => {
+  const random = createRng(32);
+  for (let round = 0; round < 40; round++) {
+    const n = 5 + Math.floor(random() * 60);
+    const range = round % 2 === 0 ? 4 : 1000;
+    const before = randomCost(random, n, range);
+    // Change some of the costs: few, or most of them.
+    const share = round % 3 === 0 ? 0.9 : 0.05;
+    const after = before.map((value) => (random() < share ? Math.floor(random() * range) : value));
+    const assignment = solveAssignment(after, n, solveAssignment(before, n)).columnOfRow;
+    assertValid(assignment, n);
+    assert.equal(totalCost(after, n, assignment), totalCost(after, n, hungarian(after, n)));
+  }
+});
+
+test('a warm start from a problem of another size still gives an optimal assignment', () => {
+  const random = createRng(33);
+  for (const [earlier, now] of [[40, 50], [50, 40], [30, 31], [1, 20], [20, 1]]) {
+    const warm = solveAssignment(randomCost(random, earlier, 500), earlier);
+    const cost = randomCost(random, now, 500);
+    const assignment = solveAssignment(cost, now, warm).columnOfRow;
+    assertValid(assignment, now);
+    assert.equal(totalCost(cost, now, assignment), totalCost(cost, now, hungarian(cost, now)));
+  }
+});
+
+test('the prices of a solution prove it optimal', () => {
+  const random = createRng(34);
+  const n = 80;
+  const cost = randomCost(random, n, 1000);
+  const { columnOfRow, price } = solveAssignment(cost, n);
+  for (let row = 0; row < n; row++) {
+    const own = cost[row * n + columnOfRow[row]] - price[columnOfRow[row]];
+    for (let column = 0; column < n; column++) {
+      assert.ok(cost[row * n + column] - price[column] >= own - 1e-9, `row ${row}, column ${column}`);
+    }
+  }
+});
+
+test('scaling or moving either point set keeps the best assignment', () => {
+  // Any assignment that is best for one problem is best for the other: compare totals,
+  // because problems with ties can have more than one best assignment.
+  const count = 120;
+  const cloud = builtinCloud('torus', 1);
+  const order = farthestPointOrder(cloud, count);
+  const starts = takeoffGrid(count, 3);
+  const targets = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) targets.set(cloud.subarray(order[i] * 3, order[i] * 3 + 3).map((v) => v * 50), i * 3);
+  const changedStarts = starts.map((value, i) => value * 1.7 + (i % 3 === 2 ? 0 : 4));
+  const changedTargets = targets.map((value, i) => value * 0.6 + (i % 3 === 2 ? 80 : -3));
+  const cost = (a, b) => {
+    const out = new Float64Array(count * count);
+    for (let i = 0; i < count; i++) {
+      for (let j = 0; j < count; j++) {
+        out[i * count + j] = (a[i * 3] - b[j * 3]) ** 2 + (a[i * 3 + 1] - b[j * 3 + 1]) ** 2 + (a[i * 3 + 2] - b[j * 3 + 2]) ** 2;
+      }
+    }
+    return out;
+  };
+  const best = assignTargets(starts, targets, count).columnOfRow;
+  const changed = cost(changedStarts, changedTargets);
+  const reference = totalCost(changed, count, assignTargets(changedStarts, changedTargets, count).columnOfRow);
+  assert.ok(Math.abs(totalCost(changed, count, best) - reference) <= TIE_BREAK * largest(changed) * count);
+});
+
+test('a large fleet gets the same assignment from a cold start, a warm start, and the plain Hungarian algorithm', () => {
+  // From the flat takeoff grid to the flat heart: the geometry alone has many best
+  // assignments. The tie-break term leaves one, whatever the start.
+  const count = 420;
+  const cloud = builtinCloud('heart', 1);
+  const order = farthestPointOrder(cloud, count);
+  const starts = takeoffGrid(count, 3);
+  const targets = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const [x, y, z] = cloud.subarray(order[i] * 3, order[i] * 3 + 3);
+    targets.set([x * 80, y * 80, z * 80 + 60], i * 3);
+  }
+  // This size takes the coarse to fine path.
+  const cold = assignTargets(starts, targets, count);
+  // A warm start from a slightly different problem: the heart turned by 3 degrees.
+  const turned = targets.map((value, i) => {
+    const base = i - (i % 3);
+    const [x, y] = [targets[base], targets[base + 1]];
+    const angle = (3 * Math.PI) / 180;
+    return i % 3 === 0 ? x * Math.cos(angle) - y * Math.sin(angle) : i % 3 === 1 ? x * Math.sin(angle) + y * Math.cos(angle) : value;
+  });
+  const warm = assignTargets(starts, targets, count, assignTargets(starts, turned, count));
+  assert.deepEqual(warm.columnOfRow, cold.columnOfRow);
+
+  const cost = new Float64Array(count * count);
+  for (let i = 0; i < count; i++) {
+    for (let j = 0; j < count; j++) {
+      cost[i * count + j] =
+        (starts[i * 3] - targets[j * 3]) ** 2 +
+        (starts[i * 3 + 1] - targets[j * 3 + 1]) ** 2 +
+        (starts[i * 3 + 2] - targets[j * 3 + 2]) ** 2;
+    }
+  }
+  const best = totalCost(cost, count, hungarian(cost, count));
+  assert.ok(Math.abs(totalCost(cost, count, cold.columnOfRow) - best) <= TIE_BREAK * largest(cost) * count);
 });

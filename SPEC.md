@@ -156,7 +156,8 @@ Think of 20,000 grains of sand on the shape.
 The sampler keeps the grains that are as far apart as possible.
 
 The first N picks are the same for every larger N.
-The sampler computes the order once for 1,000 picks and stores it.
+The sampler picks only as many targets as there are drones, and keeps its work.
+When the drone count grows, it picks more from where it stopped. When the count shrinks, the first picks stay the same.
 A change of drone count then needs no new sampling, and existing targets do not move.
 
 ### 3. Place the formation
@@ -195,18 +196,44 @@ The drones are interchangeable.
 A drone goes to the target that the pairs give for the point where it is now.
 The landing uses the same rule, so a drone can land on a grid cell that is not the one it started from.
 
-The pairs of a transition depend only on the shapes of its two stops:
+The pairs of a transition depend only on the shapes and the rotations of its two stops:
 
 - They do not depend on which drone is at which point.
-- They do not change when a whole stop moves. A shift changes every total by the same amount.
+- They do not change when a whole stop moves. A shift adds the same amount to the total of every pairing.
+- They do not change when a whole stop grows or shrinks. The squared distances expand to `|a|² + |b|² − 2 a·b`, so the best pairing has the largest sum of `a·b`. A uniform scale multiplies that sum by the same positive factor for every pairing.
 
-The planner stores the pairs under a key made from the two shapes and the drone count.
-A change to one formation then needs new pairs for two transitions only: the one before it and the one after it.
-A change of formation height or color needs none.
+So the solver works on canonical copies of the two stops: a formation at unit size with its center at the origin, and the takeoff grid at unit spacing with its first cell at the origin.
+The planner stores the pairs under a key made from the two shapes, their rotations, and the drone count.
+A change of formation size, formation height, grid spacing, or color then needs no new pairs.
+A change to one formation's shape or yaw needs new pairs for two transitions only: the one before it and the one after it.
+A turning formation is the one exception for size: its turn angle depends on its radius, so a size change moves the pose that the next transition starts from.
 
-The solver is the slowest stage.
-Measured on a slow cloud CPU: under 30 ms per transition at 300 drones, and 0.2 to 0.5 seconds per transition at 1,000 drones.
-Above 250 drones, a slider applies its value when the user lets go, not at each step of the drag.
+Several measures make the solver fast:
+
+| Measure | Effect |
+|---|---|
+| Canonical copies | A size, height, or spacing change needs no solve. |
+| A store of the last 256 results | Undo, redo, and a value set back need no solve. |
+| Warm start | A solve that is not in the store starts from the last solution between the same two shapes. It keeps each earlier pair that is still the cheapest of its row, and the solver assigns only the other drones. A small change of drone count then frees only the drones that changed, and a yaw change gets 2 to 5 times faster. The canonical grid keeps each drone at the same cell for every drone count with the same grid width, so the warm start stays good. A warm start from a solution with fewer than 75% of the drones is not used. |
+| Coarse to fine | A cold solve of 400 drones or more first solves a spread sample of a quarter of the drones and targets, in farthest point order. That solution is the warm start of the full solve. This halves the time of a cold solve. |
+| Lazy sampling | The sampler picks only as many targets as there are drones, and picks more when the count grows. |
+
+The result does not depend on which measures ran.
+A tie-break term makes the best pairing unique: each drone and target pair gets an extra cost of up to one part in 100 million of the largest cost, from a fixed hash of the pair.
+Geometry often has many pairings with the same total, for example from the flat takeoff grid to a flat shape. Without the term, rounding errors would choose among them, and a warm start could give another pairing than a cold start.
+The term is far below any cost difference that matters: less than a millionth of a square meter for a drone of a real show.
+
+Measured on a slow cloud CPU at 1,000 drones:
+
+| Change | Time |
+|---|---|
+| Size, height, grid spacing, color, chase, undo, redo | 3 to 30 ms |
+| Turn rate of a turning formation, size of a turning formation | about 50 ms |
+| Drone count by a few drones | about 130 ms |
+| A new shape, or a yaw change | 0.3 to 0.5 seconds |
+| A cold plan of the default show, as on page open | about 1.2 seconds |
+
+A slider for drone count, yaw, or turn rate applies each step of a drag up to 250 drones. Above 250 drones, it applies its value when the user lets go. The other sliders apply each step at every fleet size.
 
 ### 7. Plan the motion
 
@@ -563,7 +590,7 @@ No `npm install` is necessary.
 | Module | What the tests check |
 |---|---|
 | `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. |
-| `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. |
+| `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. A warm start from a changed problem, or from a problem of another size, is still optimal. The prices prove the solution optimal. Scaling or moving a point set keeps the best pairing. Cold, warm, and coarse to fine solves of a large fleet with ties give the same pairing. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
@@ -609,11 +636,12 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 11 | Light chase | Bright bands that travel across a formation in its hold. | Done |
 | 12 | SVG import | An SVG drawing as the shape of a formation, with drones on its outlines. | Done |
 | 13 | Undo and autosave | Undo and redo of every change. The project saves in the browser. | Done |
+| 14 | Performance | Canonical copies, a result store, warm starts, coarse to fine solves, and lazy sampling. | Done |
 
 ## Known limits
 
 - Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
-- Each transition needs its own assignment. A change of drone count or grid spacing needs all of them again. At 1,000 drones this pauses the page for 0.2 to 0.5 seconds per transition on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
+- A cold plan of a large show, a new shape, or a yaw change still pauses the page at 1,000 drones: about 1.2 seconds for a cold plan of the default show, and 0.3 to 0.5 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
 - Drones fly straight lines. The closest approach bound needs the spacing margin at both stops of a transition. The simulator does not plan a path around a conflict; it reports the conflict.
 - A drone can land on a grid cell that is not the one it started from.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.

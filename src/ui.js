@@ -53,9 +53,12 @@ import {
  * @property {boolean} showVolume
  */
 
-// A new plan for a large fleet takes a moment. Up to this fleet size, a slider applies
-// each step of a drag. Above it, a slider applies its value when the user lets go.
+// A change of drone count, formation yaw, or turn rate needs new assignments, which take a
+// moment for a large fleet. Up to this fleet size, their sliders apply each step of a drag.
+// Above it, they apply their value when the user lets go. The other sliders need no new
+// assignment, so they apply each step at every fleet size.
 const LIVE_SLIDER_MAX_DRONES = 250;
+const SLOW_FIELDS = ['count', 'yaw', 'turnRate'];
 
 // The Fleet section of the Fleet tab holds these fields. The Limits section holds the others.
 const FLEET_KEYS = ['count', 'gridSpacing'];
@@ -73,6 +76,7 @@ export function createUi(actions) {
   let droneCount = 0;
   /** @type {LivePredicate} */
   const isLive = (key, value) =>
+    !SLOW_FIELDS.includes(key) ||
     Math.max(droneCount, key === 'count' ? value : 0) <= LIVE_SLIDER_MAX_DRONES;
 
   const fleetFields = buildFields(
