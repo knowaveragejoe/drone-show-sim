@@ -7,6 +7,8 @@ import {
   setAudienceView,
   viewProjection,
 } from './camera.js';
+import { createAutosave } from './autosave.js';
+import { createHistory } from './history.js';
 import { projectToScreen } from './mat4.js';
 import {
   brightnessAt,
@@ -68,15 +70,56 @@ function hexToRgb(hex) {
   return [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
 }
 
+/**
+ * Shows a message about autosave in the sidebar.
+ * @param {string | null} message null hides the message
+ */
+function showAutosaveProblem(message) {
+  const box = document.getElementById('autosave-error');
+  box.textContent = message ?? '';
+  box.hidden = message === null;
+}
+
+/** @returns {Storage | null} the browser storage, or null when the browser gives none */
+function browserStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A snapshot for undo and redo: the project, and the formation that the sidebar edited.
+ * @typedef {object} Snapshot
+ * @property {import('./state.js').State} state
+ * @property {number} formation
+ */
+
 function start() {
   const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('view'));
   const renderer = createRenderer(canvas);
   const camera = createCamera();
   const planner = createPlanner();
+  /** @type {import('./history.js').History<Snapshot>} */
+  const history = createHistory();
+  const autosave = createAutosave(browserStorage(), showAutosaveProblem);
+
   // The state is never changed in place. Each change makes a new state object,
-  // so a change that the planner rejects leaves the old state as it was.
+  // so a change that the planner rejects leaves the old state as it was, and an old
+  // state can serve as an undo snapshot.
   let state = defaultState();
   let plan = planner(state);
+  const saved = autosave.load();
+  if (saved) {
+    try {
+      plan = planner(saved);
+      state = saved;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      showAutosaveProblem(`The saved show could not be loaded, so the default show is open. ${reason}`);
+    }
+  }
   let colors = state.formations.map((formation) => hexToRgb(formation.color));
   // The page opens on the first formation. Play runs the show from there.
   /** @type {import('./ui.js').View} */
@@ -97,12 +140,13 @@ function start() {
   let lastFrameTime = 0;
 
   /**
-   * Makes `next` the project state and shows its plan.
+   * Makes `next` the project state and shows its plan. Use `change` for a change that
+   * the user can undo.
    * @param {import('./state.js').State} next
    * @param {() => void} [adjustView] runs after the new plan is in place and before the page shows it
    * @returns {string | null} an error message when the planner rejects the state, or null
    */
-  function commit(next, adjustView) {
+  function apply(next, adjustView) {
     let nextPlan;
     try {
       nextPlan = planner(next);
@@ -120,6 +164,54 @@ function start() {
   }
 
   /**
+   * Makes `next` the project state, and records the change for undo and for autosave.
+   * @param {import('./state.js').State} next
+   * @param {string | null} key names the changed field, so that quick changes of one field
+   *   make one undo step; null for a change that is a step of its own
+   * @param {() => void} [adjustView] as for `apply`
+   * @returns {string | null} an error message when the planner rejects the state, or null
+   */
+  function change(next, key, adjustView) {
+    /** @type {Snapshot} */
+    const before = { state, formation: view.formation };
+    const error = apply(next, adjustView);
+    if (error === null) {
+      history.record(before, key, performance.now());
+      changed();
+    }
+    return error;
+  }
+
+  /** Saves the project and updates the undo and redo buttons. Call after each change. */
+  function changed() {
+    autosave.schedule(state);
+    ui.showHistory(history.canUndo(), history.canRedo());
+  }
+
+  /**
+   * Goes back or forward one step in the history. The sidebar shows the formation that
+   * the user edited in that step.
+   * @param {'undo' | 'redo'} direction
+   */
+  function travel(direction) {
+    /** @type {Snapshot} */
+    const current = { state, formation: view.formation };
+    const snapshot = direction === 'undo' ? history.undo(current) : history.redo(current);
+    if (!snapshot) return;
+    const error = apply(snapshot.state, () => {
+      const formation = Math.min(snapshot.formation, state.formations.length - 1);
+      if (formation !== view.formation) showFormation(formation);
+    });
+    // A snapshot was a valid state before, so this does not happen. If it does, the
+    // history goes back to where it was.
+    if (error !== null) {
+      if (direction === 'undo') history.redo(snapshot);
+      else history.undo(snapshot);
+    }
+    changed();
+  }
+
+  /**
    * Makes one formation the formation that the sidebar edits, and moves the timeline
    * to the start of its hold, so that the 3D view shows it.
    * @param {number} index place in the storyboard
@@ -130,18 +222,22 @@ function start() {
     view.playing = false;
   }
 
-  /** @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits */
-  function changeFormation(changes) {
+  /**
+   * @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits
+   * @param {string | null} [field] the changed field, so that quick changes of it make one undo step
+   */
+  function changeFormation(changes, field = null) {
     const formation = { ...state.formations[view.formation], ...changes };
-    return commit({ ...state, formations: state.formations.with(view.formation, formation) });
+    const key = field === null ? null : `formation.${view.formation}.${field}`;
+    return change({ ...state, formations: state.formations.with(view.formation, formation) }, key);
   }
 
   const ui = createUi({
     setFleet(key, value) {
-      commit({ ...state, fleet: { ...state.fleet, [key]: value } });
+      change({ ...state, fleet: { ...state.fleet, [key]: value } }, `fleet.${key}`);
     },
     setVolume(key, value) {
-      commit({ ...state, volume: { ...state.volume, [key]: value } });
+      change({ ...state, volume: { ...state.volume, [key]: value } }, `volume.${key}`);
     },
     selectFormation(index) {
       showFormation(index);
@@ -153,13 +249,13 @@ function start() {
       if (formations.length >= MAX_FORMATIONS) return;
       const index = view.formation;
       const added = formations.toSpliced(index + 1, 0, nextFormation(formations, index));
-      commit({ ...state, formations: added }, () => showFormation(index + 1));
+      change({ ...state, formations: added }, null, () => showFormation(index + 1));
     },
     removeFormation() {
       const { formations } = state;
       if (formations.length <= 1) return;
       const index = view.formation;
-      commit({ ...state, formations: formations.toSpliced(index, 1) }, () =>
+      change({ ...state, formations: formations.toSpliced(index, 1) }, null, () =>
         showFormation(Math.min(index, formations.length - 2)),
       );
     },
@@ -169,13 +265,13 @@ function start() {
       const target = index + step;
       if (target < 0 || target >= formations.length) return;
       const moved = formations.with(index, formations[target]).with(target, formations[index]);
-      commit({ ...state, formations: moved }, () => showFormation(target));
+      change({ ...state, formations: moved }, null, () => showFormation(target));
     },
     setLandAtEnd(landAtEnd) {
-      commit({ ...state, landAtEnd });
+      change({ ...state, landAtEnd }, null);
     },
     setFormation(key, value) {
-      changeFormation({ [key]: value });
+      changeFormation({ [key]: value }, key);
     },
     setShape(shape) {
       changeFormation({ source: { type: 'builtin', shape } });
@@ -209,10 +305,22 @@ function start() {
         return error instanceof Error ? error.message : String(error);
       }
       // A loaded project opens like the page does: on the first formation.
-      return commit(next, () => {
+      return change(next, null, () => {
         showFormation(0);
         view.selected = -1;
       });
+    },
+    newShow() {
+      change(defaultState(), null, () => {
+        showFormation(0);
+        view.selected = -1;
+      });
+    },
+    undo() {
+      travel('undo');
+    },
+    redo() {
+      travel('redo');
     },
     setShowPaths(show) {
       view.showPaths = show;
@@ -333,6 +441,12 @@ function start() {
 
   attachCameraControls(canvas, camera, requestFrame, pick);
   new ResizeObserver(requestFrame).observe(canvas);
+  // Save a change that waits when the user leaves the page or hides it.
+  window.addEventListener('pagehide', autosave.flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') autosave.flush();
+  });
+  ui.showHistory(false, false);
   showPlan();
 }
 

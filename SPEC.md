@@ -59,7 +59,8 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
 | Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
-| Saving | Export and import of a JSON project file. |
+| Saving | Autosave in browser storage. Export and import of a JSON project file. |
+| Undo | Undo and redo of every change to the project. Quick changes of one field make one step. |
 | Tests | Node unit tests for the math. One headless browser smoke test. |
 | Hosting | GitHub Pages from the repository root. |
 
@@ -313,7 +314,7 @@ The timeline also marks a landing in which drones come too close.
 ## User interface
 
 The 3D view fills the page. Overlays on the view hold the view controls and the checks.
-A sidebar sits on the right. Its header holds the title and the Import and Export buttons for the project file.
+A sidebar sits on the right. Its header holds the title, the Undo and Redo buttons, and the Project menu: New show, Import, and Export.
 Under the header, three tabs: Show, Fleet, and Drones.
 A transport bar sits under the 3D view.
 
@@ -365,6 +366,40 @@ It draws only the rows that are visible, so 1,000 drones stay fast.
 
 When the Drones tab opens, the list scrolls to the selected drone.
 The left and right arrow keys move between the tabs.
+
+### Undo and redo
+
+Every change to the project is a step that the user can undo: fields, the storyboard, imports, and New show.
+A change of the view is not a step: the camera, the timeline, the selection, and the overlays.
+
+| Input | Action |
+|---|---|
+| Ctrl+Z, or ⌘Z on a Mac | Undo |
+| Ctrl+Shift+Z, Ctrl+Y, or ⇧⌘Z | Redo |
+| Undo and Redo buttons in the sidebar header | Undo and redo |
+
+In a number box the keys undo the typing in the box, not a step of the project.
+
+Quick changes of the same field make one step. A change merges with the step before it when it changes the same field less than 1 second after the last change of that field.
+A slider drag then makes one step, however long it takes.
+A change after an undo always starts a new step.
+
+A step stores the project as it was, and the formation that the sidebar edited.
+An undo or a redo shows that formation in the sidebar, so the user sees what changed.
+The project is never changed in place, so a step is only a reference to an old state.
+The history keeps 200 steps. It does not survive a page reload.
+
+### Autosave
+
+The page saves the project in the browser storage (`localStorage`), as the text of a project file.
+It saves 0.4 seconds after the last change, so a slider drag saves one time.
+It also saves at once when the user hides or leaves the page.
+
+When the page opens, it loads the saved project with the same checks as an import.
+If the saved text fails a check, the default show opens, and a message tells why.
+If the browser does not store the text, for example because a large OBJ model makes it too long, a message tells the user to use Export.
+
+New show replaces the project with the default show. Undo brings the old show back.
 
 ### Selection
 
@@ -489,6 +524,8 @@ docs/
 src/
   main.js         start-up; connects state, plan, renderer, and user interface
   state.js        default state, field limits, project file export and import
+  history.js      undo and redo history
+  autosave.js     saves the project in browser storage and loads it again
   plan.js         runs the stages from state to plan and stores results that did not change
   rng.js          seeded random number generator
   shapes.js       built-in shape generators
@@ -530,6 +567,8 @@ No `npm install` is necessary.
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
+| `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
+| `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
 | `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. |
 
@@ -569,6 +608,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 10 | Tune-up | Three sidebar tabs, overlays on the 3D view, one-line fields, a draggable playhead. | Done |
 | 11 | Light chase | Bright bands that travel across a formation in its hold. | Done |
 | 12 | SVG import | An SVG drawing as the shape of a formation, with drones on its outlines. | Done |
+| 13 | Undo and autosave | Undo and redo of every change. The project saves in the browser. | Done |
 
 ## Known limits
 
@@ -580,6 +620,8 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The SVG importer puts drones on outlines only. It does not fill a filled area. It does not read `text` (fonts), `use`, nested `svg` positions, CSS classes, or units such as percent.
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
+- The undo history does not survive a page reload. Only the project does.
+- Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
 - A turn goes one way at one rate. There is no sway back and forth, and no tilt.
 - In a short hold the turn does not reach its turn rate. No readout shows the rate that it reaches.
@@ -600,5 +642,4 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - Wind, battery, GPS error, and drone failure.
 - Music sync and pyrotechnics.
 - Control of real drones.
-- Undo and redo.
 - A server. The site is static files only.

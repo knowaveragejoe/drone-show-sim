@@ -30,6 +30,9 @@ import {
  * @property {(upAxis: 'y' | 'z') => void} setUpAxis
  * @property {() => void} fit
  * @property {() => string} projectText contents of the project file
+ * @property {() => void} newShow replaces the project with the default show
+ * @property {() => void} undo
+ * @property {() => void} redo
  * @property {(text: string) => string | null} importProject returns an error message, or null
  * @property {(show: boolean) => void} setShowPaths
  * @property {(show: boolean) => void} setShowVolume
@@ -93,6 +96,23 @@ export function createUi(actions) {
     isLive,
   );
 
+  const undo = /** @type {HTMLButtonElement} */ (byId('undo'));
+  const redo = /** @type {HTMLButtonElement} */ (byId('redo'));
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  undo.title = `Undo (${mac ? '⌘Z' : 'Ctrl+Z'})`;
+  redo.title = `Redo (${mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'})`;
+  undo.addEventListener('click', actions.undo);
+  redo.addEventListener('click', actions.redo);
+
+  const projectMenu = /** @type {HTMLDetailsElement} */ (byId('project-menu'));
+  // A choice in the menu closes it. So does a click outside it.
+  projectMenu.addEventListener('click', (event) => {
+    if (/** @type {HTMLElement} */ (event.target).closest('.menu-items button')) projectMenu.open = false;
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (projectMenu.open && !projectMenu.contains(/** @type {Node} */ (event.target))) projectMenu.open = false;
+  });
+  byId('new-show').addEventListener('click', actions.newShow);
   byId('export-project').addEventListener('click', () => {
     download(PROJECT_FILE_NAME, actions.projectText());
   });
@@ -170,14 +190,38 @@ export function createUi(actions) {
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.code === 'Escape') actions.select(-1);
+    const target = /** @type {HTMLElement} */ (event.target);
+    if (event.code === 'Escape') {
+      projectMenu.open = false;
+      actions.select(-1);
+    }
+
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (key === 'z' || key === 'y')) {
+      // In a box that the user types in, the box keeps its own undo for the typing.
+      if (target.closest('input[type="number"], input[type="text"], textarea')) return;
+      event.preventDefault();
+      if (key === 'y' || event.shiftKey) actions.redo();
+      else actions.undo();
+      return;
+    }
+
     if (event.code !== 'Space' || event.repeat) return;
     // In these controls the Space key already has a job.
-    const target = /** @type {HTMLElement} */ (event.target);
     if (target.closest('button, select, summary, textarea, input:not([type="range"])')) return;
     event.preventDefault();
     actions.togglePlay();
   });
+
+  /**
+   * Shows if there is a step to undo and a step to redo.
+   * @param {boolean} canUndo
+   * @param {boolean} canRedo
+   */
+  function showHistory(canUndo, canRedo) {
+    undo.disabled = !canUndo;
+    redo.disabled = !canRedo;
+  }
 
   /**
    * Shows the project state and the plan in the controls. Call after each state change.
@@ -274,7 +318,7 @@ export function createUi(actions) {
     droneList.show(plan, view, positions);
   }
 
-  return { refresh, showFrame, revealDrone: droneList.reveal };
+  return { refresh, showFrame, showHistory, revealDrone: droneList.reveal };
 }
 
 /**

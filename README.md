@@ -28,6 +28,8 @@ Open `http://localhost:8000/`. The browser must support WebGL2.
 | Click a storyboard row or a timeline block | Select that formation |
 | Click empty space, or Escape | Clear the selection |
 | Space | Play or pause |
+| Ctrl+Z, or ⌘Z on a Mac | Undo |
+| Ctrl+Shift+Z, Ctrl+Y, or ⇧⌘Z | Redo |
 
 The sidebar has three tabs.
 
@@ -37,7 +39,8 @@ The sidebar has three tabs.
 | Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. |
 | Drones | Lists each drone with its position and speed at the current time. |
 
-The sidebar header has Import and Export buttons. They load and save the project as a JSON file.
+The sidebar header has Undo and Redo buttons and a Project menu. Every change to the show can be undone; a slider drag counts as one step.
+The show saves in your browser as you work, so a page reload brings it back. In the Project menu, New show starts again from the default show (Undo brings the old one back), and Import and Export load and save the show as a JSON file.
 
 Overlays on the 3D view show or hide the flight paths and the flight volume, and move the camera to where the audience stands.
 The Checks panel at the top right shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. It lists each problem in words. A click on its status line folds it.

@@ -57,12 +57,26 @@
     <header id="sidebar-header">
       <h1>Drone show simulator</h1>
       <div class="header-actions">
-        <button id="import-project" type="button" class="ghost" title="Load a project file">Import</button>
-        <button id="export-project" type="button" class="ghost" title="Save the project as a file">Export</button>
+        <button id="undo" type="button" class="icon" aria-label="Undo" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5l-3 3 3 3M2.5 6.5H10a3.5 3.5 0 0 1 0 7H8"/></svg>
+        </button>
+        <button id="redo" type="button" class="icon" aria-label="Redo" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 3.5l3 3-3 3M13.5 6.5H6a3.5 3.5 0 0 0 0 7h2"/></svg>
+        </button>
+        <details id="project-menu" class="menu">
+          <summary>Project</summary>
+          <div class="menu-items">
+            <button id="new-show" type="button" title="Start again from the default show. Undo brings the old show back.">New show</button>
+            <button id="import-project" type="button" title="Load a project file">Import…</button>
+            <button id="export-project" type="button" title="Save the project as a file">Export</button>
+            <p class="menu-note">The show saves in this browser as you work.</p>
+          </div>
+        </details>
         <input id="project-file" type="file" accept=".json,application/json" hidden>
       </div>
     </header>
     <p class="error banner" id="project-error" role="alert" hidden></p>
+    <p class="error banner" id="autosave-error" role="alert" hidden></p>
 
     <div id="tabs" role="tablist" aria-label="Sidebar">
       <button id="tab-show" type="button" role="tab" aria-controls="panel-show" aria-selected="true">Show</button>
