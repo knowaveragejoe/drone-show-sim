@@ -36,7 +36,7 @@ The sidebar has three tabs.
 | Tab | What it does |
 |---|---|
 | Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, turn rate, hold time, color, and light chase of the selected formation. A formation with a turn rate turns slowly in its hold. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
-| Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. |
+| Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. "Spread out to pass safely" lets the fleet open out before a crossing that would bring drones too close (on by default). |
 | Drones | Lists each drone with its position and speed at the current time. |
 
 The sidebar header has Undo and Redo buttons and a Project menu. Every change to the show can be undone; a slider drag counts as one step.
@@ -63,7 +63,8 @@ In short:
 1. Each shape becomes 20,000 random points.
 2. Farthest point sampling picks one evenly spread target per drone.
 3. For each flight, an assignment solver pairs the drones with the targets so that the total of squared flight distances is the smallest. With these pairs, straight paths do not cross closer than 0.7 times the spacing.
-4. In each flight, all drones fly on one shared accelerate, cruise, brake profile. The profile is the fastest one that keeps every drone inside every limit.
+4. When a direct flight would still bring drones too close, the fleet spreads out first: the formations grow, the drones cross, and the new formation closes up. A larger spacing at both ends makes the crossing safe, and the pairs stay the best ones.
+5. In each flight, all drones fly on one shared accelerate, cruise, brake profile. The profile is the fastest one that keeps every drone inside every limit.
 
 ## Test it
 

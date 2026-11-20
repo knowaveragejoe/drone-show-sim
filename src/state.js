@@ -127,6 +127,8 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {Volume} volume
  * @property {Formation[]} formations the storyboard: the formations of the show, in order
  * @property {boolean} landAtEnd true when the show ends with a flight back to the takeoff grid
+ * @property {boolean} spreadToPass true when the fleet spreads out before it crosses, in a
+ *   transition where a direct flight brings drones too close
  */
 
 /** @returns {State} */
@@ -189,6 +191,7 @@ export function defaultState() {
       },
     ],
     landAtEnd: true,
+    spreadToPass: true,
   };
 }
 
@@ -270,12 +273,18 @@ export function parseProject(text) {
   if (data.landAtEnd !== undefined && typeof data.landAtEnd !== 'boolean') {
     throw new Error('landAtEnd must be true or false.');
   }
+  // A project file from before the spread existed gets it. The spread only changes a
+  // transition that is not safe without it.
+  if (data.spreadToPass !== undefined && typeof data.spreadToPass !== 'boolean') {
+    throw new Error('spreadToPass must be true or false.');
+  }
 
   return {
     fleet: /** @type {Fleet} */ (readFields('fleet', data.fleet, FLEET_FIELDS)),
     volume,
     formations: data.formations.map(readFormation),
     landAtEnd: data.landAtEnd === true,
+    spreadToPass: data.spreadToPass !== false,
   };
 }
 

@@ -17,6 +17,7 @@ A formation is a picture that the band makes on the field.
 The storyboard is the list of pictures of the show.
 The assignment is the drill chart: it gives each marcher one spot.
 A transition is the march between two pictures, and all marchers move on the same count.
+When the march would bring two marchers too close, the band first opens its ranks, then crosses, then closes its ranks at the new picture.
 
 | Term | Meaning |
 |---|---|
@@ -29,7 +30,9 @@ A transition is the march between two pictures, and all marchers move on the sam
 | Storyboard | The ordered list of formations in a show. |
 | Takeoff grid | The ground positions where the drones start, and where they land. |
 | Stop | A place where the fleet rests: the takeoff grid or a formation. |
-| Transition | The flight from one stop to the next. |
+| Transition | The flight from one stop to the next. It has one leg, or more when the fleet spreads out. |
+| Leg | One straight flight of the whole fleet. All drones start and stop together. |
+| Spread | A grown copy of a stop. When a direct flight brings drones too close, the fleet spreads out, crosses, and closes up. |
 | Hold | The time that the fleet stays at a stop. |
 | Turn | A slow rotation of a formation about the vertical axis during its hold. The formation turns as one rigid body. |
 | Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
@@ -58,6 +61,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
+| Crossing conflict | When a direct flight brings drones too close, the fleet spreads out, crosses, and closes up. A setting turns this off. |
 | Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
 | Saving | Autosave in browser storage. Export and import of a JSON project file. |
 | Undo | Undo and redo of every change to the project. Quick changes of one field make one step. |
@@ -177,15 +181,17 @@ For each formation, the simulator finds the smallest distance between any two ta
 The readout shows this distance in red when it is below the minimum spacing.
 
 Spacing grows in proportion to size.
-The Fit button sets the size so that the smallest distance is `√2 × minimum spacing`.
-The factor `√2` is the margin that stage 6 needs: with it, the drones also keep the minimum spacing in flight.
+The Fit button sets the size so that the smallest distance is the minimum spacing.
+When the spread is off, Fit adds a margin: the smallest distance is then `√2 × minimum spacing`.
+That margin is what stage 6 needs: with it, a direct flight also keeps the minimum spacing.
+With the spread on, the margin is not necessary, so Fit makes shapes about 30% smaller.
 
 ### 5. Build the takeoff grid
 
 The grid is close to square: the column count is `ceil(sqrt(N))`.
 Drone ids run from 1 to N, row by row.
 
-The default grid spacing of 3 m is more than `√2 × 2 m`, so the grid has the same margin as a fitted formation.
+The default grid spacing of 3 m is more than `√2 × 2 m`, so the grid has the same margin as a formation that Fit sets with the spread off.
 
 ### 6. Assign drones to targets
 
@@ -271,11 +277,47 @@ Otherwise:  duration = 1 ÷ V + V ÷ A
 
 A term with a zero divisor sets no limit.
 
+A transition with a spread has more than one leg.
+Each leg is a straight flight with its own trapezoid profile, and the next leg starts when the last one ends.
+
 Each step starts when the step before it ends: after that step's transition and hold.
 The landing has no hold.
 
 Position is a direct function of time.
 The timeline can jump to any time with no simulation steps.
+
+### 7a. Spread out to pass
+
+A direct flight between two stops can bring drones closer than the minimum spacing.
+Stage 6 gives the reason: the bound `D ÷ √2` is less than `D`.
+When this happens and the spread setting is on, the fleet flies the transition in three legs:
+
+1. Spread out: the stop that the fleet leaves grows by a factor.
+2. Cross: the fleet flies from the spread of the old stop to the spread of the new stop.
+3. Close up: the new stop shrinks to its real size.
+
+A stop that does not need to grow has no spread leg.
+The takeoff grid never grows, so a takeoff or a landing has two legs.
+
+Why this keeps the drones apart:
+
+- A spread is the same shape at a larger size, moved up or down. Stage 6 shows that this does not change the best pairing. So the pairing of the cross is still the best one for its two ends.
+- Take two drones. Let `a` be the offset from one to the other at the start of the cross, and `b` at its end. The pairing is the best one, so `a·b ≥ 0`. In flight, the offset is `(1 − s) a + s b`, and its length is at least `|a| |b| ÷ √(|a|² + |b|²)`. So if the spacing is `A` at the start and `B` at the end, the drones stay at least `A B ÷ √(A² + B²)` apart.
+- The planner picks spacings with `1 ÷ A² + 1 ÷ B² ≤ 1 ÷ m²`, where `m` is the minimum spacing plus 1%. It grows the stops as little as it can. When both stops must grow, both grow to `√2 × m`. When one stop is wide already, only the other one grows. When one stop is the takeoff grid, only the formation grows. At the defaults (grid 3 m, minimum spacing 2 m), a formation grows to a spacing of 2.73 m.
+- In a spread leg, each drone moves straight away from one point, so the drones only get farther apart. The closest approach of that leg is the spacing of the stop before the spread, and the planner needs no search for it.
+
+The spread point is on the vertical axis through the origin, which is the axis of every formation.
+It is at the middle height of the fleet, so the fleet grows evenly up and down.
+It moves up or down when the grown fleet would otherwise go below the floor of the flight volume or above its top.
+When the grown fleet cannot fit, the floor wins: no drone goes lower than both the floor and the lowest drone before the spread.
+
+The planner uses a spread only when the spread makes the flight safe.
+A spread cannot help when a stop has targets that are too close together, or when the takeoff grid spacing is too small.
+The planner then keeps the direct flight, and the checks report the problem.
+No stop grows to more than 3 times its size.
+
+A spread makes the transition longer, because the fleet flies farther.
+The light color blends in the cross leg only: the fleet spreads out in the old color and closes up in the new one.
 
 ### 8. Plan the turns
 
@@ -330,10 +372,10 @@ The Checks section shows the worst value of the whole show.
 | Readout | How it is computed |
 |---|---|
 | Show duration | The end of the last step. |
-| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight lines and the volume is a box, so in a transition the drone stays inside exactly when both of its stops are inside. In a turn the drone draws an arc. The check takes the box around that arc. A position on a face of the box is inside. |
+| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight legs and the volume is a box, so in a transition the drone stays inside exactly when each end of each leg is inside: its stops, and its spreads. In a turn the drone draws an arc. The check takes the box around that arc. A position on a face of the box is inside. |
 | Lowest target | Height of the lowest target of any formation. Red when it is below the ground. |
-| Closest approach in flight | The smallest value of any transition. The value of a transition is exact: for each pair of drones, the relative position moves along a straight segment, and the simulator takes the shortest distance from that segment to zero. Red below the minimum spacing. |
-| Peak speed | The largest value of any step. In a transition: longest path × peak rate of `s`. In a turn: the turn speed. |
+| Closest approach in flight | The smallest value of any transition. The value of a transition is the smallest value of its legs. The value of a direct flight or a cross is exact: for each pair of drones, the relative position moves along a straight segment, and the simulator takes the shortest distance from that segment to zero. The value of a spread leg is the spacing at its small end (stage 7a). Red below the minimum spacing. |
+| Peak speed | The largest value of any step. In a leg: longest path × peak rate of `s`. In a turn: the turn speed. |
 
 A formation has a problem when one of these is true:
 
@@ -341,10 +383,11 @@ A formation has a problem when one of these is true:
 - A target is below the ground.
 - A target is outside the flight volume.
 - Drones come closer than the minimum spacing in the transition to it.
+- Drones leave the flight volume when they spread out in the transition to it.
 - Its turn speed is more than the maximum horizontal speed.
 
 The storyboard list and the timeline mark each formation that has a problem.
-The timeline also marks a landing in which drones come too close.
+The timeline also marks a landing in which drones come too close, or leave the flight volume when they spread out.
 
 ## User interface
 
@@ -367,7 +410,7 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 | Section | Contents |
 |---|---|
 | Fleet | Drone count. Takeoff grid spacing. |
-| Limits | The four speed and acceleration limits. Minimum spacing. |
+| Limits | The four speed and acceleration limits. Minimum spacing. Spread out to pass safely toggle (stage 7a). |
 | Flight volume | Size. Center X and Y. Floor height. |
 
 ### Overlays on the 3D view
@@ -464,6 +507,7 @@ The Space key toggles play and pause.
 The timeline strip shows the whole show.
 Each transition and each hold is one block, and the width of a block shows how long it takes.
 A hold block has the number and the color of its formation.
+The tooltip of a transition block gives its time, says when the drones spread out to pass, and lists its problems.
 A red line under a block marks a problem.
 
 The playhead is a white line with a knob. A drag on the playhead moves the timeline.
@@ -482,9 +526,9 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Flight volume: one `gl.LINES` draw call for the edges of the cube.
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Brightness: a second buffer holds the brightness of each light, from stage 9. The page writes it each frame. The selected drone stays at full brightness.
-- Light color: the color of the formation of the current step. In a transition between two formations the color blends from one to the other. Takeoff uses the color of the first formation. The landing keeps the color of the last one.
-- Paths: one buffer holds one line per drone per step. The view draws the lines of the current step at low opacity. In a hold, the current step is the one that led to the hold.
-- Route: for the selected drone, the view draws its whole route: the flight of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
+- Light color: the color of the formation of the current step. In a transition between two formations the color blends from one to the other, in the cross leg. Takeoff uses the color of the first formation. The landing keeps the color of the last one.
+- Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity. In a hold, the current step is the one that led to the hold.
+- Route: for the selected drone, the view draws its whole route: each leg of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
@@ -528,7 +572,8 @@ The project file is JSON with the extension `.droneshow.json`.
       "seed": 1
     }
   ],
-  "landAtEnd": true
+  "landAtEnd": true,
+  "spreadToPass": true
 }
 ```
 
@@ -544,6 +589,7 @@ An OBJ formation stores the full OBJ text, and an SVG formation stores the full 
 The simulator writes version 2 and reads versions 1 and 2.
 Version 1 had exactly one formation and no landing.
 A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, and a formation with no `chase` has no light chase. Older files then load with their old meaning.
+A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -606,8 +652,8 @@ No `npm install` is necessary.
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
-| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. |
-| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. |
+| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. |
+| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -648,12 +694,14 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 13 | Undo and autosave | Undo and redo of every change. The project saves in the browser. | Done |
 | 14 | Performance | Canonical copies, a result store, warm starts, coarse to fine solves, and lazy sampling. | Done |
 | 15 | Faster page open | A grid for the sampler, and pairings stored with the autosave. | Done |
+| 16 | Spread out to pass | A transition that is not safe as a direct flight spreads out, crosses, and closes up. Fit then needs no flight margin. | Done |
 
 ## Known limits
 
 - Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
 - A cold plan of a large show, a new shape, or a yaw change still pauses the page at 1,000 drones: about 1 second for a cold plan of the default show (a page open with stored pairings plans in about 0.2 seconds), and 0.2 to 0.5 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
-- Drones fly straight lines. The closest approach bound needs the spacing margin at both stops of a transition. The simulator does not plan a path around a conflict; it reports the conflict.
+- Drones fly straight legs. The spread keeps the minimum spacing in a transition, but it makes the transition longer, and a spread of a large formation can leave the flight volume. The simulator does not plan a path around a single conflict, and it does not move only the drones that conflict.
+- A spread cannot fix a stop whose targets are too close together. It also cannot fix a takeoff when the grid spacing is not more than the minimum spacing.
 - A drone can land on a grid cell that is not the one it started from.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
 - The SVG importer puts drones on outlines only. It does not fill a filled area. It does not read `text` (fonts), `use`, nested `svg` positions, CSS classes, or units such as percent.

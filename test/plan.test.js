@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { takeoffGrid, turnAboutZ } from '../src/motion.js';
+import { closestApproach, takeoffGrid, turnAboutZ } from '../src/motion.js';
 import {
   CHASE_DIM,
   FLIGHT_MARGIN,
+  MAX_SPREAD,
   brightnessAt,
   countOutside,
   createPlanner,
@@ -18,6 +19,8 @@ import {
   retime,
   routeOf,
   speedAt,
+  spreadFactors,
+  spreadOut,
   stepAt,
   volumeBounds,
 } from '../src/plan.js';
@@ -137,7 +140,7 @@ test('drones start on the takeoff grid and end on their targets', () => {
   const positions = new Float32Array(plan.count * 3);
   positionsAt(plan, 0, positions);
   assert.deepEqual(positions, step.from);
-  positionsAt(plan, step.timing.duration, positions);
+  positionsAt(plan, step.duration, positions);
   assert.deepEqual(positions, step.to);
   positionsAt(plan, plan.total, positions);
   assert.deepEqual(positions, step.to);
@@ -146,8 +149,8 @@ test('drones start on the takeoff grid and end on their targets', () => {
 test('the timeline of one formation is the transition plus the hold', () => {
   const state = singleState();
   const plan = createPlanner()(state);
-  assert.ok(plan.steps[0].timing.duration > 10);
-  assert.equal(plan.total, plan.steps[0].timing.duration + state.formations[0].holdSeconds);
+  assert.ok(plan.steps[0].duration > 10);
+  assert.equal(plan.total, plan.steps[0].duration + state.formations[0].holdSeconds);
 });
 
 test('the checks follow the limits', () => {
@@ -160,7 +163,7 @@ test('the checks follow the limits', () => {
 
   let fastest = 0;
   for (let drone = 0; drone < plan.count; drone++) {
-    fastest = Math.max(fastest, speedAt(plan, drone, plan.steps[0].timing.duration / 2));
+    fastest = Math.max(fastest, speedAt(plan, drone, plan.steps[0].duration / 2));
     assert.equal(speedAt(plan, drone, 0), 0);
     assert.equal(speedAt(plan, drone, plan.total), 0);
   }
@@ -170,9 +173,9 @@ test('the checks follow the limits', () => {
 test('slower limits make a longer transition', () => {
   const planner = createPlanner();
   const state = singleState();
-  const before = planner(state).steps[0].timing.duration;
+  const before = planner(state).steps[0].duration;
   state.fleet.maxClimbSpeed /= 2;
-  assert.ok(planner(state).steps[0].timing.duration > before * 1.5);
+  assert.ok(planner(state).steps[0].duration > before * 1.5);
 });
 
 test('a new formation height keeps the assignment', () => {
@@ -288,7 +291,7 @@ test('a show has one step per formation, and one more for the landing', () => {
   plan.steps.forEach((step, index) => {
     near(step.start, time);
     assert.equal(step.hold, index < 3 ? state.formations[index].holdSeconds : 0);
-    time += step.timing.duration + step.hold;
+    time += step.duration + step.hold;
   });
   near(plan.total, time);
 
@@ -387,7 +390,7 @@ test('two equal formations in a row need no flight', () => {
   const state = stillState();
   state.formations = [state.formations[0], state.formations[0]];
   const plan = createPlanner()(state);
-  assert.equal(plan.steps[1].timing.duration, 0);
+  assert.equal(plan.steps[1].duration, 0);
   assert.deepEqual(plan.steps[1].to, plan.steps[0].to);
   assert.equal(plan.steps[1].peakSpeed, 0);
 });
@@ -402,8 +405,8 @@ test('stepAt and holdStart find the parts of the timeline', () => {
   assert.equal(stepAt(plan, third.start + 1), 2);
   assert.equal(stepAt(plan, plan.total + 100), 3);
 
-  near(holdStart(plan, 0), takeoff.timing.duration);
-  near(holdStart(plan, 1), second.start + second.timing.duration);
+  near(holdStart(plan, 0), takeoff.duration);
+  near(holdStart(plan, 1), second.start + second.duration);
   near(holdStart(plan, 2) + third.hold, landing.start);
 });
 
@@ -420,7 +423,7 @@ test('drones hold their targets between transitions', () => {
   });
   // In the middle of a transition each drone is between its two stops.
   const step = plan.steps[1];
-  positionsAt(plan, step.start + step.timing.duration / 2, positions);
+  positionsAt(plan, step.start + step.duration / 2, positions);
   for (let i = 0; i < positions.length; i++) near(positions[i], (step.from[i] + step.to[i]) / 2, 1e-3);
 });
 
@@ -434,10 +437,10 @@ test('the light color blends from one formation to the next', () => {
   const [takeoff, second, third, landing] = plan.steps;
   // Takeoff uses the color of the first formation.
   assert.deepEqual(lightColorAt(plan, colors, 0), [1, 0, 0]);
-  assert.deepEqual(lightColorAt(plan, colors, takeoff.timing.duration / 2), [1, 0, 0]);
+  assert.deepEqual(lightColorAt(plan, colors, takeoff.duration / 2), [1, 0, 0]);
   assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 0) + 1), [1, 0, 0]);
   // Half of the progress of a transition is at half of its time.
-  const half = lightColorAt(plan, colors, second.start + second.timing.duration / 2);
+  const half = lightColorAt(plan, colors, second.start + second.duration / 2);
   [0.5, 0.5, 0].forEach((channel, i) => near(half[i], channel, 1e-6));
   assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 1)), [0, 1, 0]);
   assert.deepEqual(lightColorAt(plan, colors, holdStart(plan, 2) + third.hold / 2), [0, 0, 1]);
@@ -447,7 +450,7 @@ test('the light color blends from one formation to the next', () => {
 });
 
 test('retime keeps the same moment when the plan changes', () => {
-  const step = (start, duration, hold) => ({ start, timing: { duration }, hold });
+  const step = (start, duration, hold) => ({ start, duration, hold });
   const oldPlan = { steps: [step(0, 20, 10), step(30, 10, 10)], total: 50 };
   const newPlan = { steps: [step(0, 40, 5), step(45, 20, 30)], total: 95 };
   // The end stays the end.
@@ -614,7 +617,7 @@ function chasePlan(u, bands, speed) {
   const count = u.length;
   return {
     count,
-    steps: [{ start: 0, timing: { duration: 0 }, hold: 10, chase: { u: Float32Array.from(u), bands, speed } }],
+    steps: [{ start: 0, duration: 0, hold: 10, chase: { u: Float32Array.from(u), bands, speed } }],
   };
 }
 
@@ -795,4 +798,236 @@ test('a change of formation size, formation height, or grid spacing keeps every 
     near(later[i], earlier[i] * 1.6, 1e-3);
     near(later[i + 2] - center, (earlier[i + 2] - center) * 1.6, 1e-3);
   }
+});
+
+// Spread out to pass.
+
+/**
+ * The default show with still formations, each at the smallest size that keeps the plain
+ * minimum spacing. Direct flights between these formations bring drones too close.
+ * @param {ReturnType<typeof createPlanner>} planner
+ */
+function tightState(planner) {
+  const state = stillState();
+  const plan = planner(state);
+  const { minSpacing } = state.fleet;
+  state.formations = state.formations.map((formation, index) => ({
+    ...formation,
+    size: fitSize(formation.size, plan.formations[index].spacing, minSpacing, 1),
+  }));
+  return state;
+}
+
+test('spreadFactors grows both ends evenly when both are tight', () => {
+  const [leave, arrive] = spreadFactors(2, 2, true, true, 2);
+  near(leave, Math.SQRT2 * 1.01);
+  near(arrive, Math.SQRT2 * 1.01);
+});
+
+test('spreadFactors only grows the formation when the other end is the takeoff grid', () => {
+  // Takeoff: the grid has 3 m spacing. The formation needs B with 1/3² + 1/B² = 1/2.02².
+  const needs = 1 / Math.sqrt(1 / 2.02 ** 2 - 1 / 9);
+  const [grid, formation] = spreadFactors(3, 2, false, true, 2);
+  assert.equal(grid, 1);
+  near(formation, needs / 2);
+  // Landing: the same, the other way.
+  const [leave, land] = spreadFactors(2, 3, true, false, 2);
+  near(leave, needs / 2);
+  assert.equal(land, 1);
+});
+
+test('spreadFactors leaves a wide end as it is, and grows the other end only as far as needed', () => {
+  const [leave, arrive] = spreadFactors(10, 2, true, true, 2);
+  assert.equal(leave, 1);
+  const spacing = 2 * arrive;
+  // The bound of the cross is just above the minimum spacing.
+  near((10 * spacing) / Math.hypot(10, spacing), 2.02, 1e-9);
+  // No end needs to grow when both ends are wide already.
+  assert.deepEqual(spreadFactors(5, 5, true, true, 2), [1, 1]);
+});
+
+test('spreadFactors stops at the largest spread', () => {
+  // A takeoff grid at the minimum spacing gives no safe spacing at any size.
+  assert.deepEqual(spreadFactors(2, 2, false, true, 2), [1, MAX_SPREAD]);
+  // A formation with targets almost on top of each other.
+  assert.deepEqual(spreadFactors(0.1, 0.1, true, true, 2), [MAX_SPREAD, MAX_SPREAD]);
+  // One drone: no spacing, and nothing to grow.
+  assert.deepEqual(spreadFactors(Infinity, Infinity, true, true, 2), [1, 1]);
+});
+
+test('spreadOut grows the fleet about the middle of the axis', () => {
+  const tall = { low: [-500, -500, 0], high: [500, 500, 500] };
+  const positions = new Float32Array([0, 0, 50, 4, -2, 60, -3, 1, 55]);
+  const spread = spreadOut(positions, 3, 2, tall);
+  assert.deepEqual(Array.from(spread), [0, 0, 45, 8, -4, 65, -6, 2, 55]);
+  // Distances grow by the factor.
+  const distance = (points, a, b) =>
+    Math.hypot(points[a * 3] - points[b * 3], points[a * 3 + 1] - points[b * 3 + 1], points[a * 3 + 2] - points[b * 3 + 2]);
+  near(distance(spread, 1, 2), 2 * distance(positions, 1, 2), 1e-5);
+  assert.deepEqual(spreadOut(positions, 3, 1, tall), positions);
+});
+
+test('spreadOut keeps the fleet between the floor and the top of the flight volume', () => {
+  const positions = new Float32Array([0, 0, 20, 0, 0, 40]);
+  const heights = (floor, top) => {
+    const spread = spreadOut(positions, 2, 2, { low: [0, 0, floor], high: [0, 0, top] });
+    return [spread[2], spread[5]];
+  };
+  // Room for an even spread.
+  assert.deepEqual(heights(0, 100), [10, 50]);
+  // A high floor moves the spread up, and a low top moves it down.
+  assert.deepEqual(heights(15, 100), [15, 55]);
+  assert.deepEqual(heights(0, 48), [8, 48]);
+  // No room: the floor wins.
+  assert.deepEqual(heights(15, 48), [15, 55]);
+  // A drone below the floor does not go lower.
+  assert.deepEqual(heights(25, 100), [20, 60]);
+});
+
+test('a direct flight that is safe has one leg', () => {
+  const plan = createPlanner()(defaultState());
+  for (const step of plan.steps) {
+    assert.equal(step.legs.length, 1);
+    assert.equal(step.cross, 0);
+    assert.equal(step.spreadOutside, 0);
+    assert.equal(step.legs[0].from, step.from);
+    assert.equal(step.legs[0].to, step.to);
+    assert.equal(step.legs[0].start, 0);
+    assert.equal(step.duration, step.legs[0].timing.duration);
+  }
+});
+
+test('the fleet spreads out to pass, and keeps the minimum spacing in every leg', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  const { count, minSpacing } = state.fleet;
+  state.spreadToPass = false;
+  const direct = planner(state);
+  assert.ok(isTooClose(direct.closestApproach, minSpacing), `direct ${direct.closestApproach}`);
+
+  state.spreadToPass = true;
+  const plan = planner(state);
+  assert.ok(!isTooClose(plan.closestApproach, minSpacing), `spread ${plan.closestApproach}`);
+  // Takeoff and landing spread the formation only. Between two formations both ends spread.
+  assert.deepEqual(plan.steps.map((step) => step.legs.length), [2, 3, 3, 2]);
+  assert.deepEqual(plan.steps.map((step) => step.cross), [0, 1, 1, 1]);
+  for (const step of plan.steps) {
+    // The planner finds the closest approach of a spread leg without a search. Check it.
+    const legApproaches = step.legs.map((leg) => closestApproach(leg.from, leg.to, count));
+    near(Math.min(...legApproaches), step.closestApproach, 1e-4);
+    assert.ok(!isTooClose(step.closestApproach, minSpacing));
+  }
+  for (const index of [0, 1, 2]) assert.deepEqual(formationProblems(plan, index, state.fleet), []);
+  // The spread costs time.
+  assert.ok(plan.total > direct.total);
+});
+
+test('the legs of a transition join end to end, and the drones stay above the ground', () => {
+  const planner = createPlanner();
+  const plan = planner(tightState(planner));
+  const positions = new Float32Array(plan.count * 3);
+  for (const step of plan.steps) {
+    const { legs } = step;
+    assert.equal(legs[0].from, step.from);
+    assert.equal(legs.at(-1).to, step.to);
+    let start = 0;
+    legs.forEach((leg, index) => {
+      if (index > 0) assert.equal(leg.from, legs[index - 1].to);
+      near(leg.start, start);
+      start += leg.timing.duration;
+      // At the end of each leg, the drones are at its end.
+      positionsAt(plan, step.start + leg.start + leg.timing.duration - 1e-9, positions);
+      for (let i = 0; i < positions.length; i++) near(positions[i], leg.to[i], 1e-3);
+    });
+    near(step.duration, start);
+
+    // The default flight volume stands on the ground.
+    const lowest = (points) => Math.min(...points.filter((value, i) => i % 3 === 2));
+    for (const leg of legs) assert.ok(lowest(leg.to) >= -1e-4);
+  }
+});
+
+test('the speed in a spread leg stays inside the limits', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  const plan = planner(state);
+  const step = plan.steps[1];
+  let fastest = 0;
+  for (const leg of step.legs) {
+    for (let drone = 0; drone < plan.count; drone += 3) {
+      fastest = Math.max(fastest, speedAt(plan, drone, step.start + leg.start + leg.timing.duration / 2));
+    }
+  }
+  assert.ok(fastest > 0);
+  assert.ok(fastest <= step.peakSpeed + 1e-9);
+  // No drone is faster than the limits allow: horizontal plus vertical, at most.
+  const { maxHorizontalSpeed, maxClimbSpeed } = state.fleet;
+  assert.ok(step.peakSpeed <= Math.hypot(maxHorizontalSpeed, maxClimbSpeed) + 1e-6);
+});
+
+test('the light color changes only in the leg that crosses', () => {
+  const planner = createPlanner();
+  const plan = planner(tightState(planner));
+  const colors = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  const step = plan.steps[1];
+  const [out, cross, closeUp] = step.legs;
+  const at = (leg, share) => lightColorAt(plan, colors, step.start + leg.start + share * leg.timing.duration);
+  assert.deepEqual(at(out, 0.5), [1, 0, 0]);
+  const half = at(cross, 0.5);
+  [0.5, 0.5, 0].forEach((channel, i) => near(half[i], channel));
+  assert.deepEqual(at(closeUp, 0.5), [0, 1, 0]);
+});
+
+test('routeOf passes each corner of a spread flight', () => {
+  const planner = createPlanner();
+  const plan = planner(tightState(planner));
+  const drone = 11;
+  routeOf(plan, drone).forEach((points, index) => {
+    const { legs } = plan.steps[index];
+    assert.equal(points.length, (legs.length + 1) * 3);
+    assert.deepEqual(points.subarray(0, 3), legs[0].from.subarray(drone * 3, drone * 3 + 3));
+    legs.forEach((leg, corner) => {
+      assert.deepEqual(points.subarray((corner + 1) * 3, (corner + 2) * 3), leg.to.subarray(drone * 3, drone * 3 + 3));
+    });
+  });
+});
+
+test('a spread that does not make the flight safe is not used', () => {
+  // Crowded targets: the spread would close up to targets that are too close together.
+  const state = singleState();
+  state.formations[0].size = 5;
+  const plan = createPlanner()(state);
+  assert.ok(isTooClose(plan.closestApproach, state.fleet.minSpacing));
+  assert.equal(plan.steps[0].legs.length, 1);
+  // A takeoff grid at the minimum spacing: no spread of the formation is sufficient.
+  const grid = singleState();
+  grid.fleet.gridSpacing = grid.fleet.minSpacing;
+  grid.fleet.count = 400;
+  grid.formations[0].size = 15;
+  const tight = createPlanner()(grid);
+  assert.ok(isTooClose(tight.steps[0].closestApproach, grid.fleet.minSpacing));
+  assert.equal(tight.steps[0].legs.length, 1);
+});
+
+test('a spread that leaves the flight volume is a problem', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  // The heart fits, but it is too wide when it spreads out.
+  state.volume = { ...state.volume, size: 100 };
+  const plan = planner(state);
+  assert.deepEqual(plan.formations.map((checks) => checks.outsideVolume), [0, 0, 0]);
+  assert.deepEqual(plan.steps.map((step) => step.spreadOutside > 0), [false, true, true, false]);
+  assert.equal(plan.outsideVolume, plan.steps[1].spreadOutside);
+  assert.deepEqual(formationProblems(plan, 1, state.fleet), [
+    'Drones leave the flight volume when they spread out to pass.',
+  ]);
+});
+
+test('Fit with a margin of 1 gives the plain minimum spacing', () => {
+  assert.equal(fitSize(40, 4, 2, 1), 20);
+  assert.equal(fitSize(40, 4, 2), Math.ceil(20 * FLIGHT_MARGIN * 100) / 100);
 });

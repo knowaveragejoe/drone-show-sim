@@ -180,6 +180,10 @@ input[type="color"]::-moz-color-swatch {
   accent-color: var(--accent);
 }
 
+.fields + .check {
+  margin-top: 12px;
+}
+
 /* A slim slider. The script sets --fill to the share of the track left of the thumb. */
 
 input.slider {

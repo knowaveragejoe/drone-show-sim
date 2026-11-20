@@ -13,6 +13,7 @@ import { projectToScreen } from './mat4.js';
 import {
   brightnessAt,
   createPlanner,
+  FLIGHT_MARGIN,
   fitSize,
   holdStart,
   lightColorAt,
@@ -275,6 +276,9 @@ function start() {
     setLandAtEnd(landAtEnd) {
       change({ ...state, landAtEnd }, null);
     },
+    setSpreadToPass(spreadToPass) {
+      change({ ...state, spreadToPass }, null);
+    },
     setFormation(key, value) {
       changeFormation({ [key]: value }, key);
     },
@@ -294,7 +298,10 @@ function start() {
     fit() {
       const { size } = state.formations[view.formation];
       const { spacing } = plan.formations[view.formation];
-      const fitted = fitSize(size, spacing, state.fleet.minSpacing);
+      // With the spread, the targets only need the minimum spacing. Without it, they also
+      // need room for the flights to and from the formation.
+      const margin = state.spreadToPass ? 1 : FLIGHT_MARGIN;
+      const fitted = fitSize(size, spacing, state.fleet.minSpacing, margin);
       if (fitted === null) return;
       const sizeField = FORMATION_FIELDS.find((field) => field.key === 'size');
       changeFormation({ size: clampToField(sizeField, fitted) });

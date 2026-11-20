@@ -116,6 +116,7 @@ test('import rejects a value that is out of range or of the wrong type', () => {
     [(data) => (data.volume.z = -1), /volume: z must be a number from 0 to 500/],
     [(data) => delete data.volume.x, /volume: x/],
     [(data) => (data.landAtEnd = 'yes'), /landAtEnd must be true or false/],
+    [(data) => (data.spreadToPass = 1), /spreadToPass must be true or false/],
     [(data) => (data.volume = 'big'), /flight volume in the project file is not valid/],
     [(data) => (data.volume = null), /flight volume in the project file is not valid/],
     [(data) => (data.formations[0].size = -1), /formation 1: size must be a number from 1 to 500/],
@@ -157,6 +158,11 @@ test('a version 1 project file loads as a show with one formation and no landing
   assert.equal(loaded.formations.length, 1);
   assert.equal(loaded.landAtEnd, false);
   assert.deepEqual(loaded.formations[0], defaultState().formations[0]);
+});
+
+test('a project file from before the spread gets it, and a file can turn it off', () => {
+  assert.equal(parseProject(fileWith((data) => delete data.spreadToPass)).spreadToPass, true);
+  assert.equal(parseProject(fileWith((data) => (data.spreadToPass = false))).spreadToPass, false);
 });
 
 test('nextFormation gives the next shape and the next color, and keeps the rest', () => {

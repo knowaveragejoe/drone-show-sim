@@ -4,6 +4,11 @@
 // The stops are the formations in storyboard order, and then the takeoff grid again
 // when the show ends with a landing. A formation can turn slowly while it holds, and a
 // light chase can run across it.
+//
+// A transition is a list of legs. In each leg every drone flies a straight line, and all
+// drones start and stop together. Most transitions have one leg. When the drones would
+// pass too close in a direct flight, the fleet first spreads out: each formation grows
+// about a point on its axis. The fleet then crosses, and closes up at the new formation. See `spreadFactors` for the reason that this keeps the drones apart.
 
 import { assignTargets } from './assign.js';
 import {
@@ -26,17 +31,31 @@ import { svgCloud } from './svg.js';
  * @typedef {object} Step
  * @property {number} formation index of the formation that the fleet flies to, or -1 for the landing
  * @property {number} start time when the transition starts, seconds
- * @property {import('./motion.js').Timing} timing timing of the transition
+ * @property {number} duration length of the transition, seconds
+ * @property {Leg[]} legs the legs of the transition, in time order; at least one
+ * @property {number} cross index of the leg that crosses from the old stop to the new one;
+ *   the light color changes in this leg
+ * @property {number} spreadOutside number of drones that are outside the flight volume
+ *   when the fleet spreads out; 0 when the transition has one leg
  * @property {number} hold time at the stop after the transition, seconds
  * @property {Float32Array} from position of each drone when the transition starts, xyz
  * @property {Float32Array} to position of each drone when the transition ends, xyz
  * @property {import('./motion.js').Turn | null} turn the turn of the formation in the hold, if any
  * @property {Chase | null} chase the light chase of the formation in the hold, if any
  * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
- * @property {Float32Array} pathLengths flight distance of each drone in the transition, meters
  * @property {number} closestApproach smallest distance between two drones in the transition, meters
  * @property {number} turnSpeed speed of the fastest drone in the turn, m/s; 0 when the formation does not turn
  * @property {number} peakSpeed speed of the fastest drone in the step, m/s
+ */
+
+/**
+ * One straight flight of the whole fleet. All drones start and stop together.
+ * @typedef {object} Leg
+ * @property {number} start time when the leg starts, seconds from the start of its step
+ * @property {import('./motion.js').Timing} timing
+ * @property {Float32Array} from position of each drone when the leg starts, xyz
+ * @property {Float32Array} to position of each drone when the leg ends, xyz
+ * @property {Float32Array} pathLengths flight distance of each drone in the leg, meters
  */
 
 /**
@@ -92,6 +111,7 @@ import { svgCloud } from './svg.js';
  * @property {string} key shape and rotation of the stop when the fleet arrives
  * @property {Float32Array} points xyz per point when the fleet arrives
  * @property {Float32Array} unit canonical copy of `points`
+ * @property {number} spacing smallest distance between two points, meters; Infinity for one drone
  * @property {import('./motion.js').Turn | null} turn the turn in the hold, if any
  * @property {number} radius distance from the turn axis to the farthest point, meters
  * @property {string} leaveKey shape and rotation of the stop when the hold ends
@@ -196,7 +216,7 @@ export function createPlanner() {
 
   /** @param {import('./state.js').State} state */
   const plan = (state) => {
-    const { count, gridSpacing, maxAcceleration } = state.fleet;
+    const { count, gridSpacing, maxAcceleration, minSpacing } = state.fleet;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
     const shapes = state.formations.map(sampleOf);
     /** @type {WarmStart[]} */
@@ -213,6 +233,7 @@ export function createPlanner() {
       key: 'grid',
       points: gridPoints,
       unit: gridUnit,
+      spacing: count > 1 ? gridSpacing : Infinity,
       turn: null,
       radius: 0,
       leaveKey: 'grid',
@@ -240,6 +261,8 @@ export function createPlanner() {
         key,
         points,
         unit,
+        // A turn does not change the spacing.
+        spacing: remember(`spacing|${count}|${key}|${formation.size}`, () => closestSpacing(points, count)),
         turn,
         radius,
         leaveKey: turn ? `${family}:${formation.yaw + turn.angle / DEGREE}` : key,
@@ -280,8 +303,9 @@ export function createPlanner() {
       );
       store(familyKey, match);
       warmStarts.push({ key: familyKey, ...match });
-      // The closest approach depends on the sizes, but not on the heights.
-      const approach = remember(`approach|${linkKey}|${previous.scale}|${stop.scale}`, () =>
+      // The closest approach depends on the sizes, but not on the heights. The order of the
+      // drones does not matter either, so the key needs no drone order.
+      const direct = remember(`approach|${linkKey}|${previous.scale}|${stop.scale}`, () =>
         closestApproach(previous.leavePoints, gather(stop.points, match.columnOfRow), count),
       );
 
@@ -290,42 +314,105 @@ export function createPlanner() {
       const end = stop.turn ? gather(stop.leavePoints, slots) : to;
       markOutside(to, count, stop.turn?.angle ?? 0, volume, outside);
 
-      const pathLengths = new Float32Array(count);
-      let longest = 0;
-      for (let drone = 0; drone < count; drone++) {
-        const o = drone * 3;
-        pathLengths[drone] = Math.hypot(to[o] - from[o], to[o + 1] - from[o + 1], to[o + 2] - from[o + 2]);
-        longest = Math.max(longest, pathLengths[drone]);
+      // The poses that the fleet flies through. One leg joins each pose to the next.
+      let poses = [from, to];
+      let cross = 0;
+      let approach = direct;
+      let spreadOutside = 0;
+      if (state.spreadToPass && isTooClose(direct, minSpacing)) {
+        const [leaveFactor, arriveFactor] = spreadFactors(
+          previous.spacing,
+          stop.spacing,
+          previous.formation >= 0,
+          stop.formation >= 0,
+          minSpacing,
+        );
+        const leaveSpread = leaveFactor > 1 ? spreadOut(from, count, leaveFactor, volume) : from;
+        const arriveSpread = arriveFactor > 1 ? spreadOut(to, count, arriveFactor, volume) : to;
+        // A spread of a formation is the same shape at a larger size, moved up or down.
+        const crossApproach = remember(
+          `approach|${linkKey}|${previous.scale * leaveFactor}|${stop.scale * arriveFactor}`,
+          () => closestApproach(leaveSpread, arriveSpread, count),
+        );
+        // A leg that only spreads out or closes up moves each drone away from one point.
+        // The drones then only get farther apart, so the leg is closest at its small end.
+        const spreadApproach = Math.min(
+          crossApproach,
+          leaveFactor > 1 ? previous.spacing : Infinity,
+          arriveFactor > 1 ? stop.spacing : Infinity,
+        );
+        // A spread costs time. It is only worth that time when it makes the flight safe.
+        // It cannot help when a stop has crowded points itself.
+        if (!isTooClose(spreadApproach, minSpacing)) {
+          poses = [from];
+          if (leaveFactor > 1) poses.push(leaveSpread);
+          if (arriveFactor > 1) poses.push(arriveSpread);
+          poses.push(to);
+          cross = leaveFactor > 1 ? 1 : 0;
+          approach = spreadApproach;
+          const flags = new Uint8Array(count);
+          if (leaveFactor > 1) markOutside(leaveSpread, count, 0, volume, flags);
+          if (arriveFactor > 1) markOutside(arriveSpread, count, 0, volume, flags);
+          flags.forEach((flag, drone) => {
+            spreadOutside += flag;
+            outside[drone] |= flag;
+          });
+        }
       }
 
-      const timing = planTiming(from, to, count, state.fleet);
+      /** @type {Leg[]} */
+      const legs = [];
+      let duration = 0;
+      let peakSpeed = 0;
+      for (let index = 1; index < poses.length; index++) {
+        const legFrom = poses[index - 1];
+        const legTo = poses[index];
+        const pathLengths = new Float32Array(count);
+        let longest = 0;
+        for (let drone = 0; drone < count; drone++) {
+          const o = drone * 3;
+          pathLengths[drone] = Math.hypot(
+            legTo[o] - legFrom[o],
+            legTo[o + 1] - legFrom[o + 1],
+            legTo[o + 2] - legFrom[o + 2],
+          );
+          longest = Math.max(longest, pathLengths[drone]);
+        }
+        const timing = planTiming(legFrom, legTo, count, state.fleet);
+        legs.push({ start: duration, timing, from: legFrom, to: legTo, pathLengths });
+        duration += timing.duration;
+        peakSpeed = Math.max(peakSpeed, longest * timing.peakRate);
+      }
+
       const hold = stop.formation >= 0 ? state.formations[stop.formation].holdSeconds : 0;
       const turnSpeed = stop.turn ? stop.turn.peakRate * stop.radius : 0;
       steps.push({
         formation: stop.formation,
         start,
-        timing,
+        duration,
+        legs,
+        cross,
+        spreadOutside,
         hold,
         from,
         to,
         turn: stop.turn,
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
         end,
-        pathLengths,
         closestApproach: approach,
         turnSpeed,
-        peakSpeed: Math.max(longest * timing.peakRate, turnSpeed),
+        peakSpeed: Math.max(peakSpeed, turnSpeed),
       });
-      start += timing.duration + hold;
+      start += duration + hold;
       from = end;
     }
 
     const formations = state.formations.map((formation, index) => {
-      const { key, scale, points, turn } = stops[index + 1];
+      const { spacing, points, turn } = stops[index + 1];
       let lowestTarget = Infinity;
       for (let i = 0; i < count; i++) lowestTarget = Math.min(lowestTarget, points[i * 3 + 2]);
       return {
-        spacing: remember(`spacing|${count}|${key}|${scale}`, () => closestSpacing(points, count)),
+        spacing,
         lowestTarget,
         outsideVolume: markOutside(points, count, turn?.angle ?? 0, volume, new Uint8Array(count)),
       };
@@ -527,8 +614,8 @@ function markOutside(positions, count, turn, bounds, flags) {
 
 /**
  * Counts the drones that leave a box at some time.
- * A drone flies straight lines from stop to stop, so it stays in the box exactly when
- * each of its stops is in the box.
+ * A drone flies straight lines from pose to pose, so it stays in the box exactly when
+ * each of its poses is in the box.
  * @param {Float32Array[]} stops the positions of all drones at each stop, xyz per drone
  * @param {number} count
  * @param {Bounds} bounds
@@ -563,26 +650,118 @@ function placeTargets(cloud, order, count, formation) {
   return targets;
 }
 
-// If the closest spacing at both ends of a transition is D, the closest approach in flight
-// is at least D ÷ √2. A stop needs this much more than the minimum spacing, so that the
-// drones also keep the minimum spacing in flight.
+// If the closest spacing at both ends of a direct flight is D, the closest approach in
+// flight is at least D ÷ √2 (see `spreadFactors`). Without a spread, a stop needs this much
+// more than the minimum spacing, so that the drones also keep the minimum spacing in flight.
 export const FLIGHT_MARGIN = Math.SQRT2;
 
 /**
  * Smallest formation size that keeps the minimum spacing, also in the flights to and
- * from the formation. The targets end up `FLIGHT_MARGIN` × the minimum spacing apart.
- * The flights are safe when the stops before and after the formation have the same margin.
+ * from the formation. The targets end up `margin` × the minimum spacing apart.
+ *
+ * - When the fleet spreads out to pass, the targets only need the minimum spacing, so the
+ *   margin is 1.
+ * - Without a spread, the margin is `FLIGHT_MARGIN`. The flights are then safe when the
+ *   stops before and after the formation have the same margin.
  *
  * Spacing grows in proportion to size.
  * @param {number} size current size, meters
  * @param {number} spacing current smallest distance between two targets, meters
  * @param {number} minSpacing meters
+ * @param {number} [margin] share of the minimum spacing that the targets get
  * @returns {number | null} null when the spacing gives no answer, for example with one drone
  */
-export function fitSize(size, spacing, minSpacing) {
+export function fitSize(size, spacing, minSpacing, margin = FLIGHT_MARGIN) {
   if (!Number.isFinite(spacing) || spacing <= 0) return null;
   // Round up to the next centimeter, so the result is on the safe side.
-  return Math.ceil((size * minSpacing * FLIGHT_MARGIN * 100) / spacing) / 100;
+  return Math.ceil((size * minSpacing * margin * 100) / spacing) / 100;
+}
+
+// A spread aims this much above the minimum spacing, so that rounding cannot break it.
+const SPREAD_MARGIN = 1.01;
+// A formation never spreads to more than this many times its size.
+export const MAX_SPREAD = 3;
+
+/**
+ * How much each end of a transition spreads out, so that the drones keep the minimum
+ * spacing when they cross from one stop to the next.
+ *
+ * Take two drones. Let a be the offset from one to the other at the start of the flight,
+ * and b the offset at the end. The assignment is the best one, so a swap of the two targets
+ * gives no shorter total. From this, a · b ≥ 0. In flight the offset is (1 − t) a + t b, and
+ * its length is at least |a| |b| ÷ √(|a|² + |b|²). So if the spacing is A at the start and
+ * B at the end, the drones stay at least A B ÷ √(A² + B²) apart.
+ *
+ * A spread does not change the assignment: the best assignment stays the best when a stop
+ * grows or moves. The function finds spacings A and B with 1 ÷ A² + 1 ÷ B² ≤ 1 ÷ m², where m is
+ * the minimum spacing plus a small margin. It grows the ends as little as it can, and grows
+ * both ends evenly when both must grow. Only a formation can spread; the takeoff grid stays
+ * on the ground. When a spread of `MAX_SPREAD` is not sufficient, the factor stops there, and
+ * the checks of the plan show the problem.
+ * @param {number} leaveSpacing spacing of the stop that the fleet leaves, meters
+ * @param {number} arriveSpacing spacing of the stop that the fleet flies to, meters
+ * @param {boolean} canLeave true when the stop that the fleet leaves is a formation
+ * @param {boolean} canArrive true when the stop that the fleet flies to is a formation
+ * @param {number} minSpacing meters
+ * @returns {number[]} spread factor of the stop that the fleet leaves, and of the stop that
+ *   it flies to; 1 for no spread
+ */
+export function spreadFactors(leaveSpacing, arriveSpacing, canLeave, canArrive, minSpacing) {
+  const m = minSpacing * SPREAD_MARGIN;
+  /** Spacing that one end needs when the other end has spacing `other`. @param {number} other */
+  const needs = (other) => (other > m ? 1 / Math.sqrt(1 / (m * m) - 1 / (other * other)) : Infinity);
+  // Both ends at this spacing are just safe.
+  const even = Math.SQRT2 * m;
+  let leave = leaveSpacing;
+  let arrive = arriveSpacing;
+  if (!canArrive) leave = Math.max(leave, needs(arrive));
+  else if (!canLeave) arrive = Math.max(arrive, needs(leave));
+  else if (leave >= even) arrive = Math.max(arrive, needs(leave));
+  else if (arrive >= even) leave = Math.max(leave, needs(arrive));
+  else leave = arrive = even;
+  /** @param {number} spacing @param {number} target @param {boolean} can */
+  const factor = (spacing, target, can) =>
+    can && spacing > 0 && Number.isFinite(spacing) ? Math.min(MAX_SPREAD, Math.max(1, target / spacing)) : 1;
+  return [factor(leaveSpacing, leave, canLeave), factor(arriveSpacing, arrive, canArrive)];
+}
+
+/**
+ * Grows the fleet about a point on the vertical axis through the origin. That axis is the
+ * axis of every formation. Each drone moves straight away from the point, so the drones
+ * only get farther apart.
+ *
+ * The point is at the middle height of the fleet, so the fleet grows evenly up and down.
+ * The point moves up or down when the grown fleet would otherwise go below the floor of the
+ * flight volume or above its top. When it cannot fit, the floor wins: no drone goes lower
+ * than both the floor and the lowest drone before the spread.
+ * @param {Float32Array} positions xyz per drone
+ * @param {number} count
+ * @param {number} factor 1 for no change
+ * @param {Bounds} bounds the flight volume
+ * @returns {Float32Array} a new list, xyz per drone
+ */
+export function spreadOut(positions, count, factor, bounds) {
+  let lowest = Infinity;
+  let highest = -Infinity;
+  for (let drone = 0; drone < count; drone++) {
+    lowest = Math.min(lowest, positions[drone * 3 + 2]);
+    highest = Math.max(highest, positions[drone * 3 + 2]);
+  }
+  let pivot = (lowest + highest) / 2;
+  if (factor > 1) {
+    // A height z goes to pivot + (z − pivot) × factor. A higher pivot moves every drone lower.
+    const floor = Math.min(lowest, bounds.low[2]);
+    const top = Math.max(highest, bounds.high[2]);
+    pivot = Math.max(pivot, (highest * factor - top) / (factor - 1));
+    pivot = Math.min(pivot, (lowest * factor - floor) / (factor - 1));
+  }
+  const out = new Float32Array(count * 3);
+  for (let i = 0; i < count * 3; i += 3) {
+    out[i] = positions[i] * factor;
+    out[i + 1] = positions[i + 1] * factor;
+    out[i + 2] = pivot + (positions[i + 2] - pivot) * factor;
+  }
+  return out;
 }
 
 // Positions are 32-bit numbers, so the checks allow half a millimeter of rounding error.
@@ -624,6 +803,9 @@ export function formationProblems(plan, formation, limits) {
   if (isTooClose(step.closestApproach, limits.minSpacing)) {
     problems.push('Drones come too close in the transition to this formation.');
   }
+  if (step.spreadOutside > 0) {
+    problems.push('Drones leave the flight volume when they spread out to pass.');
+  }
   if (step.turnSpeed > limits.maxHorizontalSpeed + ROUNDING_SLACK) {
     problems.push('The turn is faster than the maximum horizontal speed.');
   }
@@ -650,7 +832,19 @@ export function stepAt(plan, time) {
  */
 export function holdStart(plan, formation) {
   const step = plan.steps[formation];
-  return step.start + step.timing.duration;
+  return step.start + step.duration;
+}
+
+/**
+ * Finds the leg of a transition that a time is in.
+ * @param {Step} step
+ * @param {number} offset seconds from the start of the step
+ * @returns {Leg}
+ */
+function legAt(step, offset) {
+  let index = 0;
+  while (index + 1 < step.legs.length && offset >= step.legs[index + 1].start) index++;
+  return step.legs[index];
 }
 
 /**
@@ -661,18 +855,19 @@ export function holdStart(plan, formation) {
  */
 export function positionsAt(plan, time, out) {
   const step = plan.steps[stepAt(plan, time)];
-  const { timing, from, to } = step;
-  const held = time - step.start - timing.duration;
+  const offset = time - step.start;
+  const held = offset - step.duration;
   if (held >= 0) {
     // In the hold a drone is exactly on its target, or on the arc of the turn.
     if (step.turn && held < step.hold) {
-      turnAboutZ(to, step.turn.angle * progressAt(step.turn.timing, held), out);
+      turnAboutZ(step.to, step.turn.angle * progressAt(step.turn.timing, held), out);
     } else {
       out.set(step.end);
     }
     return;
   }
-  const progress = progressAt(timing, time - step.start);
+  const { start, timing, from, to } = legAt(step, offset);
+  const progress = progressAt(timing, offset - start);
   for (let i = 0; i < plan.count * 3; i++) {
     out[i] = from[i] + progress * (to[i] - from[i]);
   }
@@ -687,8 +882,12 @@ export function positionsAt(plan, time, out) {
  */
 export function speedAt(plan, drone, time) {
   const step = plan.steps[stepAt(plan, time)];
-  const held = time - step.start - step.timing.duration;
-  if (held < 0) return rateAt(step.timing, time - step.start) * step.pathLengths[drone];
+  const offset = time - step.start;
+  const held = offset - step.duration;
+  if (held < 0) {
+    const leg = legAt(step, offset);
+    return rateAt(leg.timing, offset - leg.start) * leg.pathLengths[drone];
+  }
   if (!step.turn) return 0;
   const radius = Math.hypot(step.to[drone * 3], step.to[drone * 3 + 1]);
   return rateAt(step.turn.timing, held) * Math.abs(step.turn.angle) * radius;
@@ -706,7 +905,7 @@ export function speedAt(plan, drone, time) {
  */
 export function brightnessAt(plan, time, out) {
   const step = plan.steps[stepAt(plan, time)];
-  const held = time - step.start - step.timing.duration;
+  const held = time - step.start - step.duration;
   const { chase } = step;
   if (!chase || held < 0 || held >= step.hold) {
     out.fill(1, 0, plan.count);
@@ -726,21 +925,22 @@ export function brightnessAt(plan, time, out) {
 
 /**
  * The route of one drone through the show: for each step, the points that it passes.
- * The first two points are the ends of the flight. More points follow when the formation
- * turns in the hold; they trace the arc of the drone.
+ * The first points are the ends of the legs of the flight, so the last of them is the target.
+ * More points follow when the formation turns in the hold; they trace the arc of the drone.
  * @param {Plan} plan
  * @param {number} drone index
  * @returns {Float32Array[]} xyz per point, one list per step
  */
 export function routeOf(plan, drone) {
-  return plan.steps.map(({ from, to, turn }) => {
+  return plan.steps.map(({ legs, turn }) => {
     const arcPoints = turn ? Math.ceil(Math.abs(turn.angle) / ROUTE_ARC_STEP) : 0;
-    const route = new Float32Array((2 + arcPoints) * 3);
-    route.set(from.subarray(drone * 3, drone * 3 + 3), 0);
-    const target = to.subarray(drone * 3, drone * 3 + 3);
-    route.set(target, 3);
+    const corners = legs.length + 1;
+    const route = new Float32Array((corners + arcPoints) * 3);
+    route.set(legs[0].from.subarray(drone * 3, drone * 3 + 3), 0);
+    legs.forEach((leg, index) => route.set(leg.to.subarray(drone * 3, drone * 3 + 3), (index + 1) * 3));
+    const target = route.slice((corners - 1) * 3, corners * 3);
     for (let point = 1; point <= arcPoints; point++) {
-      const turned = route.subarray((1 + point) * 3, (2 + point) * 3);
+      const turned = route.subarray((corners - 1 + point) * 3, (corners + point) * 3);
       turnAboutZ(target, (turn.angle * point) / arcPoints, turned);
     }
     return route;
@@ -749,8 +949,8 @@ export function routeOf(plan, drone) {
 
 /**
  * Light color of the fleet at one time. In a transition between two formations the color
- * blends from one to the other. Takeoff uses the color of the first formation, and the
- * landing keeps the color of the last one.
+ * blends from one to the other, in the leg that crosses. Takeoff uses the color of the
+ * first formation, and the landing keeps the color of the last one.
  * @param {Plan} plan
  * @param {number[][]} colors red, green, blue of each formation, each 0 to 1
  * @param {number} time seconds from the start of the timeline
@@ -761,7 +961,8 @@ export function lightColorAt(plan, colors, time) {
   const step = plan.steps[index];
   const before = colors[index === 0 ? step.formation : plan.steps[index - 1].formation];
   const after = step.formation >= 0 ? colors[step.formation] : before;
-  const progress = progressAt(step.timing, time - step.start);
+  const leg = step.legs[step.cross];
+  const progress = progressAt(leg.timing, time - step.start - leg.start);
   return before.map((channel, i) => channel + progress * (after[i] - channel));
 }
 
@@ -781,9 +982,9 @@ export function retime(oldPlan, newPlan, time) {
   const before = oldPlan.steps[index];
   const after = newPlan.steps[index];
   const offset = time - before.start;
-  if (offset >= before.timing.duration) {
-    const held = Math.min(after.hold, offset - before.timing.duration);
-    return after.start + after.timing.duration + held;
+  if (offset >= before.duration) {
+    const held = Math.min(after.hold, offset - before.duration);
+    return after.start + after.duration + held;
   }
-  return after.start + (offset / before.timing.duration) * after.timing.duration;
+  return after.start + (offset / before.duration) * after.duration;
 }

@@ -23,6 +23,7 @@ import {
  * @property {() => void} removeFormation
  * @property {(step: number) => void} moveFormation -1 moves the formation earlier, 1 later
  * @property {(land: boolean) => void} setLandAtEnd
+ * @property {(spread: boolean) => void} setSpreadToPass
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
  * @property {(fileName: string, text: string) => string | null} importShape imports an OBJ model or an
@@ -67,6 +68,7 @@ const FLEET_KEYS = ['count', 'gridSpacing'];
 const MAX_LISTED_PROBLEMS = 4;
 
 const LANDING_PROBLEM = 'Drones come too close in the landing.';
+const LANDING_SPREAD_PROBLEM = 'Drones leave the flight volume when they spread out before the landing.';
 const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
 
 /**
@@ -93,6 +95,8 @@ export function createUi(actions) {
   );
   // A new flight volume needs no new assignment, so its slider is live for every fleet size.
   const volumeFields = buildFields(byId('volume-fields'), VOLUME_FIELDS, actions.setVolume, () => true);
+  const spreadToPass = /** @type {HTMLInputElement} */ (byId('spread-to-pass'));
+  spreadToPass.addEventListener('change', () => actions.setSpreadToPass(spreadToPass.checked));
   const formationFields = buildFields(
     byId('formation-fields'),
     FORMATION_FIELDS,
@@ -240,6 +244,7 @@ export function createUi(actions) {
     droneCount = state.fleet.count;
     fleetFields.show(state.fleet);
     limitFields.show(state.fleet);
+    spreadToPass.checked = state.spreadToPass;
     volumeFields.show(state.volume);
     droneCountBadge.textContent = String(plan.count);
 
@@ -340,9 +345,20 @@ function showProblems(state, plan) {
     }
   });
   const last = plan.steps.at(-1);
-  if (last.formation < 0 && isTooClose(last.closestApproach, state.fleet.minSpacing)) {
-    problems.push(LANDING_PROBLEM);
-  }
+  if (last.formation < 0) problems.push(...landingProblems(last, state.fleet.minSpacing));
+  return problems;
+}
+
+/**
+ * Lists what is wrong with the landing, in words for the user.
+ * @param {import('./plan.js').Step} step the landing step
+ * @param {number} minSpacing meters
+ * @returns {string[]}
+ */
+function landingProblems(step, minSpacing) {
+  const problems = [];
+  if (isTooClose(step.closestApproach, minSpacing)) problems.push(LANDING_PROBLEM);
+  if (step.spreadOutside > 0) problems.push(LANDING_SPREAD_PROBLEM);
   return problems;
 }
 
@@ -465,17 +481,19 @@ function buildTimeline(strip, actions) {
       const colorAfter = landing ? colorBefore : formations[step.formation].color;
       const current = !landing && step.formation === view.formation;
       const problems = landing
-        ? isTooClose(step.closestApproach, minSpacing)
-          ? [LANDING_PROBLEM]
-          : []
+        ? landingProblems(step, minSpacing)
         : formationProblems(plan, step.formation, state.fleet);
 
       const flight = element('div', 'block flight');
-      flight.style.flexGrow = String(step.timing.duration);
+      flight.style.flexGrow = String(step.duration);
       flight.style.setProperty('--from', colorBefore);
       flight.style.setProperty('--to', colorAfter);
       flight.title = [landing ? 'Landing' : `Flight to formation ${step.formation + 1}`]
-        .concat(`${step.timing.duration.toFixed(1)} s`, problems)
+        .concat(
+          `${step.duration.toFixed(1)} s`,
+          step.legs.length > 1 ? 'The drones spread out to pass' : [],
+          problems,
+        )
         .join('. ');
       flight.classList.toggle('problem', problems.length > 0);
       flight.dataset.block = String(clicks.push(select) - 1);

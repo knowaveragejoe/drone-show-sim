@@ -72,8 +72,10 @@ const SELECTED_LIGHT_SIZE = 5;
 const MIN_LIGHT_PIXELS = 4;
 const MIN_SELECTED_PIXELS = 14;
 
-// Number of short segments in one line. See `addLine` for the reason.
+// Number of short segments in one flight path. See `addLine` for the reason.
 const PATH_PARTS = 8;
+// Longest segment of the selected drone's route, meters.
+const ROUTE_PART_LENGTH = 10;
 const VOLUME_EDGE_PARTS = 16;
 // Brightness of a path that is not selected, as a share of the light color.
 const PATH_BRIGHTNESS = 0.1;
@@ -138,32 +140,37 @@ export function createRenderer(canvas) {
   gl.blendFunc(gl.ONE, gl.ONE);
   gl.clearColor(0.016, 0.02, 0.043, 1);
 
-  let pathDrones = 0;
+  /** First segment and number of segments of the flight paths of each step. @type {number[][]} */
+  let pathRanges = [];
 
   /**
-   * Stores the flight paths: for each step, one straight line per drone.
+   * Stores the flight paths: for each step, one straight line per drone in each leg.
    * @param {import('./plan.js').Step[]} steps
    * @param {number} count number of drones
    */
   function setPaths(steps, count) {
+    const legCount = steps.reduce((sum, step) => sum + step.legs.length, 0);
     // Each line is short segments, for the reason that `addLine` gives.
-    const vertices = new Float32Array(steps.length * count * PATH_PARTS * 6);
+    const vertices = new Float32Array(legCount * count * PATH_PARTS * 6);
     let offset = 0;
-    for (const { from, to } of steps) {
-      for (let drone = 0; drone < count; drone++) {
-        for (let part = 0; part < PATH_PARTS; part++) {
-          for (let end = 0; end < 2; end++) {
-            const share = (part + end) / PATH_PARTS;
-            for (let axis = 0; axis < 3; axis++) {
-              const start = from[drone * 3 + axis];
-              vertices[offset++] = start + share * (to[drone * 3 + axis] - start);
+    pathRanges = steps.map(({ legs }) => {
+      const first = offset / 6;
+      for (const { from, to } of legs) {
+        for (let drone = 0; drone < count; drone++) {
+          for (let part = 0; part < PATH_PARTS; part++) {
+            for (let end = 0; end < 2; end++) {
+              const share = (part + end) / PATH_PARTS;
+              for (let axis = 0; axis < 3; axis++) {
+                const start = from[drone * 3 + axis];
+                vertices[offset++] = start + share * (to[drone * 3 + axis] - start);
+              }
             }
           }
         }
       }
-    }
+      return [first, offset / 6 - first];
+    });
     paths.set(vertices);
-    pathDrones = count;
   }
 
   /** First segment and number of segments of each step of the route. @type {number[][]} */
@@ -180,9 +187,10 @@ export function createRenderer(canvas) {
     routeRanges = steps.map((points) => {
       const first = vertices.length / 6;
       for (let i = 3; i < points.length; i += 3) {
-        // The first line is the flight, which is long. The lines of a turn are short already.
-        const parts = i === 3 ? PATH_PARTS : 1;
-        addLine(vertices, points.subarray(i - 3, i), points.subarray(i, i + 3), parts);
+        const from = points.subarray(i - 3, i);
+        const to = points.subarray(i, i + 3);
+        const length = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+        addLine(vertices, from, to, Math.max(1, Math.ceil(length / ROUTE_PART_LENGTH)));
       }
       return [first, vertices.length / 6 - first];
     });
@@ -254,7 +262,8 @@ export function createRenderer(canvas) {
         lineUniforms.uColor,
         frame.color.map((channel) => channel * PATH_BRIGHTNESS),
       );
-      paths.draw(frame.pathStep * pathDrones * PATH_PARTS, pathDrones * PATH_PARTS);
+      const [first, count] = pathRanges[frame.pathStep] ?? [0, 0];
+      paths.draw(first, count);
     }
     // The whole route of the selected drone, with the current step brightest.
     routeRanges.forEach(([first, count], step) => {
