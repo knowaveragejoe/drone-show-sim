@@ -201,6 +201,10 @@ export function parseColor(text) {
  * Makes the candidate cloud of an SVG drawing: random points on its outlines, in unit space.
  * The drawing stands in the XZ plane and faces the audience. Its top is up.
  * Each point gets the color of its outline.
+ *
+ * The points are in order along the outlines, one outline after the other. The outlines are
+ * cut into `CLOUD_SIZE` slices of equal length, and each slice gets one point at a random
+ * place in it, like the curves of the built-in shapes.
  * @param {string} text contents of the SVG file
  * @param {number} seed
  * @returns {SvgCloud}
@@ -245,17 +249,14 @@ export function svgCloud(text, seed) {
   const cloud = new Float32Array(CLOUD_SIZE * 3);
   const colored = outlines.some((outline) => outline.color !== null);
   const colors = colored ? new Float32Array(CLOUD_SIZE * 3) : null;
+  let first = 0;
   for (let i = 0; i < CLOUD_SIZE; i++) {
-    // Binary search for the first segment whose running total passes the random length.
-    const pick = random() * total;
-    let first = 0;
-    let last = lengthUpTo.length - 1;
-    while (first < last) {
-      const middle = (first + last) >> 1;
-      if (lengthUpTo[middle] > pick) last = middle;
-      else first = middle + 1;
-    }
-    const share = random();
+    // One point in each slice of equal length, so the points are in order along the outlines.
+    const along = ((i + random()) / CLOUD_SIZE) * total;
+    // The places grow, so the segment that holds the place only moves forward.
+    while (first < lengthUpTo.length - 1 && lengthUpTo[first] < along) first++;
+    const segmentStart = first === 0 ? 0 : lengthUpTo[first - 1];
+    const share = Math.min(1, Math.max(0, (along - segmentStart) / (lengthUpTo[first] - segmentStart)));
     const o = first * 4;
     const x = segments[o] + share * (segments[o + 2] - segments[o]);
     const y = segments[o + 1] + share * (segments[o + 3] - segments[o + 1]);

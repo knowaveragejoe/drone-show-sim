@@ -72,14 +72,29 @@ test('the plan has one target per drone at the formation height', () => {
   }
 });
 
-test('more drones keep the targets of the first drones', () => {
+test('the targets of a curve are evenly spaced along it', () => {
   const planner = createPlanner();
   const state = singleState();
-  const small = new Set(pointSet(planner(state).steps[0].to));
-  state.fleet.count = 250;
-  const large = new Set(pointSet(planner(state).steps[0].to));
-  assert.equal(large.size, 250);
-  for (const target of small) assert.ok(large.has(target));
+  Object.assign(state.formations[0], { source: { type: 'builtin', shape: 'ring' }, size: 50 });
+  for (const count of [37, 100, 250]) {
+    state.fleet.count = count;
+    const plan = planner(state);
+    assert.equal(new Set(pointSet(plan.steps[0].to)).size, count);
+    // Equal steps around a ring of diameter 50.
+    const ideal = 50 * Math.sin(Math.PI / count);
+    assert.ok(plan.formations[0].spacing >= ideal * 0.97, `${count}: ${plan.formations[0].spacing / ideal} of ideal`);
+  }
+});
+
+test('a change of drone count picks evenly spread targets again', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  state.fleet.count = 150;
+  const plan = planner(state);
+  // 150 drones on a sphere of diameter 40: a flat hexagonal packing would give 6.2 m between
+  // neighbors. Farthest point sampling alone gives 4.5 m for the closest pair.
+  assert.ok(plan.formations[0].spacing > 5, `spacing ${plan.formations[0].spacing}`);
+  assert.deepEqual(pointSet(plan.steps[0].to), pointSet(createPlanner()(state).steps[0].to));
 });
 
 test('yaw turns the formation about the vertical axis', () => {
@@ -1019,7 +1034,7 @@ test('a spread that leaves the flight volume is a problem', () => {
   const planner = createPlanner();
   const state = tightState(planner);
   // The heart fits, but it is too wide when it spreads out.
-  state.volume = { ...state.volume, size: 100 };
+  state.volume = { ...state.volume, size: 90 };
   const plan = planner(state);
   assert.deepEqual(plan.formations.map((checks) => checks.outsideVolume), [0, 0, 0]);
   assert.deepEqual(plan.steps.map((step) => step.spreadOutside > 0), [false, true, true, false]);

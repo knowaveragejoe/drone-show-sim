@@ -23,8 +23,8 @@ import {
   turnAboutZ,
 } from './motion.js';
 import { objCloud } from './obj.js';
-import { closestSpacing, farthestPointSampler } from './sample.js';
-import { builtinCloud } from './shapes.js';
+import { closestSpacing, curvePicks, farthestPointSampler, relaxPicks } from './sample.js';
+import { builtinCloud, isCurve } from './shapes.js';
 import { svgCloud } from './svg.js';
 
 /**
@@ -100,7 +100,7 @@ import { svgCloud } from './svg.js';
 
 /**
  * A place where the fleet rests. Its points are in a fixed order that does not depend on
- * the drones: grid order for the takeoff grid, pick order for a formation.
+ * the drones: grid order for the takeoff grid, the order of the picks for a formation.
  *
  * The best assignment between two stops does not change when a stop grows, shrinks, or
  * moves: the total cost then changes by a positive factor and by a constant. So the
@@ -165,6 +165,7 @@ export function createPlanner() {
    * @property {Float32Array} cloud
    * @property {Float32Array | null} colors color of each point of the cloud, from an SVG drawing;
    *   -1 in each channel for a point with no color; null when the shape has no colors
+   * @property {boolean} curve true when the shape is curves, so its cloud is in order along them
    * @property {ReturnType<typeof farthestPointSampler>} sampler
    */
   /** Samples of built-in shapes, by name. @type {Map<string, Sample>} */
@@ -175,8 +176,20 @@ export function createPlanner() {
    */
   const fileSamples = new WeakMap();
 
-  /** @param {string} name @param {Float32Array} cloud @param {Float32Array | null} [colors] @returns {Sample} */
-  const newSample = (name, cloud, colors = null) => ({ name, cloud, colors, sampler: farthestPointSampler(cloud) });
+  /**
+   * @param {string} name
+   * @param {Float32Array} cloud
+   * @param {boolean} curve
+   * @param {Float32Array | null} [colors]
+   * @returns {Sample}
+   */
+  const newSample = (name, cloud, curve, colors = null) => ({
+    name,
+    cloud,
+    colors,
+    curve,
+    sampler: farthestPointSampler(cloud),
+  });
 
   /** @param {import('./state.js').Formation} formation */
   function sampleOf({ source, seed }) {
@@ -184,7 +197,7 @@ export function createPlanner() {
       const name = `builtin:${source.shape}:${seed}`;
       let sample = builtinSamples.get(name);
       if (!sample) {
-        sample = newSample(name, builtinCloud(source.shape, seed));
+        sample = newSample(name, builtinCloud(source.shape, seed), isCurve(source.shape));
         builtinSamples.set(name, sample);
       }
       return sample;
@@ -194,10 +207,10 @@ export function createPlanner() {
     const contents = `${textHash(source.text)}:${source.text.length}:${seed}`;
     let sample;
     if (source.type === 'obj') {
-      sample = newSample(`obj:${source.upAxis}:${contents}`, objCloud(source.text, source.upAxis, seed));
+      sample = newSample(`obj:${source.upAxis}:${contents}`, objCloud(source.text, source.upAxis, seed), false);
     } else {
       const { points, colors } = svgCloud(source.text, seed);
-      sample = newSample(`svg:${contents}`, points, colors);
+      sample = newSample(`svg:${contents}`, points, true, colors);
     }
     fileSamples.set(source, { seed, sample });
     return sample;
@@ -230,7 +243,13 @@ export function createPlanner() {
     const shapes = state.formations.map(sampleOf);
     /** @type {WarmStart[]} */
     const warmStarts = [];
-    const orders = shapes.map((sample) => sample.sampler.order(count));
+    // The targets of each shape: an even walk along curves, or farthest point sampling
+    // that farthest point optimization then spreads out on a surface.
+    const picks = shapes.map(({ name, cloud, curve, sampler }) =>
+      remember(`picks|${name}|${count}`, () =>
+        curve ? curvePicks(cloud, count) : relaxPicks(cloud, sampler.order(count)),
+      ),
+    );
 
     const gridPoints = takeoffGrid(count, gridSpacing);
     const gridUnit = anchored(takeoffGrid(count, 1));
@@ -254,8 +273,8 @@ export function createPlanner() {
     const stops = [grid];
     state.formations.forEach((formation, index) => {
       const { name, cloud, colors } = shapes[index];
-      const points = placeTargets(cloud, orders[index], count, formation);
-      const unit = placeTargets(cloud, orders[index], count, { ...formation, size: 1, centerHeight: 0 });
+      const points = placeTargets(cloud, picks[index], count, formation);
+      const unit = placeTargets(cloud, picks[index], count, { ...formation, size: 1, centerHeight: 0 });
       let radius = 0;
       for (let i = 0; i < points.length; i += 3) {
         radius = Math.max(radius, Math.hypot(points[i], points[i + 1]));
@@ -271,8 +290,11 @@ export function createPlanner() {
         key,
         points,
         unit,
-        // A turn does not change the spacing.
-        spacing: remember(`spacing|${count}|${key}|${formation.size}`, () => closestSpacing(points, count)),
+        // A turn does not change the spacing. The spacing comes from the canonical copy, so
+        // that it is exactly the same for every height.
+        spacing: remember(`spacing|${count}|${key}|${formation.size}`, () =>
+          closestSpacing(scaled(unit, formation.size), count),
+        ),
         turn,
         radius,
         leaveKey: turn ? `${family}:${formation.yaw + turn.angle / DEGREE}` : key,
@@ -286,7 +308,7 @@ export function createPlanner() {
                 bands: formation.chaseBands,
                 speed: formation.chaseSpeed,
               },
-        colors: targetColors(points, count, formation, colors, orders[index]),
+        colors: targetColors(points, count, formation, colors, picks[index]),
       });
     });
     if (state.landAtEnd) stops.push(grid);
@@ -315,10 +337,18 @@ export function createPlanner() {
       store(familyKey, match);
       warmStarts.push({ key: familyKey, ...match });
       // The closest approach depends on the sizes, but not on the heights. The order of the
-      // drones does not matter either, so the key needs no drone order.
-      const direct = remember(`approach|${linkKey}|${previous.scale}|${stop.scale}`, () =>
-        closestApproach(previous.leavePoints, gather(stop.points, match.columnOfRow), count),
-      );
+      // drones does not matter either, so the key needs no drone order. It comes from the
+      // canonical copies, so that rounding gives the same result for every height.
+      /** @param {number} leaveScale @param {number} arriveScale */
+      const approachAt = (leaveScale, arriveScale) =>
+        remember(`approach|${linkKey}|${leaveScale}|${arriveScale}`, () =>
+          closestApproach(
+            scaled(previous.leaveUnit, leaveScale),
+            scaled(gather(stop.unit, match.columnOfRow), arriveScale),
+            count,
+          ),
+        );
+      const direct = approachAt(previous.scale, stop.scale);
 
       slots = slots.map((slot) => match.columnOfRow[slot]);
       const to = gather(stop.points, slots);
@@ -343,10 +373,7 @@ export function createPlanner() {
         const leaveSpread = leaveFactor > 1 ? spreadOut(from, count, leaveFactor, volume) : from;
         const arriveSpread = arriveFactor > 1 ? spreadOut(to, count, arriveFactor, volume) : to;
         // A spread of a formation is the same shape at a larger size, moved up or down.
-        const crossApproach = remember(
-          `approach|${linkKey}|${previous.scale * leaveFactor}|${stop.scale * arriveFactor}`,
-          () => closestApproach(leaveSpread, arriveSpread, count),
-        );
+        const crossApproach = approachAt(previous.scale * leaveFactor, stop.scale * arriveFactor);
         // A leg that only spreads out or closes up moves each drone away from one point.
         // The drones then only get farther apart, so the leg is closest at its small end.
         const spreadApproach = Math.min(
@@ -516,6 +543,16 @@ function anchored(points) {
 }
 
 /**
+ * A copy of points, each multiplied by one factor.
+ * @param {Float32Array} points xyz per point
+ * @param {number} factor
+ * @returns {Float32Array}
+ */
+function scaled(points, factor) {
+  return points.map((value) => value * factor);
+}
+
+/**
  * Picks points from a list.
  * @param {Float32Array} points xyz per point
  * @param {Int32Array} indices index of the point to take, per output position
@@ -623,10 +660,10 @@ export function hexToRgb(hex) {
  * @param {number} count
  * @param {import('./state.js').Formation} formation
  * @param {Float32Array | null} cloudColors color of each point of the candidate cloud, if any
- * @param {Uint32Array} order pick order from the sampler
+ * @param {Uint32Array} picks the point of the cloud that each target comes from
  * @returns {Float32Array} red, green, blue per target
  */
-function targetColors(points, count, formation, cloudColors, order) {
+function targetColors(points, count, formation, cloudColors, picks) {
   const first = hexToRgb(formation.color);
   const colors = new Float32Array(count * 3);
   const pattern = formation.colorPattern;
@@ -641,7 +678,7 @@ function targetColors(points, count, formation, cloudColors, order) {
     return colors;
   }
   for (let i = 0; i < count; i++) {
-    const o = order[i] * 3;
+    const o = picks[i] * 3;
     if (pattern !== 'drawing' || !cloudColors || cloudColors[o] < 0) {
       colors.set(first, i * 3);
       continue;
@@ -714,22 +751,22 @@ export function countOutside(stops, count, bounds) {
 }
 
 /**
- * Moves the first `count` picks from unit space to their place in the sky.
+ * Moves the picks from unit space to their place in the sky.
  * @param {Float32Array} cloud candidate cloud in unit space
- * @param {Uint32Array} order pick order from the sampler
+ * @param {Uint32Array} picks the point of the cloud that each target comes from
  * @param {number} count
  * @param {import('./state.js').Formation} formation
  * @returns {Float32Array} xyz per target
  */
-function placeTargets(cloud, order, count, formation) {
+function placeTargets(cloud, picks, count, formation) {
   const yaw = formation.yaw * DEGREE;
   const cos = Math.cos(yaw) * formation.size;
   const sin = Math.sin(yaw) * formation.size;
   const targets = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    const x = cloud[order[i] * 3];
-    const y = cloud[order[i] * 3 + 1];
-    const z = cloud[order[i] * 3 + 2];
+    const x = cloud[picks[i] * 3];
+    const y = cloud[picks[i] * 3 + 1];
+    const z = cloud[picks[i] * 3 + 2];
     targets[i * 3] = x * cos - y * sin;
     targets[i * 3 + 1] = x * sin + y * cos;
     targets[i * 3 + 2] = z * formation.size + formation.centerHeight;

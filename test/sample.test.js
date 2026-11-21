@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { objCloud } from '../src/obj.js';
 import { createRng } from '../src/rng.js';
-import { closestSpacing, farthestPointOrder, farthestPointSampler } from '../src/sample.js';
+import { closestSpacing, curvePicks, farthestPointOrder, farthestPointSampler, relaxPicks } from '../src/sample.js';
 import { BUILTIN_SHAPES, builtinCloud } from '../src/shapes.js';
 import { svgCloud } from '../src/svg.js';
 
@@ -113,4 +113,82 @@ test('the grid sampler picks the same points as a plain search, for every kind o
     const count = Math.min(1000, cloud.length / 3);
     assert.deepEqual(farthestPointOrder(cloud, count), plainOrder(cloud, count), name);
   }
+});
+
+// Even spacing.
+
+/** The points of a cloud at some indices. */
+function pointsAt(cloud, indices) {
+  const out = new Float32Array(indices.length * 3);
+  indices.forEach((index, i) => out.set(cloud.subarray(index * 3, index * 3 + 3), i * 3));
+  return out;
+}
+
+test('curvePicks spaces the picks evenly along a ring', () => {
+  const cloud = builtinCloud('ring', 1);
+  for (const count of [7, 100, 300]) {
+    const picks = curvePicks(cloud, count);
+    assert.equal(picks.length, count);
+    // In order along the ring, so each index is larger than the one before it.
+    assert.ok(picks.every((pick, i) => i === 0 || pick > picks[i - 1]));
+    // Equal steps around a ring of diameter 1 are sin(π / count) apart.
+    const ideal = Math.sin(Math.PI / count);
+    const spacing = closestSpacing(pointsAt(cloud, picks), count);
+    assert.ok(spacing >= ideal * 0.97, `${count}: spacing ${spacing / ideal} of ideal`);
+  }
+});
+
+test('curvePicks keeps the spacing where a curve comes back near itself', () => {
+  // A sharp V: down one arm and up the other, with 10° between the arms. A walk that only
+  // counts the length along the curve would put picks on both arms close to the corner.
+  const total = 20000;
+  const cloud = new Float32Array(total * 3);
+  const half = Math.sin((5 * Math.PI) / 180);
+  for (let i = 0; i < total; i++) {
+    const along = (i / (total - 1)) * 2 - 1;
+    cloud[i * 3] = Math.abs(along) * Math.cos((5 * Math.PI) / 180);
+    cloud[i * 3 + 2] = along * half;
+  }
+  const count = 100;
+  const picks = curvePicks(cloud, count);
+  // The arms are 2 long. Near the corner the picks keep away from the other arm, which
+  // costs a few picks' worth of length.
+  const spacing = closestSpacing(pointsAt(cloud, picks), count);
+  assert.ok(spacing >= (2 / count) * 0.9, `spacing ${spacing}`);
+  // Farthest point sampling does worse at the corner.
+  const sampled = closestSpacing(pointsAt(cloud, farthestPointOrder(cloud, count)), count);
+  assert.ok(spacing > sampled * 1.2, `walk ${spacing}, sampling ${sampled}`);
+});
+
+test('curvePicks handles small and large counts', () => {
+  const cloud = builtinCloud('helix', 1);
+  assert.equal(curvePicks(cloud, 0).length, 0);
+  assert.equal(curvePicks(cloud, 1).length, 1);
+  const tiny = cloud.subarray(0, 30);
+  assert.deepEqual(Array.from(curvePicks(tiny, 50)), Array.from({ length: 10 }, (unused, i) => i));
+  assert.deepEqual(curvePicks(cloud, 250), curvePicks(cloud, 250));
+});
+
+test('relaxPicks moves picks apart on a surface, and never closer', () => {
+  for (const shape of ['sphere', 'cube', 'torus', 'disc']) {
+    const cloud = builtinCloud(shape, 1);
+    for (const count of [50, 200]) {
+      const sampled = farthestPointOrder(cloud, count);
+      const relaxed = relaxPicks(cloud, sampled);
+      assert.equal(relaxed.length, count);
+      assert.equal(new Set(relaxed).size, count, 'no two picks share a point');
+      const before = closestSpacing(pointsAt(cloud, sampled), count);
+      const after = closestSpacing(pointsAt(cloud, relaxed), count);
+      assert.ok(after >= before, `${shape} ${count}: ${after} < ${before}`);
+      assert.ok(after >= before * 1.05, `${shape} ${count}: gain ${after / before}`);
+    }
+  }
+});
+
+test('relaxPicks gives the same result for the same input, and handles one pick', () => {
+  const cloud = builtinCloud('torus', 3);
+  const sampled = farthestPointOrder(cloud, 120);
+  assert.deepEqual(relaxPicks(cloud, sampled), relaxPicks(cloud, sampled));
+  assert.deepEqual(Array.from(relaxPicks(cloud, [7])), [7]);
+  assert.deepEqual(Array.from(relaxPicks(cloud, [])), []);
 });

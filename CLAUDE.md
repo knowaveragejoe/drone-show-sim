@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: the simulator plays a storyboard of several formations. A formation can turn slowly in its hold, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. `SPEC.md` lists the milestones, the known limits, and the future features.
+Status: the simulator plays a storyboard of several formations. A formation can turn slowly in its hold, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. Targets are evenly spaced: a walk along curves, and farthest point optimization on surfaces. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 

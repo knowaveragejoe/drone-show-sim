@@ -122,13 +122,20 @@ The planner stores the results of the slow stages and runs a stage again only wh
 
 ### 1. Shape to candidate cloud
 
-Each shape produces 20,000 points in unit space.
+Each shape produces 40,000 points in unit space.
 In unit space the shape is centered on the origin and its largest extent is 1.
 A seeded random number generator makes the points, so the same project always gives the same result.
 
+A shape is a surface or a curve:
+
+- The points of a surface are random and spread evenly over its area.
+- The points of a curve are in order along the curve, one curve after the other. The curves are cut into 40,000 slices of equal length, and each slice gets one point at a random place in it. Points that are fully random would leave gaps of about ten times the mean gap. Stage 2 needs points with no large gaps, because each target is one of the points.
+
 Built-in shapes are small generator functions.
 There are seven: sphere, cube, torus, disc, ring, helix, and heart.
+The sphere, cube, torus, and disc are surfaces. The ring, helix, and heart are curves. A curve finds places of equal length on it from a table of 4,096 straight pieces.
 The disc, ring, and heart are flat. They stand upright and face the audience.
+An OBJ model is a surface. An SVG drawing is curves.
 
 For an OBJ file, the simulator does these steps:
 
@@ -148,30 +155,41 @@ For an SVG file, the simulator does these steps:
 5. Skip the contents of elements that the browser does not draw where they stand, such as `defs`, `clipPath`, and `mask`, and elements with `display: none`.
 6. Give each outline a color: its stroke color, or its fill color when it has no stroke. The reader takes `stroke`, `fill`, and `color` (for `currentColor`) from attributes, from the `style` attribute, and from the groups around the element. The `style` attribute wins over an attribute. It reads `#rgb`, `#rrggbb` (also with alpha), `rgb()`, `rgba()`, and the basic CSS color names. An outline with `none`, a gradient, or an unknown value has no color.
 7. Center the drawing and scale it to unit size. It stands upright in the XZ plane and faces the audience. SVG y points down, so the reader turns it to point up.
-8. Pick random points along the outlines. A longer outline gets more points in proportion to its length. Each point gets the color of its outline.
+8. Pick points along the outlines, in order, one in each slice of equal length. A longer outline gets more points in proportion to its length. Each point gets the color of its outline.
 
 Like a browser, the path reader stops at the first error in path data and keeps what it read before it.
 The drones go on the outlines only, also for a filled shape.
 
 ### 2. Candidate cloud to targets
 
-The sampler uses farthest point sampling.
-It starts with one candidate.
-At each step it picks the candidate that is farthest from all picked points.
+Each target is one point of the cloud, so it is on the shape, and it has the color of that point.
+The aim is an even spacing: the closest pair of targets should be as far apart as the shape allows. Fit sizes a formation by its closest pair, so a more even spacing gives a smaller formation, shorter flights, and a shorter show.
 
-Think of 20,000 grains of sand on the shape.
+Think of 40,000 grains of sand on the shape.
 The sampler keeps the grains that are as far apart as possible.
 
-The first N picks are the same for every larger N.
-The sampler picks only as many targets as there are drones, and keeps its work.
-When the drone count grows, it picks more from where it stopped. When the count shrinks, the first picks stay the same.
-A change of drone count then needs no new sampling, and existing targets do not move.
+**A surface** gets two steps:
 
-The sampler uses a grid of cells, about 8 candidates per cell.
+1. Farthest point sampling. The sampler starts with one point. At each step it picks the point that is farthest from all picked points.
+2. Farthest point optimization. Each pick in turn moves to the point within half the median spacing of it that is farthest from all other picks, when that point is farther than its place now. This repeats until no pick moves, or for 30 passes. It usually stops after about 10 passes.
+
+A move never brings two picks closer than the smallest spacing before it, so the smallest spacing can only grow.
+Farthest point sampling alone gives a closest pair of about 0.7 of a perfect hexagonal spacing. The optimization adds 7 to 18 percent. A larger cloud would let it add more, but it would take more time.
+
+**A curve** gets a walk. The walk goes through the points in order and keeps each point that is at least a spacing `s` from every point that it kept before. A bisection finds the largest `s` that keeps one point per drone, to 0.1 percent.
+Along a curve, neighbors are then close to `s` apart. Where a curve comes back near itself, at a cusp such as the top and the bottom of the heart, or near another outline, the walk skips the points that are too close. The closest pair of targets is at least `s`. On a ring, a helix, or the heart this is 0.97 to 1.0 of the ideal spacing (the length divided by the drone count). Farthest point sampling alone gave 0.5 to 0.9 on curves: it halves some gaps and leaves the others.
+
+The targets depend on the drone count. A change of count gives new, evenly spread targets.
+The planner stores the targets of each shape and drone count.
+
+The farthest point sampler uses a grid of cells, about 8 candidates per cell.
 Each candidate keeps its squared distance to its nearest pick. After a pick, no candidate is farther from its nearest pick than the farthest candidate, so a new pick can only change the candidates within that distance of it.
 A pick visits only the cells within that distance. Each cell keeps its farthest candidate, so the search for the next pick visits one value per cell.
 The picks are the same as those of a plain search of every candidate, also for ties: of candidates at the same distance, the one with the lowest index wins.
-At 1,000 picks this is 5 to 16 times faster than a plain search.
+The first N picks are the same for every larger N, so the sampler picks only as many as it needs, and picks more from where it stopped.
+
+The optimization and the walk use hashes of grid cells. The walk first checks the point that it kept last, which rejects most points with one distance check.
+At 1,000 drones the optimization takes about 50 to 120 ms per surface, and the walk about 20 to 35 ms per curve.
 
 ### 3. Place the formation
 
@@ -231,7 +249,7 @@ Several measures make the solver fast:
 | A store of the last 256 results | Undo, redo, and a value set back need no solve. |
 | Warm start | A solve that is not in the store starts from the last solution between the same two shapes. It keeps each earlier pair that is still the cheapest of its row, and the solver assigns only the other drones. A small change of drone count then frees only the drones that changed, and a yaw change gets 2 to 5 times faster. The canonical grid keeps each drone at the same cell for every drone count with the same grid width, so the warm start stays good. A warm start from a solution with fewer than 75% of the drones is not used. |
 | Coarse to fine | A cold solve of 400 drones or more first solves a spread sample of a quarter of the drones and targets, in farthest point order. That solution is the warm start of the full solve. This halves the time of a cold solve. |
-| Lazy sampling | The sampler picks only as many targets as there are drones, and picks more when the count grows. |
+| Lazy sampling | The farthest point sampler picks only as many targets as there are drones, and picks more when the count grows. |
 | Stored pairings | Autosave keeps the pairings of the last plan with the project. On the next page load, they are the warm starts of the first plan, so each solve only checks them. |
 
 The result does not depend on which measures ran.
@@ -245,10 +263,10 @@ Measured on a slow cloud CPU at 1,000 drones:
 |---|---|
 | Size, height, grid spacing, color, chase, undo, redo | 3 to 30 ms |
 | Turn rate of a turning formation, size of a turning formation | about 50 ms |
-| Drone count by a few drones | about 130 ms |
+| Drone count by a few drones | 0.5 to 0.8 seconds: new targets for each shape, and warm solves |
 | A new shape, or a yaw change | 0.2 to 0.5 seconds |
 | A cold plan of the default show | about 1 second |
-| A page open with stored pairings | about 0.2 seconds of planning |
+| A page open with stored pairings | about 0.35 seconds of planning |
 
 A slider for drone count, yaw, or turn rate applies each step of a drag up to 250 drones. Above 250 drones, it applies its value when the user lets go. The other sliders apply each step at every fleet size.
 
@@ -642,7 +660,7 @@ src/
   shapes.js       built-in shape generators
   obj.js          OBJ parser and triangle sampler
   svg.js          SVG reader: path data, basic shapes, transforms, colors, and the outline sampler
-  sample.js       farthest point sampling, smallest spacing
+  sample.js       farthest point sampling and optimization, the curve walk, smallest spacing
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn profile
   mat4.js         matrix helpers for the camera
@@ -673,7 +691,7 @@ No `npm install` is necessary.
 
 | Module | What the tests check |
 |---|---|
-| `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. The grid sampler picks the same points as a plain search, for each built-in shape, an SVG drawing, an OBJ model, points on a line, and points with many ties. |
+| `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. The grid sampler picks the same points as a plain search, for each built-in shape, an SVG drawing, an OBJ model, points on a line, and points with many ties. The walk spaces a ring evenly, keeps the spacing at a sharp corner, and handles small and large counts. The optimization never brings picks closer, gains at least 5 percent on each built-in surface, keeps the picks apart, and repeats. |
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. A warm start from a changed problem, or from a problem of another size, is still optimal. The prices prove the solution optimal. Scaling or moving a point set keeps the best pairing. Cold, warm, and coarse to fine solves of a large fleet with ties give the same pairing. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
@@ -681,7 +699,7 @@ No `npm install` is necessary.
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
-| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
+| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -724,11 +742,14 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 15 | Faster page open | A grid for the sampler, and pairings stored with the autosave. | Done |
 | 16 | Spread out to pass | A transition that is not safe as a direct flight spreads out, crosses, and closes up. Fit then needs no flight margin. | Done |
 | 17 | Color per drone | Rising, Across, and Outward gradients of two colors, and the colors of an SVG drawing. | Done |
+| 18 | Even spacing | A walk along curves, and farthest point optimization on surfaces. Fit makes shapes 9 to 32 percent smaller. | Done |
 
 ## Known limits
 
-- Farthest point sampling is greedy. On a surface, the closest pair of targets is about 0.9 of the typical neighbor distance. On an outline with sharp corners, it can be 0.6. Fit then makes the shape larger than a perfect spacing needs. A relaxation step after sampling would improve this.
-- A cold plan of a large show, a new shape, or a yaw change still pauses the page at 1,000 drones: about 1 second for a cold plan of the default show (a page open with stored pairings plans in about 0.2 seconds), and 0.2 to 0.5 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
+- On a surface, the closest pair of targets is about 0.75 to 0.85 of a perfect hexagonal spacing. Each target is a point of the cloud, so the cloud size limits the optimization. A cloud of 80,000 points gave about 0.8 at 1,000 drones, but took about three times as long.
+- A cusp or a sharp corner costs spacing: the targets keep away from the other side of the cusp, so the gap at the cusp is larger.
+- A change of drone count moves every target a little, so the assignments need new solves.
+- A cold plan of a large show, a new shape, a yaw change, or a change of drone count still pauses the page at 1,000 drones: about 1 second for a cold plan of the default show (a page open with stored pairings plans in about 0.35 seconds), and 0.2 to 0.8 seconds for the others, on a slow CPU. If this is a problem, the next step is to run the planner in a Web Worker.
 - Drones fly straight legs. The spread keeps the minimum spacing in a transition, but it makes the transition longer, and a spread of a large formation can leave the flight volume. The simulator does not plan a path around a single conflict, and it does not move only the drones that conflict.
 - A spread cannot fix a stop whose targets are too close together. It also cannot fix a takeoff when the grid spacing is not more than the minimum spacing.
 - A drone can land on a grid cell that is not the one it started from.

@@ -3,11 +3,16 @@
 // Points are in unit space: the shape is centered on the origin and its largest extent is 1.
 // Axes: X to the right of the audience, Y away from the audience, Z up.
 // Flat shapes stand upright in the XZ plane, so they face the audience.
+//
+// A shape is a surface or a curve. The points of a surface are random and spread evenly
+// over its area. The points of a curve are in order along the curve, and spread evenly
+// along its length: the curve is cut into `CLOUD_SIZE` slices of equal length, and each
+// slice gets one point at a random place in it.
 
 import { createRng } from './rng.js';
 
 /** Number of points in a candidate cloud. */
-export const CLOUD_SIZE = 20000;
+export const CLOUD_SIZE = 40000;
 
 const TWO_PI = Math.PI * 2;
 
@@ -43,14 +48,28 @@ const HEART_MIDDLE = (() => {
 })();
 
 /**
- * Writes one random point of a shape.
+ * Writes one random point of a surface.
  * @callback PointWriter
  * @param {() => number} random
  * @param {Float32Array} out
  * @param {number} offset index of the x value in `out`
  */
 
-/** @type {Record<string, {label: string, point: PointWriter}>} */
+/**
+ * Writes the point of a curve at one place along it.
+ * @callback CurveWriter
+ * @param {number} t place on the curve, from 0 at its start to 1 at its end
+ * @param {Float32Array} out
+ * @param {number} offset index of the x value in `out`
+ */
+
+/**
+ * A built-in shape: a surface with `point`, or a curve with `curve`.
+ * @typedef {{label: string, point: PointWriter, curve?: undefined}
+ *   | {label: string, curve: CurveWriter, point?: undefined}} BuiltinShape
+ */
+
+/** @type {Record<string, BuiltinShape>} */
 export const BUILTIN_SHAPES = {
   sphere: {
     label: 'Sphere',
@@ -106,8 +125,8 @@ export const BUILTIN_SHAPES = {
 
   ring: {
     label: 'Ring',
-    point(random, out, offset) {
-      const angle = TWO_PI * random();
+    curve(t, out, offset) {
+      const angle = TWO_PI * t;
       out[offset] = 0.5 * Math.cos(angle);
       out[offset + 1] = 0;
       out[offset + 2] = 0.5 * Math.sin(angle);
@@ -116,25 +135,27 @@ export const BUILTIN_SHAPES = {
 
   helix: {
     label: 'Helix',
-    point(random, out, offset) {
-      const along = random();
-      const angle = TWO_PI * HELIX_TURNS * along;
+    curve(t, out, offset) {
+      const angle = TWO_PI * HELIX_TURNS * t;
       out[offset] = HELIX_RADIUS * Math.cos(angle);
       out[offset + 1] = HELIX_RADIUS * Math.sin(angle);
-      out[offset + 2] = along - 0.5;
+      out[offset + 2] = t - 0.5;
     },
   },
 
   heart: {
     label: 'Heart',
-    point(random, out, offset) {
-      const [horizontal, vertical] = heartCurve(TWO_PI * random());
+    curve(t, out, offset) {
+      const [horizontal, vertical] = heartCurve(TWO_PI * t);
       out[offset] = horizontal * HEART_SCALE;
       out[offset + 1] = 0;
       out[offset + 2] = (vertical - HEART_MIDDLE) * HEART_SCALE;
     },
   },
 };
+
+// A curve is measured as this many straight pieces, to find places of equal length on it.
+const CURVE_PIECES = 4096;
 
 /**
  * Makes the candidate cloud of a built-in shape.
@@ -143,10 +164,49 @@ export const BUILTIN_SHAPES = {
  * @returns {Float32Array} xyz per point, `CLOUD_SIZE` points
  */
 export function builtinCloud(shape, seed) {
+  if (!Object.hasOwn(BUILTIN_SHAPES, shape)) throw new Error(`Unknown shape "${shape}".`);
   const generator = BUILTIN_SHAPES[shape];
-  if (!generator) throw new Error(`Unknown shape "${shape}".`);
   const random = createRng(seed);
   const cloud = new Float32Array(CLOUD_SIZE * 3);
+  if (generator.curve) return curveCloud(generator.curve, random, cloud);
   for (let i = 0; i < CLOUD_SIZE; i++) generator.point(random, cloud, i * 3);
   return cloud;
+}
+
+/**
+ * Fills a cloud with points in order along a curve, one in each slice of equal length.
+ * @param {CurveWriter} curve
+ * @param {() => number} random
+ * @param {Float32Array} cloud xyz per point, `CLOUD_SIZE` points; the function fills it
+ * @returns {Float32Array} `cloud`
+ */
+function curveCloud(curve, random, cloud) {
+  // Length from the start of the curve to the end of each piece.
+  const lengthUpTo = new Float64Array(CURVE_PIECES + 1);
+  const point = new Float32Array(6);
+  curve(0, point, 0);
+  for (let piece = 1; piece <= CURVE_PIECES; piece++) {
+    curve(piece / CURVE_PIECES, point, 3);
+    const length = Math.hypot(point[3] - point[0], point[4] - point[1], point[5] - point[2]);
+    lengthUpTo[piece] = lengthUpTo[piece - 1] + length;
+    point.copyWithin(0, 3, 6);
+  }
+  const total = lengthUpTo[CURVE_PIECES];
+  let piece = 0;
+  for (let i = 0; i < CLOUD_SIZE; i++) {
+    const along = ((i + random()) / CLOUD_SIZE) * total;
+    // The places grow, so the piece that holds the place only moves forward.
+    while (piece < CURVE_PIECES - 1 && lengthUpTo[piece + 1] < along) piece++;
+    const share = (along - lengthUpTo[piece]) / (lengthUpTo[piece + 1] - lengthUpTo[piece] || 1);
+    curve((piece + Math.min(1, Math.max(0, share))) / CURVE_PIECES, cloud, i * 3);
+  }
+  return cloud;
+}
+
+/**
+ * @param {string} shape key of `BUILTIN_SHAPES`
+ * @returns {boolean} true when the shape is a curve, so its cloud is in order along it
+ */
+export function isCurve(shape) {
+  return Boolean(BUILTIN_SHAPES[shape]?.curve);
 }

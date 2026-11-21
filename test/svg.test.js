@@ -237,6 +237,20 @@ test('svgCloud keeps the top of the drawing up', () => {
   near(top / CLOUD_SIZE, 1 / 11, 0.01);
 });
 
+test('svgCloud puts the points in order along the outlines', () => {
+  // A square, then a separate line under it.
+  const { points } = svgCloud(svg('<rect x="0" y="0" width="10" height="10"/><line x1="0" y1="20" x2="10" y2="20"/>'), 1);
+  let jumps = 0;
+  for (let i = 1; i < CLOUD_SIZE; i++) {
+    const o = i * 3;
+    const step = Math.hypot(points[o] - points[o - 3], points[o + 2] - points[o - 1]);
+    // The outlines are 50 long in a drawing 20 high, so a slice is 50 / 20 / 20,000 in unit space.
+    if (step > (2 * 50) / 20 / CLOUD_SIZE + 1e-6) jumps++;
+  }
+  // One jump: from the square to the line.
+  assert.equal(jumps, 1);
+});
+
 test('svgCloud rejects a drawing with no outlines', () => {
   assert.throws(() => svgCloud(svg('<text x="0" y="0">Hello</text>'), 1), /no outlines/);
   assert.throws(() => svgCloud(svg('<circle cx="5" cy="5" r="0"/>'), 1), /no outlines/);
