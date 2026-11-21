@@ -3,7 +3,8 @@
 // A show is a list of steps. In each step the fleet flies to a stop and then holds there.
 // The stops are the formations in storyboard order, and then the takeoff grid again
 // when the show ends with a landing. A formation can turn slowly while it holds, and a
-// light chase can run across it.
+// light chase can run across it. Each drone has its own light color at each stop: one color
+// for the whole formation, a gradient, or the colors of an SVG drawing.
 //
 // A transition is a list of legs. In each leg every drone flies a straight line, and all
 // drones start and stop together. Most transitions have one leg. When the drones would
@@ -43,6 +44,8 @@ import { svgCloud } from './svg.js';
  * @property {import('./motion.js').Turn | null} turn the turn of the formation in the hold, if any
  * @property {Chase | null} chase the light chase of the formation in the hold, if any
  * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
+ * @property {Float32Array} colors light color of each drone at the stop, red, green, blue, each 0 to 1;
+ *   the landing keeps the colors of the last formation
  * @property {number} closestApproach smallest distance between two drones in the transition, meters
  * @property {number} turnSpeed speed of the fastest drone in the turn, m/s; 0 when the formation does not turn
  * @property {number} peakSpeed speed of the fastest drone in the step, m/s
@@ -118,6 +121,7 @@ import { svgCloud } from './svg.js';
  * @property {Float32Array} leavePoints xyz per point when the hold ends
  * @property {Float32Array} leaveUnit canonical copy of `leavePoints`
  * @property {Chase | null} chase the light chase in the hold, with `u` in point order, if any
+ * @property {Float32Array | null} colors light color of each point, red, green, blue; null for the takeoff grid
  */
 
 const DEGREE = Math.PI / 180;
@@ -159,6 +163,8 @@ export function createPlanner() {
    * @property {string} name names the shape by its contents, so that a name stays the same
    *   from one page load to the next
    * @property {Float32Array} cloud
+   * @property {Float32Array | null} colors color of each point of the cloud, from an SVG drawing;
+   *   -1 in each channel for a point with no color; null when the shape has no colors
    * @property {ReturnType<typeof farthestPointSampler>} sampler
    */
   /** Samples of built-in shapes, by name. @type {Map<string, Sample>} */
@@ -169,8 +175,8 @@ export function createPlanner() {
    */
   const fileSamples = new WeakMap();
 
-  /** @param {string} name @param {Float32Array} cloud @returns {Sample} */
-  const newSample = (name, cloud) => ({ name, cloud, sampler: farthestPointSampler(cloud) });
+  /** @param {string} name @param {Float32Array} cloud @param {Float32Array | null} [colors] @returns {Sample} */
+  const newSample = (name, cloud, colors = null) => ({ name, cloud, colors, sampler: farthestPointSampler(cloud) });
 
   /** @param {import('./state.js').Formation} formation */
   function sampleOf({ source, seed }) {
@@ -186,10 +192,13 @@ export function createPlanner() {
     const entry = fileSamples.get(source);
     if (entry && entry.seed === seed) return entry.sample;
     const contents = `${textHash(source.text)}:${source.text.length}:${seed}`;
-    const sample =
-      source.type === 'obj'
-        ? newSample(`obj:${source.upAxis}:${contents}`, objCloud(source.text, source.upAxis, seed))
-        : newSample(`svg:${contents}`, svgCloud(source.text, seed));
+    let sample;
+    if (source.type === 'obj') {
+      sample = newSample(`obj:${source.upAxis}:${contents}`, objCloud(source.text, source.upAxis, seed));
+    } else {
+      const { points, colors } = svgCloud(source.text, seed);
+      sample = newSample(`svg:${contents}`, points, colors);
+    }
     fileSamples.set(source, { seed, sample });
     return sample;
   }
@@ -240,10 +249,11 @@ export function createPlanner() {
       leavePoints: gridPoints,
       leaveUnit: gridUnit,
       chase: null,
+      colors: null,
     };
     const stops = [grid];
     state.formations.forEach((formation, index) => {
-      const { name, cloud } = shapes[index];
+      const { name, cloud, colors } = shapes[index];
       const points = placeTargets(cloud, orders[index], count, formation);
       const unit = placeTargets(cloud, orders[index], count, { ...formation, size: 1, centerHeight: 0 });
       let radius = 0;
@@ -272,10 +282,11 @@ export function createPlanner() {
           formation.chase === 'off'
             ? null
             : {
-                u: chasePath(points, count, formation),
+                u: patternPath(points, count, formation, formation.chase),
                 bands: formation.chaseBands,
                 speed: formation.chaseSpeed,
               },
+        colors: targetColors(points, count, formation, colors, orders[index]),
       });
     });
     if (state.landAtEnd) stops.push(grid);
@@ -311,6 +322,8 @@ export function createPlanner() {
 
       slots = slots.map((slot) => match.columnOfRow[slot]);
       const to = gather(stop.points, slots);
+      // The landing keeps the colors that the drones have. A formation always comes before it.
+      const colors = stop.colors ? gather(stop.colors, slots) : steps[steps.length - 1].colors;
       const end = stop.turn ? gather(stop.leavePoints, slots) : to;
       markOutside(to, count, stop.turn?.angle ?? 0, volume, outside);
 
@@ -399,6 +412,7 @@ export function createPlanner() {
         turn: stop.turn,
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
         end,
+        colors,
         closestApproach: approach,
         turnSpeed,
         peakSpeed: Math.max(peakSpeed, turnSpeed),
@@ -527,19 +541,26 @@ function gatherValues(values, indices) {
 }
 
 /**
- * Places each target of a formation on the path of its light chase. The path uses the
- * axes of the formation itself, before its yaw, so a turned formation keeps its pattern.
+ * Places each target of a formation on the path of a pattern: a light chase or a gradient.
+ * The path uses the axes of the formation itself, before its yaw, so a turned formation
+ * keeps its pattern.
  *
  * - Around: the angle around the formation center, in the plane that faces the audience.
  *   0 is at the top, and the angle grows clockwise as the audience sees it.
  * - Rising: the height, from the lowest target (0) to the highest (1).
  * - Across: the side position, from the left end as the audience sees it (0) to the right (1).
+ * - Outward: the distance from the formation center, from the nearest target (0) to the
+ *   farthest (1).
+ *
+ * When all targets are at the same place on the path, for example the height of a flat
+ * shape on the ground plane, each target gets 0.
  * @param {Float32Array} points xyz per target
  * @param {number} count
  * @param {import('./state.js').Formation} formation
+ * @param {'around' | 'rising' | 'across' | 'outward'} pattern
  * @returns {Float32Array} one value per target, 0 to 1
  */
-function chasePath(points, count, formation) {
+function patternPath(points, count, formation, pattern) {
   const yaw = formation.yaw * DEGREE;
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
@@ -550,21 +571,87 @@ function chasePath(points, count, formation) {
     side[i] = points[i * 3] * cos + points[i * 3 + 1] * sin;
     up[i] = points[i * 3 + 2] - formation.centerHeight;
   }
-  if (formation.chase === 'around') {
+  if (pattern === 'around') {
     return side.map((x, i) => {
       const turn = Math.atan2(x, up[i]) / (2 * Math.PI);
       return turn < 0 ? turn + 1 : turn;
     });
   }
-  const values = formation.chase === 'rising' ? up : side;
+  const values =
+    pattern === 'rising'
+      ? up
+      : pattern === 'across'
+        ? side
+        : Float32Array.from({ length: count }, (unused, i) =>
+            Math.hypot(points[i * 3], points[i * 3 + 1], up[i]),
+          );
   let low = Infinity;
   let high = -Infinity;
   for (const value of values) {
     low = Math.min(low, value);
     high = Math.max(high, value);
   }
-  const range = high - low;
+  // A range this small is only rounding error, for example on the surface of a sphere.
+  const range = high - low > formation.size * PATTERN_FLAT ? high - low : 0;
   return values.map((value) => (range > 0 ? (value - low) / range : 0));
+}
+
+// A pattern whose range is less than this share of the formation size has no range.
+const PATTERN_FLAT = 1e-4;
+
+/**
+ * Converts a color.
+ * @param {string} hex color as `#rrggbb`
+ * @returns {number[]} red, green, blue, each 0 to 1
+ */
+export function hexToRgb(hex) {
+  const value = parseInt(hex.slice(1), 16);
+  return [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+}
+
+/**
+ * The light color of each target of a formation.
+ *
+ * - Solid: the formation color.
+ * - A gradient: a blend from the formation color to the second color, along the path of the
+ *   pattern (see `patternPath`).
+ * - Drawing colors: the color of the outline that the target comes from. A drone light is
+ *   brightest at full power, and a drawing is made for paper or a screen, so each color is
+ *   scaled up until its strongest channel is full. Black and gray become white. A target on
+ *   an outline with no color gets the formation color.
+ * @param {Float32Array} points xyz per target
+ * @param {number} count
+ * @param {import('./state.js').Formation} formation
+ * @param {Float32Array | null} cloudColors color of each point of the candidate cloud, if any
+ * @param {Uint32Array} order pick order from the sampler
+ * @returns {Float32Array} red, green, blue per target
+ */
+function targetColors(points, count, formation, cloudColors, order) {
+  const first = hexToRgb(formation.color);
+  const colors = new Float32Array(count * 3);
+  const pattern = formation.colorPattern;
+  if (pattern === 'rising' || pattern === 'across' || pattern === 'outward') {
+    const second = hexToRgb(formation.secondColor);
+    const path = patternPath(points, count, formation, pattern);
+    for (let i = 0; i < count; i++) {
+      for (let channel = 0; channel < 3; channel++) {
+        colors[i * 3 + channel] = first[channel] + path[i] * (second[channel] - first[channel]);
+      }
+    }
+    return colors;
+  }
+  for (let i = 0; i < count; i++) {
+    const o = order[i] * 3;
+    if (pattern !== 'drawing' || !cloudColors || cloudColors[o] < 0) {
+      colors.set(first, i * 3);
+      continue;
+    }
+    const strongest = Math.max(cloudColors[o], cloudColors[o + 1], cloudColors[o + 2]);
+    for (let channel = 0; channel < 3; channel++) {
+      colors[i * 3 + channel] = strongest > 0 ? cloudColors[o + channel] / strongest : 1;
+    }
+  }
+  return colors;
 }
 
 /**
@@ -964,6 +1051,30 @@ export function lightColorAt(plan, colors, time) {
   const leg = step.legs[step.cross];
   const progress = progressAt(leg.timing, time - step.start - leg.start);
   return before.map((channel, i) => channel + progress * (after[i] - channel));
+}
+
+/**
+ * Writes the light color of every drone at one time. In a transition each drone blends from
+ * its color at the old stop to its color at the new stop, in the leg that crosses. Takeoff
+ * uses the colors of the first formation, and the landing keeps the colors of the last one.
+ * @param {Plan} plan
+ * @param {number} time seconds from the start of the timeline
+ * @param {Float32Array} out red, green, blue per drone; length at least `plan.count × 3`
+ */
+export function lightColorsAt(plan, time, out) {
+  const index = stepAt(plan, time);
+  const step = plan.steps[index];
+  const before = index === 0 ? step.colors : plan.steps[index - 1].colors;
+  const after = step.colors;
+  const leg = step.legs[step.cross];
+  const progress = progressAt(leg.timing, time - step.start - leg.start);
+  if (before === after || progress >= 1) {
+    out.set(after);
+    return;
+  }
+  for (let i = 0; i < plan.count * 3; i++) {
+    out[i] = before[i] + progress * (after[i] - before[i]);
+  }
 }
 
 /**

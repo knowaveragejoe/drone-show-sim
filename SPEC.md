@@ -36,6 +36,8 @@ When the march would bring two marchers too close, the band first opens its rank
 | Hold | The time that the fleet stays at a stop. |
 | Turn | A slow rotation of a formation about the vertical axis during its hold. The formation turns as one rigid body. |
 | Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
+| Color pattern | How the drones of a formation get their light colors: one solid color, a gradient, or the drawing colors of an SVG drawing. |
+| Gradient | A blend from the formation color to a second color across the formation: rising, across, or outward. |
 | Step | One transition and the hold after it. A show is a list of steps. |
 | Assignment | The mapping from each drone to one target. The drill chart. |
 | Flight volume | The cube that the drones must stay inside. |
@@ -55,7 +57,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Shape inputs | Built-in shapes, OBJ models, and SVG drawings. |
 | Drone placement | Even spread over the surface of a 3D shape, or along the outlines of a flat shape and of an SVG drawing. |
 | Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
-| Color | One color per formation. The light color blends in the transition between two formations. |
+| Color | Each drone has its own light color. A formation has a color pattern: one solid color, a gradient of two colors (Rising, Across, or Outward), or, for an SVG drawing, the colors of the drawing. In a transition each drone blends from its old color to its new color. |
 | Slow turn | Each formation has a turn rate. The formation turns in its hold, so the audience sees its depth. |
 | Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
@@ -88,7 +90,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Takeoff grid spacing | 3 m |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
-| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s. |
+| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s. The torus has an outward gradient from orange on its inner ring to pink on its outer ring. |
 | Landing | On |
 
 The limits are starting values in the range that show design tools use.
@@ -144,8 +146,9 @@ For an SVG file, the simulator does these steps:
 3. Read all path commands, also arcs and the short forms. Curves and arcs become short straight segments.
 4. Apply the `transform` of each element and of its groups.
 5. Skip the contents of elements that the browser does not draw where they stand, such as `defs`, `clipPath`, and `mask`, and elements with `display: none`.
-6. Center the drawing and scale it to unit size. It stands upright in the XZ plane and faces the audience. SVG y points down, so the reader turns it to point up.
-7. Pick random points along the outlines. A longer outline gets more points in proportion to its length.
+6. Give each outline a color: its stroke color, or its fill color when it has no stroke. The reader takes `stroke`, `fill`, and `color` (for `currentColor`) from attributes, from the `style` attribute, and from the groups around the element. The `style` attribute wins over an attribute. It reads `#rgb`, `#rrggbb` (also with alpha), `rgb()`, `rgba()`, and the basic CSS color names. An outline with `none`, a gradient, or an unknown value has no color.
+7. Center the drawing and scale it to unit size. It stands upright in the XZ plane and faces the audience. SVG y points down, so the reader turns it to point up.
+8. Pick random points along the outlines. A longer outline gets more points in proportion to its length. Each point gets the color of its outline.
 
 Like a browser, the path reader stops at the first error in path data and keeps what it read before it.
 The drones go on the outlines only, also for a filled shape.
@@ -365,6 +368,28 @@ Outside a hold, and in a formation with no chase, every light is at full brightn
 
 The chase uses the targets of the drones, so it does not change the assignment or any check.
 
+### 9a. Color the targets
+
+Each target gets a light color from the color pattern of its formation.
+
+| Pattern | Color |
+|---|---|
+| Solid | The formation color. |
+| Rising gradient | A blend from the formation color at the lowest target to the second color at the highest. |
+| Across gradient | A blend from the formation color at the left end, as the audience sees it, to the second color at the right end. |
+| Outward gradient | A blend from the formation color at the target nearest the formation center to the second color at the farthest target. On a torus, this colors the inner ring and the outer ring. Every target of a sphere is at the same distance from its center, so a sphere gets the formation color only. |
+| Drawing colors | The color of the SVG outline that the target comes from. Only an SVG drawing offers this pattern. |
+
+A gradient uses the same paths as the light chase (stage 9), plus the distance from the center for Outward. The paths use the axes of the formation before its yaw, so a turning formation keeps its colors, like paint.
+When all targets are at one place on the path, for example the height of a flat shape that lies on the ground plane, every target gets the formation color.
+
+A drawing is made for paper or a screen, but a drone light is brightest at full power. So the planner scales each drawing color up until its strongest channel is full: dark red becomes red, and black and gray become white. A target on an outline with no color gets the formation color.
+
+Each drone takes the color of its target, so the colors follow the assignment.
+In a transition, each drone blends from its color at the old stop to its color at the new stop, in the cross leg.
+Takeoff uses the colors of the first formation, and the landing keeps the colors of the last one.
+Colors do not change the assignment or any check.
+
 ### 10. Report the checks
 
 The Checks section shows the worst value of the whole show.
@@ -402,8 +427,8 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 | Section | Contents |
 |---|---|
-| Storyboard | One row per formation: color, number, shape name, hold time, turn rate, a chase marker, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
-| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color, light chase pattern. When the chase is on: chase bands and chase speed. Spacing readout and Fit button. |
+| Storyboard | One row per formation: color (a gradient shows both colors in its direction), number, shape name, hold time, turn rate, a chase marker, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
+| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color, color pattern, light chase pattern. For a gradient: the second color. When the chase is on: chase bands and chase speed. Spacing readout and Fit button. The Drawing colors pattern is in the list only for an SVG drawing. An imported SVG drawing starts with its drawing colors. A change to a shape that is not an SVG drawing sets Drawing colors back to Solid. |
 
 ### Fleet tab
 
@@ -526,8 +551,8 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Flight volume: one `gl.LINES` draw call for the edges of the cube.
 - Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Brightness: a second buffer holds the brightness of each light, from stage 9. The page writes it each frame. The selected drone stays at full brightness.
-- Light color: the color of the formation of the current step. In a transition between two formations the color blends from one to the other, in the cross leg. Takeoff uses the color of the first formation. The landing keeps the color of the last one.
-- Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity. In a hold, the current step is the one that led to the hold.
+- Light color: a third buffer holds the color of each light, from stage 9a. The page writes it each frame. The selected drone is white.
+- Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity, in the formation color. In a transition between two formations, the path color blends from one formation color to the other, in the cross leg. In a hold, the current step is the one that led to the hold.
 - Route: for the selected drone, the view draws its whole route: each leg of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
@@ -564,6 +589,8 @@ The project file is JSON with the extension `.droneshow.json`.
       "centerHeight": 60,
       "yaw": 0,
       "color": "#66ccff",
+      "colorPattern": "solid",
+      "secondColor": "#ffffff",
       "holdSeconds": 10,
       "turnRate": 6,
       "chase": "off",
@@ -588,7 +615,8 @@ An OBJ formation stores the full OBJ text, and an SVG formation stores the full 
 
 The simulator writes version 2 and reads versions 1 and 2.
 Version 1 had exactly one formation and no landing.
-A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, and a formation with no `chase` has no light chase. Older files then load with their old meaning.
+A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, a formation with no `chase` has no light chase, and a formation with no `colorPattern` has one solid color. Older files then load with their old meaning.
+`colorPattern` is one of `solid`, `rising`, `across`, `outward`, and `drawing`. A formation that is not an SVG drawing and has `drawing` gets `solid`.
 A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
 
 Import checks the `app` name, the `version`, and every value.
@@ -613,7 +641,7 @@ src/
   rng.js          seeded random number generator
   shapes.js       built-in shape generators
   obj.js          OBJ parser and triangle sampler
-  svg.js          SVG reader: path data, basic shapes, transforms, and the outline sampler
+  svg.js          SVG reader: path data, basic shapes, transforms, colors, and the outline sampler
   sample.js       farthest point sampling, smallest spacing
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn profile
@@ -649,11 +677,11 @@ No `npm install` is necessary.
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. A warm start from a changed problem, or from a problem of another size, is still optimal. The prices prove the solution optimal. Scaling or moving a point set keeps the best pairing. Cold, warm, and coarse to fine solves of a large fleet with ties give the same pairing. |
 | `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
-| `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. |
+| `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
-| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. |
-| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. |
+| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
+| `plan.js` | One formation: targets, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -695,6 +723,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 14 | Performance | Canonical copies, a result store, warm starts, coarse to fine solves, and lazy sampling. | Done |
 | 15 | Faster page open | A grid for the sampler, and pairings stored with the autosave. | Done |
 | 16 | Spread out to pass | A transition that is not safe as a direct flight spreads out, crosses, and closes up. Fit then needs no flight margin. | Done |
+| 17 | Color per drone | Rising, Across, and Outward gradients of two colors, and the colors of an SVG drawing. | Done |
 
 ## Known limits
 
@@ -705,6 +734,9 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - A drone can land on a grid cell that is not the one it started from.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
 - The SVG importer puts drones on outlines only. It does not fill a filled area. It does not read `text` (fonts), `use`, nested `svg` positions, CSS classes, or units such as percent.
+- Drawing colors come from `stroke`, `fill`, and `color` only. CSS classes, gradients, opacity, and color names other than the basic ones give no color. Each color goes to full brightness, so a drawing that uses dark and light shades of one hue shows one hue.
+- An OBJ model has no colors of its own in the simulator. The importer does not read materials.
+- A gradient has two colors. The faint flight paths use the formation color, not the color of each drone.
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 - The undo history does not survive a page reload. Only the project does.
@@ -720,7 +752,8 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - Drones that flow along an outline, so the drones themselves move, not only the lights.
 - More shape inputs: point lists and GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
 - Filled SVG areas: drones spread over the inside of a filled shape, not only on its outline.
-- Edge placement, gradients, and color per drone.
+- Edge placement.
+- Gradients with more than two colors.
 - Export to a show format such as VVIZ.
 
 ## Out of scope

@@ -133,7 +133,15 @@
             <label for="color">Color</label>
             <input id="color" type="color">
           </div>
-          <div class="field">
+          <div class="field choice">
+            <label for="color-pattern">Color pattern</label>
+            <select id="color-pattern" title="How the drones of the formation get their colors"></select>
+          </div>
+          <div class="field" id="second-color-row" hidden>
+            <label for="second-color">Second color</label>
+            <input id="second-color" type="color" title="The color at the other end of the gradient">
+          </div>
+          <div class="field choice">
             <label for="chase">Light chase</label>
             <select id="chase" title="Bright bands that travel across the formation in its hold"></select>
           </div>

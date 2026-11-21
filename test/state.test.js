@@ -123,6 +123,8 @@ test('import rejects a value that is out of range or of the wrong type', () => {
     [(data) => (data.formations[2].yaw = 999), /formation 3: yaw/],
     [(data) => (data.formations[1].color = 'red'), /formation 2: color/],
     [(data) => (data.formations[0].color = 7), /formation 1: color/],
+    [(data) => (data.formations[0].secondColor = 'white'), /formation 1: secondColor must be a color/],
+    [(data) => (data.formations[1].colorPattern = 'plaid'), /formation 2: colorPattern must be one of solid, rising/],
     [(data) => (data.formations[0].seed = 1.5), /formation 1: seed/],
   ];
   for (const [change, message] of cases) {
@@ -163,6 +165,30 @@ test('a version 1 project file loads as a show with one formation and no landing
 test('a project file from before the spread gets it, and a file can turn it off', () => {
   assert.equal(parseProject(fileWith((data) => delete data.spreadToPass)).spreadToPass, true);
   assert.equal(parseProject(fileWith((data) => (data.spreadToPass = false))).spreadToPass, false);
+});
+
+test('a formation from before color patterns gets one solid color', () => {
+  const loaded = parseProject(
+    fileWith((data) => {
+      delete data.formations[2].colorPattern;
+      delete data.formations[2].secondColor;
+    }),
+  );
+  assert.equal(loaded.formations[2].colorPattern, 'solid');
+  assert.equal(loaded.formations[2].secondColor, '#ffffff');
+});
+
+test('drawing colors need an SVG drawing', () => {
+  const builtin = parseProject(fileWith((data) => (data.formations[0].colorPattern = 'drawing')));
+  assert.equal(builtin.formations[0].colorPattern, 'solid');
+  const text = '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="5" r="4" stroke="red"/></svg>';
+  const drawing = parseProject(
+    fileWith((data) => {
+      data.formations[0].source = { type: 'svg', fileName: 'dot.svg', text };
+      data.formations[0].colorPattern = 'drawing';
+    }),
+  );
+  assert.equal(drawing.formations[0].colorPattern, 'drawing');
 });
 
 test('nextFormation gives the next shape and the next color, and keeps the rest', () => {

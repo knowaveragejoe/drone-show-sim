@@ -15,8 +15,10 @@ import {
   createPlanner,
   FLIGHT_MARGIN,
   fitSize,
+  hexToRgb,
   holdStart,
   lightColorAt,
+  lightColorsAt,
   positionsAt,
   retime,
   routeOf,
@@ -61,15 +63,6 @@ function reportFatal(message) {
 
 window.addEventListener('error', (event) => reportFatal(event.message));
 window.addEventListener('unhandledrejection', (event) => reportFatal(String(event.reason)));
-
-/**
- * @param {string} hex color as `#rrggbb`
- * @returns {number[]} red, green, blue, each 0 to 1
- */
-function hexToRgb(hex) {
-  const value = parseInt(hex.slice(1), 16);
-  return [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
-}
 
 /**
  * Shows a message about autosave in the sidebar.
@@ -126,6 +119,7 @@ function start() {
     }
   }
   let plan = firstPlan ?? planner(state);
+  // The color of each formation, for the flight paths.
   let colors = state.formations.map((formation) => hexToRgb(formation.color));
   // The page opens on the first formation. Play runs the show from there.
   /** @type {import('./ui.js').View} */
@@ -140,6 +134,7 @@ function start() {
 
   const positions = new Float32Array(MAX_DRONES * 3);
   const brightness = new Float32Array(MAX_DRONES);
+  const lightColors = new Float32Array(MAX_DRONES * 3);
   const viewProj = new Float32Array(16);
   let frameRequested = false;
   let firstFrame = true;
@@ -232,6 +227,15 @@ function start() {
    * @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits
    * @param {string | null} [field] the changed field, so that quick changes of it make one undo step
    */
+  /**
+   * The color pattern of the edited formation, for a shape that is not an SVG drawing.
+   * @returns {import('./state.js').Formation['colorPattern']}
+   */
+  function withoutDrawing() {
+    const { colorPattern } = state.formations[view.formation];
+    return colorPattern === 'drawing' ? 'solid' : colorPattern;
+  }
+
   function changeFormation(changes, field = null) {
     const formation = { ...state.formations[view.formation], ...changes };
     const key = field === null ? null : `formation.${view.formation}.${field}`;
@@ -283,13 +287,17 @@ function start() {
       changeFormation({ [key]: value }, key);
     },
     setShape(shape) {
-      changeFormation({ source: { type: 'builtin', shape } });
+      changeFormation({ source: { type: 'builtin', shape }, colorPattern: withoutDrawing() });
     },
     importShape(fileName, text) {
-      const source = /\.svg$/i.test(fileName)
-        ? { type: 'svg', fileName, text }
-        : { type: 'obj', fileName, upAxis: 'y', text };
-      return changeFormation({ source });
+      // An SVG drawing starts with its own colors.
+      if (/\.svg$/i.test(fileName)) {
+        return changeFormation({ source: { type: 'svg', fileName, text }, colorPattern: 'drawing' });
+      }
+      return changeFormation({
+        source: { type: 'obj', fileName, upAxis: 'y', text },
+        colorPattern: withoutDrawing(),
+      });
     },
     setUpAxis(upAxis) {
       const { source } = state.formations[view.formation];
@@ -428,14 +436,16 @@ function start() {
 
     positionsAt(plan, view.time, positions);
     brightnessAt(plan, view.time, brightness);
+    lightColorsAt(plan, view.time, lightColors);
     viewProjection(camera, canvas.clientWidth / Math.max(1, canvas.clientHeight), viewProj);
     renderer.draw({
       viewProj,
       pixelsPerMeter: pixelsPerMeter(camera, canvas.clientHeight),
       positions: positions.subarray(0, plan.count * 3),
       brightness: brightness.subarray(0, plan.count),
+      colors: lightColors.subarray(0, plan.count * 3),
       count: plan.count,
-      color: lightColorAt(plan, colors, view.time),
+      pathColor: lightColorAt(plan, colors, view.time),
       selected: view.selected,
       pathStep: stepAt(plan, view.time),
       showPaths: view.showPaths,

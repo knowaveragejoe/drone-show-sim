@@ -266,6 +266,11 @@ input.slider:focus-visible::-webkit-slider-thumb {
   grid-template-columns: var(--label-width) minmax(0, 1fr) auto;
 }
 
+/* A label and a list that fills the rest of the line. */
+.field.choice {
+  grid-template-columns: var(--label-width) minmax(0, 1fr);
+}
+
 button.square {
   display: grid;
   place-items: center;

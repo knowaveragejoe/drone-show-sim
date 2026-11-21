@@ -46,6 +46,21 @@ export const CHASE_PATTERNS = {
 };
 
 /**
+ * How the drones of a formation get their colors. A gradient blends from the formation color
+ * to the second color. Drawing colors are the colors of an SVG drawing.
+ */
+export const COLOR_PATTERNS = {
+  solid: 'Solid',
+  rising: 'Rising gradient',
+  across: 'Across gradient',
+  outward: 'Outward gradient',
+  drawing: 'Drawing colors',
+};
+
+// The second color of a gradient, for a formation that does not give one.
+const DEFAULT_SECOND_COLOR = '#ffffff';
+
+/**
  * Fields of the light chase. The sidebar shows them only when the chase is on.
  * @type {NumberField[]}
  */
@@ -112,6 +127,9 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} centerHeight meters above the ground
  * @property {number} yaw rotation about the vertical axis, degrees
  * @property {string} color light color, `#rrggbb`
+ * @property {keyof typeof COLOR_PATTERNS} colorPattern how the drones get their colors; `drawing`
+ *   only for an SVG drawing
+ * @property {string} secondColor the color at the other end of a gradient, `#rrggbb`
  * @property {number} holdSeconds time that the drones hold the formation
  * @property {number} turnRate how fast the formation turns about the vertical axis in its hold,
  *   degrees per second; positive is counterclockwise seen from above
@@ -156,6 +174,8 @@ export function defaultState() {
         centerHeight: 60,
         yaw: 0,
         color: FORMATION_COLORS[0],
+        colorPattern: 'solid',
+        secondColor: DEFAULT_SECOND_COLOR,
         holdSeconds: 10,
         turnRate: 6,
         chase: 'off',
@@ -169,6 +189,8 @@ export function defaultState() {
         centerHeight: 60,
         yaw: 0,
         color: FORMATION_COLORS[1],
+        colorPattern: 'solid',
+        secondColor: DEFAULT_SECOND_COLOR,
         holdSeconds: 10,
         turnRate: 0,
         chase: 'around',
@@ -182,6 +204,8 @@ export function defaultState() {
         centerHeight: 60,
         yaw: 30,
         color: FORMATION_COLORS[2],
+        colorPattern: 'outward',
+        secondColor: FORMATION_COLORS[1],
         holdSeconds: 10,
         turnRate: -6,
         chase: 'off',
@@ -296,8 +320,13 @@ export function parseProject(text) {
 function readFormation(saved, index) {
   const name = `formation ${index + 1}`;
   if (!isObject(saved)) throw new Error(`${name} is not valid.`);
-  if (typeof saved.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(saved.color)) {
-    throw new Error(`${name}: color must be a color such as #66ccff.`);
+  if (!isHexColor(saved.color)) throw new Error(`${name}: color must be a color such as #66ccff.`);
+  // A project file from before color patterns existed has one color per formation.
+  const secondColor = saved.secondColor ?? DEFAULT_SECOND_COLOR;
+  if (!isHexColor(secondColor)) throw new Error(`${name}: secondColor must be a color such as #66ccff.`);
+  let colorPattern = saved.colorPattern ?? 'solid';
+  if (!Object.hasOwn(COLOR_PATTERNS, colorPattern)) {
+    throw new Error(`${name}: colorPattern must be one of ${Object.keys(COLOR_PATTERNS).join(', ')}.`);
   }
   if (!Number.isInteger(saved.seed)) throw new Error(`${name}: seed must be a whole number.`);
   // A project file from before the light chase existed has no chase.
@@ -305,14 +334,27 @@ function readFormation(saved, index) {
   if (!Object.hasOwn(CHASE_PATTERNS, chase)) {
     throw new Error(`${name}: chase must be one of ${Object.keys(CHASE_PATTERNS).join(', ')}.`);
   }
+  const source = readSource(name, saved.source);
+  // Only an SVG drawing has colors of its own.
+  if (colorPattern === 'drawing' && source.type !== 'svg') colorPattern = 'solid';
   return /** @type {Formation} */ ({
     ...readFields(name, saved, FORMATION_FIELDS),
     ...readFields(name, saved, CHASE_FIELDS),
-    source: readSource(name, saved.source),
+    source,
     color: saved.color,
+    colorPattern,
+    secondColor,
     chase,
     seed: saved.seed,
   });
+}
+
+/**
+ * @param {unknown} value
+ * @returns {boolean} true for a color such as `#66ccff`
+ */
+function isHexColor(value) {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
 }
 
 /**

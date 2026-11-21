@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { CLOUD_SIZE } from '../src/shapes.js';
-import { parsePathData, parseSvg, parseTransform, svgCloud } from '../src/svg.js';
+import { parseColor, parsePathData, parseSvg, parseTransform, svgCloud } from '../src/svg.js';
 
 function near(actual, expected, tolerance = 1e-9) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not near ${expected}`);
@@ -14,6 +14,12 @@ function pairs(outline) {
   for (let i = 0; i < outline.length; i += 2) out.push([outline[i], outline[i + 1]]);
   return out;
 }
+
+/** The points of each outline of a drawing, without the colors. */
+const outlinesOf = (text) => parseSvg(text).map((outline) => outline.points);
+
+/** The color of each outline of a drawing. */
+const colorsOf = (text) => parseSvg(text).map((outline) => outline.color);
 
 /** Wraps SVG elements in a root element. */
 const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${body}</svg>`;
@@ -139,23 +145,23 @@ test('parseTransform applies a list from right to left', () => {
 // Elements.
 
 test('parseSvg reads each basic shape', () => {
-  const [rect] = parseSvg(svg('<rect x="1" y="2" width="10" height="5"/>'));
+  const [rect] = outlinesOf(svg('<rect x="1" y="2" width="10" height="5"/>'));
   assert.deepEqual(rect, [1, 2, 11, 2, 11, 7, 1, 7, 1, 2]);
 
-  const [circle] = parseSvg(svg('<circle cx="50" cy="50" r="20"/>'));
+  const [circle] = outlinesOf(svg('<circle cx="50" cy="50" r="20"/>'));
   for (const [x, y] of pairs(circle)) near(Math.hypot(x - 50, y - 50), 20, 1e-9);
   assert.deepEqual(pairs(circle).at(-1), pairs(circle)[0]);
 
-  const [ellipse] = parseSvg(svg('<ellipse cx="0" cy="0" rx="4" ry="2"/>'));
+  const [ellipse] = outlinesOf(svg('<ellipse cx="0" cy="0" rx="4" ry="2"/>'));
   for (const [x, y] of pairs(ellipse)) near((x / 4) ** 2 + (y / 2) ** 2, 1, 1e-9);
 
-  assert.deepEqual(parseSvg(svg('<line x1="0" y1="0" x2="3" y2="4"/>')), [[0, 0, 3, 4]]);
-  assert.deepEqual(parseSvg(svg('<polyline points="0,0 1,0 1,1"/>')), [[0, 0, 1, 0, 1, 1]]);
-  assert.deepEqual(parseSvg(svg('<polygon points="0 0 1 0 1 1"/>')), [[0, 0, 1, 0, 1, 1, 0, 0]]);
+  assert.deepEqual(outlinesOf(svg('<line x1="0" y1="0" x2="3" y2="4"/>')), [[0, 0, 3, 4]]);
+  assert.deepEqual(outlinesOf(svg('<polyline points="0,0 1,0 1,1"/>')), [[0, 0, 1, 0, 1, 1]]);
+  assert.deepEqual(outlinesOf(svg('<polygon points="0 0 1 0 1 1"/>')), [[0, 0, 1, 0, 1, 1, 0, 0]]);
 });
 
 test('parseSvg rounds the corners of a rect with a corner radius', () => {
-  const [rounded] = parseSvg(svg('<rect x="0" y="0" width="10" height="10" rx="2"/>'));
+  const [rounded] = outlinesOf(svg('<rect x="0" y="0" width="10" height="10" rx="2"/>'));
   const points = pairs(rounded);
   // No point is in a corner: the distance to the nearest corner is at least 2 - 2 / √2.
   for (const [x, y] of points) {
@@ -171,7 +177,7 @@ test('parseSvg applies the transforms of the element and of its groups', () => {
       '<line x1="0" y1="0" x2="1" y2="0"/>',
   );
   // Inside out: move down 5, then scale by 2, then move right 100.
-  assert.deepEqual(parseSvg(text), [[102, 12, 104, 12], [0, 0, 1, 0]]);
+  assert.deepEqual(outlinesOf(text), [[102, 12, 104, 12], [0, 0, 1, 0]]);
 });
 
 test('parseSvg skips elements that the browser does not draw where they stand', () => {
@@ -183,7 +189,7 @@ test('parseSvg skips elements that the browser does not draw where they stand', 
       '<!-- <line x1="0" y1="0" x2="3" y2="3"/> -->' +
       '<line x1="5" y1="5" x2="6" y2="6"/>',
   );
-  assert.deepEqual(parseSvg(text), [[5, 5, 6, 6]]);
+  assert.deepEqual(outlinesOf(text), [[5, 5, 6, 6]]);
 });
 
 test('parseSvg reads a file with a declaration, namespaces, and other elements', () => {
@@ -192,7 +198,7 @@ test('parseSvg reads a file with a declaration, namespaces, and other elements',
     '<svg:svg xmlns:svg="http://www.w3.org/2000/svg" width="10px">' +
     '<svg:title>Logo</svg:title><svg:text x="0" y="0">Hi</svg:text>' +
     "<svg:path d='M0 0 L4 0'></svg:path></svg:svg>";
-  assert.deepEqual(parseSvg(text), [[0, 0, 4, 0]]);
+  assert.deepEqual(outlinesOf(text), [[0, 0, 4, 0]]);
 });
 
 test('parseSvg rejects a file that is not an SVG drawing', () => {
@@ -203,7 +209,7 @@ test('parseSvg rejects a file that is not an SVG drawing', () => {
 
 test('svgCloud puts the drawing in unit space, upright and facing the audience', () => {
   // A 20 wide and 10 high rectangle, far from the origin.
-  const cloud = svgCloud(svg('<rect x="100" y="50" width="20" height="10"/>'), 1);
+  const cloud = svgCloud(svg('<rect x="100" y="50" width="20" height="10"/>'), 1).points;
   assert.equal(cloud.length, CLOUD_SIZE * 3);
   let lowX = Infinity;
   let highX = -Infinity;
@@ -224,7 +230,7 @@ test('svgCloud puts the drawing in unit space, upright and facing the audience',
 
 test('svgCloud keeps the top of the drawing up', () => {
   // A short line at the top of the drawing (small y), and a long line at the bottom.
-  const cloud = svgCloud(svg('<line x1="0" y1="0" x2="1" y2="0"/><line x1="0" y1="10" x2="10" y2="10"/>'), 1);
+  const cloud = svgCloud(svg('<line x1="0" y1="0" x2="1" y2="0"/><line x1="0" y1="10" x2="10" y2="10"/>'), 1).points;
   let top = 0;
   for (let i = 0; i < CLOUD_SIZE; i++) if (cloud[i * 3 + 2] > 0) top++;
   // The top line has 1/11 of the length, so it gets about 1/11 of the points.
@@ -240,4 +246,69 @@ test('svgCloud gives the same cloud for the same seed', () => {
   const text = svg('<circle cx="5" cy="5" r="4"/><path d="M0 0 Q5 9 10 0"/>');
   assert.deepEqual(svgCloud(text, 2), svgCloud(text, 2));
   assert.notDeepEqual(svgCloud(text, 2), svgCloud(text, 3));
+});
+
+// Colors.
+
+test('parseColor reads hex colors, rgb functions, and basic names', () => {
+  assert.deepEqual(parseColor('#ff0000'), [1, 0, 0]);
+  assert.deepEqual(parseColor('#F00'), [1, 0, 0]);
+  assert.deepEqual(parseColor(' #00ff0080 '), [0, 1, 0]);
+  assert.deepEqual(parseColor('#00f8'), [0, 0, 1]);
+  assert.deepEqual(parseColor('rgb(255, 0, 255)'), [1, 0, 1]);
+  assert.deepEqual(parseColor('rgba(0,255,0,0.5)'), [0, 1, 0]);
+  assert.deepEqual(parseColor('rgb(100% 0% 50% / 0.3)'), [1, 0, 0.5]);
+  assert.deepEqual(parseColor('Red'), [1, 0, 0]);
+  assert.deepEqual(parseColor('white'), [1, 1, 1]);
+  for (const text of ['none', 'transparent', 'url(#gradient)', 'rebeccapurple', '#12345', 'rgb(1, 2)', '']) {
+    assert.equal(parseColor(text), null, text);
+  }
+});
+
+test('an outline takes its stroke color, or its fill color when it has no stroke', () => {
+  const text = svg(
+    '<line x1="0" y1="0" x2="1" y2="0" stroke="#ff0000" fill="#0000ff"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" fill="#0000ff"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" stroke="none" fill="#00ff00"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" stroke="none" fill="url(#g)"/>',
+  );
+  assert.deepEqual(colorsOf(text), [[1, 0, 0], [0, 0, 1], [0, 1, 0], null, null]);
+});
+
+test('the style attribute wins, and groups pass their colors on', () => {
+  const text = svg(
+    '<g stroke="#ff0000"><g style="stroke: #00ff00">' +
+      '<line x1="0" y1="0" x2="1" y2="0"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" stroke="#0000ff"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" stroke="#0000ff" style="stroke:#ffffff !important"/>' +
+      '<line x1="0" y1="0" x2="1" y2="0" stroke="inherit"/>' +
+      '</g><line x1="0" y1="0" x2="1" y2="0"/></g>' +
+      '<line x1="0" y1="0" x2="1" y2="0"/>',
+  );
+  assert.deepEqual(colorsOf(text), [[0, 1, 0], [0, 0, 1], [1, 1, 1], [0, 1, 0], [1, 0, 0], null]);
+});
+
+test('currentColor takes the color property, also from a group', () => {
+  const text = svg(
+    '<g color="#ff0000"><path d="M0 0 L1 0" stroke="currentColor"/>' +
+      '<path d="M0 0 L1 0" style="color: #00ff00; fill: currentcolor"/></g>' +
+      '<path d="M0 0 L1 0" stroke="currentColor"/>',
+  );
+  assert.deepEqual(colorsOf(text), [[1, 0, 0], [0, 1, 0], null]);
+});
+
+test('svgCloud gives each point the color of its outline', () => {
+  // A red line at the top, and a long line with no color at the bottom.
+  const { points, colors } = svgCloud(
+    svg('<line x1="0" y1="0" x2="10" y2="0" stroke="red"/><line x1="0" y1="10" x2="10" y2="10"/>'),
+    1,
+  );
+  assert.equal(colors.length, CLOUD_SIZE * 3);
+  for (let i = 0; i < CLOUD_SIZE; i++) {
+    const expected = points[i * 3 + 2] > 0 ? [1, 0, 0] : [-1, -1, -1];
+    assert.deepEqual(Array.from(colors.subarray(i * 3, i * 3 + 3)), expected);
+  }
+  // A drawing with no colors at all has no color list.
+  assert.equal(svgCloud(svg('<line x1="0" y1="0" x2="10" y2="0"/>'), 1).colors, null);
 });

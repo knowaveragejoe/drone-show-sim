@@ -102,7 +102,7 @@ test('the grid sampler picks the same points as a plain search, for every kind o
   const random = createRng(41);
   const clouds = {
     ...Object.fromEntries(Object.keys(BUILTIN_SHAPES).map((shape) => [shape, builtinCloud(shape, 3)])),
-    svg: svgCloud('<svg><rect x="0" y="0" width="40" height="10" rx="3"/><circle cx="20" cy="5" r="4"/></svg>', 1),
+    svg: svgCloud('<svg><rect x="0" y="0" width="40" height="10" rx="3"/><circle cx="20" cy="5" r="4"/></svg>', 1).points,
     obj: objCloud('v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 0 0 1\nf 1 2 3 4\nf 1 2 5\nf 2 3 5\n', 'y', 1),
     // All points on one line: two flat axes.
     line: Float32Array.from({ length: 3000 }, (unused, i) => (i % 3 === 0 ? random() : 0)),

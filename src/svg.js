@@ -5,6 +5,10 @@
 // path, rect, circle, ellipse, line, polyline, and polygon, with the transforms of their
 // groups. It skips the contents of elements that the browser does not draw directly, such
 // as defs and clipPath, and elements with display none. It does not read text or use.
+//
+// Each outline also gets a color: its stroke color, or its fill color when it has no stroke.
+// The reader takes stroke, fill, and color from attributes, from the style attribute, and
+// from the groups around the element. It does not read CSS classes or gradients.
 
 import { createRng } from './rng.js';
 import { CLOUD_SIZE } from './shapes.js';
@@ -38,25 +42,60 @@ const ATTRIBUTE = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const NUMBER = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/y;
 const TRANSFORM = /(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g;
 
+// The basic CSS color names. Other names count as no color.
+/** @type {Record<string, number>} */
+const NAMED_COLORS = {
+  black: 0x000000,
+  silver: 0xc0c0c0,
+  gray: 0x808080,
+  grey: 0x808080,
+  white: 0xffffff,
+  maroon: 0x800000,
+  red: 0xff0000,
+  purple: 0x800080,
+  fuchsia: 0xff00ff,
+  magenta: 0xff00ff,
+  green: 0x008000,
+  lime: 0x00ff00,
+  olive: 0x808000,
+  yellow: 0xffff00,
+  navy: 0x000080,
+  blue: 0x0000ff,
+  teal: 0x008080,
+  aqua: 0x00ffff,
+  cyan: 0x00ffff,
+  orange: 0xffa500,
+};
+
+// The properties that give an outline its color. A child element inherits them.
+const PAINT = ['stroke', 'fill', 'color'];
+
 /**
  * A 2D affine transform as SVG writes it: x' = a x + c y + e, y' = b x + d y + f.
  * @typedef {number[]} Matrix [a, b, c, d, e, f]
+ */
+
+/**
+ * One outline of a drawing.
+ * @typedef {object} Outline
+ * @property {number[]} points x and y of each point in turn, in drawing units, y down
+ * @property {number[] | null} color red, green, blue, each 0 to 1; null when the outline has no color
  */
 
 /** @type {Matrix} */
 const IDENTITY = [1, 0, 0, 1, 0, 0];
 
 /**
- * Reads the outlines of an SVG drawing.
+ * Reads the outlines of an SVG drawing, with their colors.
  * @param {string} text contents of the SVG file
- * @returns {number[][]} one list per outline: x and y of each point in turn, in drawing units, y down
+ * @returns {Outline[]}
  */
 export function parseSvg(text) {
   if (!/<([\w.-]+:)?svg[\s/>]/.test(text)) throw new Error('The file is not an SVG drawing.');
 
   /** Open elements, from the root to the current one. */
-  const stack = [{ name: '', matrix: IDENTITY, undrawn: false }];
-  /** @type {number[][]} */
+  const stack = [{ name: '', matrix: IDENTITY, undrawn: false, paint: /** @type {Record<string, string>} */ ({}) }];
+  /** @type {Outline[]} */
   const outlines = [];
 
   for (const match of text.matchAll(TAG)) {
@@ -75,30 +114,96 @@ export function parseSvg(text) {
     const selfClosing = whole.endsWith('/>');
     const attributes = readAttributes(selfClosing ? attributeText.slice(0, -1) : attributeText);
     const parent = stack[stack.length - 1];
-    const hidden =
-      attributes.display === 'none' || /(^|;)\s*display\s*:\s*none/.test(attributes.style ?? '');
+    const style = readStyle(attributes.style ?? '');
+    const hidden = attributes.display === 'none' || style.display === 'none';
+    /** @type {Record<string, string>} */
+    const paint = { ...parent.paint };
+    for (const property of PAINT) {
+      // The style attribute wins over a presentation attribute.
+      const value = style[property] ?? attributes[property]?.trim();
+      if (value !== undefined && value !== 'inherit') paint[property] = value;
+    }
     const entry = {
       name,
       matrix: multiply(parent.matrix, parseTransform(attributes.transform ?? '')),
       undrawn: parent.undrawn || hidden || UNDRAWN.has(name),
+      paint,
     };
 
     if (!entry.undrawn) {
-      for (const outline of shapeOutlines(name, attributes)) {
-        outlines.push(applyMatrix(entry.matrix, outline));
+      const color = paintColor(paint.stroke, paint.color) ?? paintColor(paint.fill, paint.color);
+      for (const points of shapeOutlines(name, attributes)) {
+        outlines.push({ points: applyMatrix(entry.matrix, points), color });
       }
     }
     if (!selfClosing) stack.push(entry);
   }
-  return outlines.filter((outline) => outline.length >= 4);
+  return outlines.filter((outline) => outline.points.length >= 4);
 }
+
+/**
+ * The color of a stroke or a fill.
+ * @param {string | undefined} value the stroke or fill value
+ * @param {string | undefined} current the color property, for `currentColor`
+ * @returns {number[] | null} null for none, a gradient, or a value that the reader does not know
+ */
+function paintColor(value, current) {
+  if (value === undefined) return null;
+  return parseColor(value.toLowerCase() === 'currentcolor' ? (current ?? '') : value);
+}
+
+/**
+ * Reads a CSS color: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb(…)`, `rgba(…)`, or a basic
+ * color name. The alpha part is ignored.
+ * @param {string} text
+ * @returns {number[] | null} red, green, blue, each 0 to 1; null when the text is not such a color
+ */
+export function parseColor(text) {
+  const value = text.trim().toLowerCase();
+  if (Object.hasOwn(NAMED_COLORS, value)) {
+    const rgb = NAMED_COLORS[value];
+    return [(rgb >> 16) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255];
+  }
+  const hex = /^#([0-9a-f]{3,8})$/.exec(value)?.[1];
+  if (hex !== undefined) {
+    if (hex.length === 3 || hex.length === 4) {
+      return [0, 1, 2].map((i) => parseInt(hex[i] + hex[i], 16) / 255);
+    }
+    if (hex.length === 6 || hex.length === 8) {
+      return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    }
+    return null;
+  }
+  const functional = /^rgba?\(([^)]*)\)$/.exec(value)?.[1];
+  if (functional !== undefined) {
+    // Commas or spaces between the channels, and an optional alpha after a comma or a slash.
+    const channels = functional.split(/[\s,/]+/).filter(Boolean).slice(0, 3);
+    if (channels.length < 3) return null;
+    const rgb = channels.map((channel) => {
+      const number = parseFloat(channel);
+      const share = channel.endsWith('%') ? number / 100 : number / 255;
+      return Math.min(1, Math.max(0, share));
+    });
+    return rgb.every(Number.isFinite) ? rgb : null;
+  }
+  return null;
+}
+
+/**
+ * The candidate cloud of an SVG drawing, with the color of each point.
+ * @typedef {object} SvgCloud
+ * @property {Float32Array} points xyz per point, `CLOUD_SIZE` points
+ * @property {Float32Array | null} colors red, green, blue per point, each 0 to 1; -1 in each
+ *   channel for a point on an outline with no color; null when no outline has a color
+ */
 
 /**
  * Makes the candidate cloud of an SVG drawing: random points on its outlines, in unit space.
  * The drawing stands in the XZ plane and faces the audience. Its top is up.
+ * Each point gets the color of its outline.
  * @param {string} text contents of the SVG file
  * @param {number} seed
- * @returns {Float32Array} xyz per point, `CLOUD_SIZE` points
+ * @returns {SvgCloud}
  */
 export function svgCloud(text, seed) {
   const outlines = parseSvg(text);
@@ -109,12 +214,14 @@ export function svgCloud(text, seed) {
   const segments = [];
   /** @type {number[]} */
   const lengthUpTo = [];
+  /** Outline of each segment. @type {number[]} */
+  const outlineOf = [];
   let total = 0;
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (const outline of outlines) {
+  for (const [index, { points: outline }] of outlines.entries()) {
     for (let i = 0; i < outline.length; i += 2) {
       minX = Math.min(minX, outline[i]);
       maxX = Math.max(maxX, outline[i]);
@@ -124,6 +231,7 @@ export function svgCloud(text, seed) {
       const length = Math.hypot(outline[i] - outline[i - 2], outline[i + 1] - outline[i - 1]);
       if (length === 0) continue;
       segments.push(outline[i - 2], outline[i - 1], outline[i], outline[i + 1]);
+      outlineOf.push(index);
       total += length;
       lengthUpTo.push(total);
     }
@@ -135,6 +243,8 @@ export function svgCloud(text, seed) {
   const centerY = (minY + maxY) / 2;
   const random = createRng(seed);
   const cloud = new Float32Array(CLOUD_SIZE * 3);
+  const colored = outlines.some((outline) => outline.color !== null);
+  const colors = colored ? new Float32Array(CLOUD_SIZE * 3) : null;
   for (let i = 0; i < CLOUD_SIZE; i++) {
     // Binary search for the first segment whose running total passes the random length.
     const pick = random() * total;
@@ -153,8 +263,29 @@ export function svgCloud(text, seed) {
     cloud[i * 3 + 1] = 0;
     // SVG y points down. World z points up.
     cloud[i * 3 + 2] = (centerY - y) / extent;
+    if (colors) colors.set(outlines[outlineOf[first]].color ?? NO_COLOR, i * 3);
   }
-  return cloud;
+  return { points: cloud, colors };
+}
+
+const NO_COLOR = [-1, -1, -1];
+
+/**
+ * Reads the properties of a style attribute, such as `fill: red; stroke: none`.
+ * @param {string} text
+ * @returns {Record<string, string>} property names in lowercase
+ */
+function readStyle(text) {
+  /** @type {Record<string, string>} */
+  const properties = {};
+  for (const declaration of text.split(';')) {
+    const colon = declaration.indexOf(':');
+    if (colon < 0) continue;
+    const name = declaration.slice(0, colon).trim().toLowerCase();
+    const value = declaration.slice(colon + 1).replace(/!important/i, '').trim();
+    if (name && value) properties[name] = value;
+  }
+  return properties;
 }
 
 /**

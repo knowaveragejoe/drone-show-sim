@@ -6,6 +6,7 @@ import { BUILTIN_SHAPES } from './shapes.js';
 import {
   CHASE_FIELDS,
   CHASE_PATTERNS,
+  COLOR_PATTERNS,
   FLEET_FIELDS,
   FORMATION_FIELDS,
   MAX_FORMATIONS,
@@ -158,6 +159,17 @@ export function createUi(actions) {
 
   const color = /** @type {HTMLInputElement} */ (byId('color'));
   color.addEventListener('input', () => actions.setFormation('color', color.value));
+  const colorPattern = /** @type {HTMLSelectElement} */ (byId('color-pattern'));
+  const patternOptions = Object.entries(COLOR_PATTERNS).map(([key, label]) => new Option(label, key));
+  colorPattern.append(...patternOptions);
+  // Only an SVG drawing has colors of its own, so this option is in the list only for one.
+  const drawingOption = /** @type {HTMLOptionElement} */ (
+    patternOptions.find((option) => option.value === 'drawing')
+  );
+  colorPattern.addEventListener('change', () => actions.setFormation('colorPattern', colorPattern.value));
+  const secondColorRow = byId('second-color-row');
+  const secondColor = /** @type {HTMLInputElement} */ (byId('second-color'));
+  secondColor.addEventListener('input', () => actions.setFormation('secondColor', secondColor.value));
 
   const chase = /** @type {HTMLSelectElement} */ (byId('chase'));
   for (const [key, label] of Object.entries(CHASE_PATTERNS)) chase.add(new Option(label, key));
@@ -258,6 +270,11 @@ export function createUi(actions) {
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
     color.value = formation.color;
+    if (formation.source.type === 'svg') colorPattern.add(drawingOption);
+    else drawingOption.remove();
+    colorPattern.value = formation.colorPattern;
+    secondColorRow.hidden = !isGradient(formation);
+    secondColor.value = formation.secondColor;
     chase.value = formation.chase;
     chaseBox.hidden = formation.chase === 'off';
     chaseFields.show(formation);
@@ -391,6 +408,27 @@ function wireToggle(button, onChange) {
 }
 
 /**
+ * @param {import('./state.js').Formation} formation
+ * @returns {boolean} true when the formation blends two colors
+ */
+function isGradient({ colorPattern }) {
+  return colorPattern === 'rising' || colorPattern === 'across' || colorPattern === 'outward';
+}
+
+/**
+ * The background of a storyboard swatch: the gradient of the formation, in its direction.
+ * @param {import('./state.js').Formation} formation
+ * @returns {string} empty for a formation that is not a gradient; the swatch then has one color
+ */
+function swatchGradient(formation) {
+  const { color, secondColor, colorPattern } = formation;
+  if (colorPattern === 'rising') return `linear-gradient(to top, ${color}, ${secondColor})`;
+  if (colorPattern === 'across') return `linear-gradient(to right, ${color}, ${secondColor})`;
+  if (colorPattern === 'outward') return `radial-gradient(${color}, ${secondColor})`;
+  return '';
+}
+
+/**
  * Name of the shape of a formation, for the storyboard.
  * @param {import('./state.js').Formation} formation
  */
@@ -435,6 +473,7 @@ function buildStoryboard(list, onSelect) {
       const problems = formationProblems(plan, index, state.fleet);
       row.setAttribute('aria-current', String(index === view.formation));
       swatch.style.color = formation.color;
+      swatch.style.background = swatchGradient(formation);
       number.textContent = String(index + 1);
       name.textContent = shapeLabel(formation);
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;

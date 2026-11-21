@@ -11,10 +11,12 @@ import {
   createPlanner,
   fitSize,
   formationProblems,
+  hexToRgb,
   holdStart,
   isBelowGround,
   isTooClose,
   lightColorAt,
+  lightColorsAt,
   positionsAt,
   retime,
   routeOf,
@@ -1030,4 +1032,148 @@ test('a spread that leaves the flight volume is a problem', () => {
 test('Fit with a margin of 1 gives the plain minimum spacing', () => {
   assert.equal(fitSize(40, 4, 2, 1), 20);
   assert.equal(fitSize(40, 4, 2), Math.ceil(20 * FLIGHT_MARGIN * 100) / 100);
+});
+
+// Colors.
+
+/** The color of one drone, as a list. */
+const colorOf = (colors, drone) => Array.from(colors.subarray(drone * 3, drone * 3 + 3));
+
+/** True when two colors are the same, up to 32-bit rounding. */
+function sameColor(actual, expected) {
+  expected.forEach((channel, i) => near(actual[i], channel, 1e-6));
+}
+
+test('a solid formation gives every drone the formation color', () => {
+  const state = defaultState();
+  const plan = createPlanner()(state);
+  const first = hexToRgb(state.formations[0].color);
+  for (let drone = 0; drone < plan.count; drone++) sameColor(colorOf(plan.steps[0].colors, drone), first);
+});
+
+test('a gradient blends from the formation color to the second color along its path', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  const formation = state.formations[0];
+  Object.assign(formation, { color: '#ff0000', secondColor: '#0000ff', yaw: 40 });
+  const first = hexToRgb('#ff0000');
+  const second = hexToRgb('#0000ff');
+  const yaw = (40 * Math.PI) / 180;
+  const paths = {
+    // Height above the formation center.
+    rising: (x, y, z) => z,
+    // Side position in the axes of the formation, before its yaw.
+    across: (x, y) => x * Math.cos(yaw) + y * Math.sin(yaw),
+    // Distance from the formation center.
+    outward: (x, y, z) => Math.hypot(x, y, z),
+  };
+  formation.source = { type: 'builtin', shape: 'torus' };
+  for (const [pattern, path] of Object.entries(paths)) {
+    formation.colorPattern = pattern;
+    const step = planner(state).steps[0];
+    const values = [];
+    for (let drone = 0; drone < state.fleet.count; drone++) {
+      const o = drone * 3;
+      values.push(path(step.to[o], step.to[o + 1], step.to[o + 2] - formation.centerHeight));
+    }
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    values.forEach((value, drone) => {
+      const share = (value - low) / (high - low);
+      sameColor(
+        colorOf(step.colors, drone),
+        first.map((channel, i) => channel + share * (second[i] - channel)),
+      );
+    });
+  }
+});
+
+test('an outward gradient on a sphere has the formation color only', () => {
+  // Every target of a sphere is at the same distance from its center.
+  const state = singleState();
+  Object.assign(state.formations[0], { colorPattern: 'outward', color: '#ff0000', secondColor: '#0000ff' });
+  const plan = createPlanner()(state);
+  for (let drone = 0; drone < plan.count; drone++) sameColor(colorOf(plan.steps[0].colors, drone), [1, 0, 0]);
+});
+
+test('drawing colors come from the outlines of an SVG drawing, at full brightness', () => {
+  const text =
+    '<svg xmlns="http://www.w3.org/2000/svg">' +
+    '<line x1="0" y1="0" x2="100" y2="0" stroke="#800000"/>' +
+    '<line x1="0" y1="40" x2="100" y2="40" style="fill: #00ff00"/>' +
+    '<line x1="0" y1="80" x2="100" y2="80" stroke="#333333"/>' +
+    '<line x1="0" y1="120" x2="100" y2="120"/>' +
+    '</svg>';
+  const state = singleState();
+  Object.assign(state.formations[0], {
+    source: { type: 'svg', fileName: 'lines.svg', text },
+    colorPattern: 'drawing',
+    color: '#0000ff',
+    size: 100,
+  });
+  const planner = createPlanner();
+  const step = planner(state).steps[0];
+  // The four lines from the top down: dark red, green, dark gray, and no color.
+  const expected = [[1, 0, 0], [0, 1, 0], [1, 1, 1], [0, 0, 1]];
+  const seen = new Set();
+  for (let drone = 0; drone < state.fleet.count; drone++) {
+    const z = step.to[drone * 3 + 2] - state.formations[0].centerHeight;
+    // The drawing is 120 high, so at size 100 the lines are at heights 50, 16.7, -16.7, and -50.
+    const line = Math.round((50 - z) / (100 / 3));
+    seen.add(line);
+    sameColor(colorOf(step.colors, drone), expected[line]);
+  }
+  assert.equal(seen.size, 4);
+
+  // The same drawing as a solid formation, and a built-in shape with drawing colors.
+  state.formations[0].colorPattern = 'solid';
+  const solid = planner(state).steps[0];
+  for (let drone = 0; drone < state.fleet.count; drone++) sameColor(colorOf(solid.colors, drone), [0, 0, 1]);
+  Object.assign(state.formations[0], { source: { type: 'builtin', shape: 'heart' }, colorPattern: 'drawing' });
+  const builtin = planner(state).steps[0];
+  for (let drone = 0; drone < state.fleet.count; drone++) sameColor(colorOf(builtin.colors, drone), [0, 0, 1]);
+});
+
+test('each drone blends from its old color to its new color in the leg that crosses', () => {
+  const planner = createPlanner();
+  const state = defaultState();
+  state.formations[0] = { ...state.formations[0], colorPattern: 'rising', color: '#ff0000', secondColor: '#00ff00' };
+  const plan = planner(state);
+  const out = new Float32Array(plan.count * 3);
+  const [takeoff, second, , landing] = plan.steps;
+
+  // Takeoff shows the colors of the first formation.
+  lightColorsAt(plan, 0, out);
+  assert.deepEqual(out, takeoff.colors);
+  lightColorsAt(plan, holdStart(plan, 0) + 1, out);
+  assert.deepEqual(out, takeoff.colors);
+
+  // In the middle of the next transition, each drone is half way between its two colors.
+  lightColorsAt(plan, second.start + second.duration / 2, out);
+  for (let i = 0; i < out.length; i++) near(out[i], (takeoff.colors[i] + second.colors[i]) / 2, 1e-6);
+  lightColorsAt(plan, holdStart(plan, 1), out);
+  assert.deepEqual(out, second.colors);
+
+  // The landing keeps the colors of the last formation.
+  assert.equal(landing.colors, plan.steps[2].colors);
+  lightColorsAt(plan, plan.total, out);
+  assert.deepEqual(out, plan.steps[2].colors);
+});
+
+test('the colors stay with the drones through a spread', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  state.formations[1] = { ...state.formations[1], colorPattern: 'across', secondColor: '#00ff00' };
+  const plan = planner(state);
+  const step = plan.steps[1];
+  assert.equal(step.legs.length, 3);
+  const before = plan.steps[0].colors;
+  const out = new Float32Array(plan.count * 3);
+  const [out1, cross, closeUp] = step.legs;
+  lightColorsAt(plan, step.start + out1.start + out1.timing.duration / 2, out);
+  assert.deepEqual(out, before);
+  lightColorsAt(plan, step.start + cross.start + cross.timing.duration / 2, out);
+  for (let i = 0; i < out.length; i++) near(out[i], (before[i] + step.colors[i]) / 2, 1e-6);
+  lightColorsAt(plan, step.start + closeUp.start + closeUp.timing.duration / 2, out);
+  assert.deepEqual(out, step.colors);
 });
