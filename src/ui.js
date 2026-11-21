@@ -10,6 +10,7 @@ import {
   FLEET_FIELDS,
   FORMATION_FIELDS,
   MAX_FORMATIONS,
+  MOTION_FIELDS,
   PROJECT_FILE_NAME,
   VOLUME_FIELDS,
   clampToField,
@@ -55,12 +56,12 @@ import {
  * @property {boolean} showVolume
  */
 
-// A change of drone count, formation yaw, or turn rate needs new assignments, which take a
-// moment for a large fleet. Up to this fleet size, their sliders apply each step of a drag.
-// Above it, they apply their value when the user lets go. The other sliders need no new
+// A change of drone count, formation yaw or tilt, or turn rate needs new assignments, which
+// take a moment for a large fleet. Up to this fleet size, their sliders apply each step of a
+// drag. Above it, they apply their value when the user lets go. The other sliders need no new
 // assignment, so they apply each step at every fleet size.
 const LIVE_SLIDER_MAX_DRONES = 250;
-const SLOW_FIELDS = ['count', 'yaw', 'turnRate'];
+const SLOW_FIELDS = ['count', 'yaw', 'tiltForward', 'tiltSide', 'turnRate'];
 
 // The Fleet section of the Fleet tab holds these fields. The Limits section holds the others.
 const FLEET_KEYS = ['count', 'gridSpacing'];
@@ -104,6 +105,7 @@ export function createUi(actions) {
     actions.setFormation,
     isLive,
   );
+  const motionFields = buildFields(byId('motion-fields'), MOTION_FIELDS, actions.setFormation, isLive);
 
   const undo = /** @type {HTMLButtonElement} */ (byId('undo'));
   const redo = /** @type {HTMLButtonElement} */ (byId('redo'));
@@ -269,6 +271,7 @@ export function createUi(actions) {
 
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
+    motionFields.show(formation);
     color.value = formation.color;
     if (formation.source.type === 'svg') colorPattern.add(drawingOption);
     else drawingOption.remove();
@@ -477,8 +480,10 @@ function buildStoryboard(list, onSelect) {
       number.textContent = String(index + 1);
       name.textContent = shapeLabel(formation);
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
+      const swings = ['sway', 'rock', 'roll'].filter((swing) => formation[`${swing}Angle`] !== 0);
+      const motion = swings.length === 0 ? '' : ` · ${swings.join('/')}`;
       const lights = formation.chase === 'off' ? '' : ' · chase';
-      meta.textContent = `${formation.holdSeconds} s${turn}${lights}`;
+      meta.textContent = `${formation.holdSeconds} s${turn}${motion}${lights}`;
       problem.textContent = problems.length > 0 ? '!' : '';
       row.title = problems.join(' ');
     });
@@ -747,9 +752,14 @@ function buildFields(container, fields, onChange, isLive) {
   /** @type {Record<string, any>} */
   let shown = {};
 
+  /** Rows that the sidebar shows only when another field is not 0. @type {[HTMLElement, string][]} */
+  const dependent = [];
+
   for (const field of fields) {
     const id = `${container.id}-${field.key}`;
     const row = element('div', field.slider ? 'field with-slider' : 'field');
+    if (field.title) row.title = field.title;
+    if (field.dependsOn) dependent.push([row, field.dependsOn]);
 
     const label = element('label');
     label.htmlFor = id;
@@ -811,6 +821,7 @@ function buildFields(container, fields, onChange, isLive) {
         if (input.type === 'range') setFill(input);
       }
     }
+    for (const [row, key] of dependent) row.hidden = values[key] === 0;
   }
 
   return { show };

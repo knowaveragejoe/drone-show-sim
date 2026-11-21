@@ -149,11 +149,9 @@ export function closestApproach(starts, targets, count) {
   return Math.sqrt(smallest);
 }
 
-const TWO_PI = Math.PI * 2;
-
 /**
- * A slow turn of a formation in its hold. The formation rotates about the vertical axis
- * through the world origin as one rigid body. The turn starts and ends at rest.
+ * A slow turn of a formation in its hold. The formation rotates about its own vertical axis
+ * as one rigid body. The turn starts and ends at rest.
  * @typedef {object} Turn
  * @property {number} angle total turn, radians; positive is counterclockwise seen from above
  * @property {Timing} timing progress of the turn, from 0 to 1 over the hold
@@ -163,7 +161,9 @@ const TWO_PI = Math.PI * 2;
 /**
  * Plans the turn of a formation in its hold.
  * The turn speeds up to the turn rate, keeps it, and slows down to a stop at the end of the hold.
- * The ramps use the acceleration limit at the target that is farthest from the axis.
+ * The ramps use the acceleration limit at the target that is farthest from the axis. That
+ * target also has the centripetal acceleration ω² r of the turn, so the ramps leave room for
+ * it: at the end of a ramp, the total acceleration is the limit.
  * @param {number} rate turn rate, radians per second; the sign gives the direction
  * @param {number} hold length of the hold, seconds
  * @param {number} radius distance from the axis to the farthest target, meters
@@ -172,7 +172,14 @@ const TWO_PI = Math.PI * 2;
  */
 export function planTurn(rate, hold, radius, maxAcceleration) {
   if (rate === 0 || hold <= 0 || radius <= 0) return null;
-  const acceleration = maxAcceleration / radius;
+  // The angular acceleration that alone uses the whole limit at the farthest target.
+  const limit = maxAcceleration / radius;
+  // The rate at the end of a ramp. A short hold has no time to reach the turn rate.
+  const reached = Math.min(Math.abs(rate), (limit * hold) / 2);
+  const spare = limit * limit - reached ** 4;
+  // When the centripetal acceleration alone breaks the limit, the ramps use the whole limit,
+  // and the checks of the plan report the problem.
+  const acceleration = spare > 0 ? Math.sqrt(spare) : limit;
   // A short hold has no time to reach the turn rate: speed up for half of the hold, then slow down.
   const rampTime = Math.min(Math.abs(rate) / acceleration, hold / 2);
   const peakRate = acceleration * rampTime;
@@ -185,48 +192,152 @@ export function planTurn(rate, hold, radius, maxAcceleration) {
 }
 
 /**
- * Turns points about the vertical axis through the world origin.
- * @param {Float32Array} points xyz per point
- * @param {number} angle radians; positive is counterclockwise seen from above
- * @param {Float32Array} out xyz per point; can be `points`
- * @returns {Float32Array} `out`
+ * A swing: a rotation back and forth in the hold, such as a sway. It starts and ends at rest
+ * at angle 0, so the formation leaves its hold in the pose that it arrived in.
+ * @typedef {object} Swing
+ * @property {number} amplitude largest angle each way, radians
+ * @property {number} cycles number of full swings, back and forth, in the hold
+ * @property {number} hold length of the hold, seconds
+ * @property {number} ramp time of the fade in at the start and of the fade out at the end, seconds
  */
-export function turnAboutZ(points, angle, out) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  for (let i = 0; i < points.length; i += 3) {
-    const x = points[i];
-    const y = points[i + 1];
-    out[i] = x * cos - y * sin;
-    out[i + 1] = x * sin + y * cos;
-    out[i + 2] = points[i + 2];
-  }
-  return out;
+
+/**
+ * Plans a swing. The hold holds a whole number of full swings, as near to the asked swing
+ * time as it can, and at least one. The swing fades in over half a swing and fades out over
+ * the last half swing.
+ * @param {number} amplitude largest angle each way, radians
+ * @param {number} period asked time of one full swing, back and forth, seconds
+ * @param {number} hold length of the hold, seconds
+ * @returns {Swing | null} null when there is no swing
+ */
+export function planSwing(amplitude, period, hold) {
+  if (amplitude === 0 || hold <= 0 || !(period > 0)) return null;
+  const cycles = Math.max(1, Math.round(hold / period));
+  return { amplitude, cycles, hold, ramp: hold / cycles / 2 };
 }
 
 /**
- * The box around the arc that a point draws when it turns about the vertical axis.
- * @param {number} x start of the arc
- * @param {number} y start of the arc
- * @param {number} angle turn, radians
- * @returns {number[]} smallest x, largest x, smallest y, largest y
+ * @param {number} x
+ * @returns {number} 0 below 0, 1 above 1, and a smooth S-curve between them
  */
-export function arcBox(x, y, angle) {
-  const radius = Math.hypot(x, y);
-  const start = Math.atan2(y, x);
-  const end = start + angle;
-  const low = Math.min(start, end);
-  const high = Math.max(start, end);
-  // True when the arc passes the direction, or the direction plus full turns.
-  const passes = (/** @type {number} */ direction) =>
-    Math.ceil((low - direction) / TWO_PI) <= Math.floor((high - direction) / TWO_PI);
-  // The arc is farthest out where it crosses an axis. If it does not cross, at one of its ends.
-  const endX = radius * Math.cos(end);
-  const endY = radius * Math.sin(end);
+function smoothStep(x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  return x * x * (3 - 2 * x);
+}
+
+/**
+ * Angle of a swing at a time.
+ * @param {Swing} swing
+ * @param {number} time seconds from the start of the hold
+ * @returns {number} radians
+ */
+export function swingAngle(swing, time) {
+  const { amplitude, cycles, hold, ramp } = swing;
+  if (time <= 0 || time >= hold) return 0;
+  const fade = smoothStep(time / ramp) * smoothStep((hold - time) / ramp);
+  return amplitude * Math.sin((2 * Math.PI * cycles * time) / hold) * fade;
+}
+
+/**
+ * The pose of a formation in its hold. The pose is three angles. The turn and the sway add
+ * to the yaw, the rock adds to the forward tilt, and the roll adds to the sideways tilt.
+ * @typedef {object} HoldMotion
+ * @property {number} hold length of the hold, seconds
+ * @property {number} yaw radians
+ * @property {number} forward tilt toward the audience, radians
+ * @property {number} side tilt to the right as the audience sees it, radians
+ * @property {Turn | null} turn
+ * @property {Swing | null} sway a swing of the yaw
+ * @property {Swing | null} rock a swing of the forward tilt
+ * @property {Swing | null} roll a swing of the sideways tilt
+ */
+
+/**
+ * @param {HoldMotion} motion
+ * @returns {boolean} true when the formation moves in its hold
+ */
+export function isMoving(motion) {
+  return Boolean(motion.turn || motion.sway || motion.rock || motion.roll);
+}
+
+/**
+ * The angles of the pose at a time in the hold.
+ * @param {HoldMotion} motion
+ * @param {number} time seconds from the start of the hold
+ * @returns {number[]} yaw, forward tilt, sideways tilt, radians
+ */
+export function holdAngles(motion, time) {
+  const { turn, sway, rock, roll } = motion;
   return [
-    passes(Math.PI) ? -radius : Math.min(x, endX),
-    passes(0) ? radius : Math.max(x, endX),
-    passes(-Math.PI / 2) ? -radius : Math.min(y, endY),
-    passes(Math.PI / 2) ? radius : Math.max(y, endY),
+    motion.yaw + (turn ? turn.angle * progressAt(turn.timing, time) : 0) + (sway ? swingAngle(sway, time) : 0),
+    motion.forward + (rock ? swingAngle(rock, time) : 0),
+    motion.side + (roll ? swingAngle(roll, time) : 0),
   ];
+}
+
+/**
+ * An upper bound for how fast the pose changes, radians per second. It sets how often a
+ * check looks at the hold.
+ * @param {HoldMotion} motion
+ */
+export function angularSpeedBound(motion) {
+  /** @param {Swing | null} swing */
+  const swingBound = (swing) =>
+    swing ? Math.abs(swing.amplitude) * ((2 * Math.PI * swing.cycles) / swing.hold + 3 / swing.ramp) : 0;
+  return (
+    (motion.turn ? motion.turn.peakRate : 0) + swingBound(motion.sway) + swingBound(motion.rock) + swingBound(motion.roll)
+  );
+}
+
+/**
+ * The rotation of a pose. First the yaw turns the formation about its own vertical axis.
+ * Then the sideways tilt leans its top to the right as the audience sees it, a rotation
+ * about the Y axis. Then the forward tilt leans its top toward the audience, a rotation about
+ * the X axis. A tilted formation then turns about its own tilted axis.
+ * @param {number} yaw radians; positive is counterclockwise seen from above
+ * @param {number} forward radians; positive leans the top toward the audience
+ * @param {number} side radians; positive leans the top to the right
+ * @returns {number[]} 3 × 3 matrix, row by row
+ */
+export function poseRotation(yaw, forward, side) {
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  const cf = Math.cos(forward);
+  const sf = Math.sin(forward);
+  const cs = Math.cos(side);
+  const ss = Math.sin(side);
+  // Rx(forward) · Ry(side) · Rz(yaw).
+  return [
+    cs * cy,
+    -cs * sy,
+    ss,
+    cf * sy + sf * ss * cy,
+    cf * cy - sf * ss * sy,
+    -sf * cs,
+    sf * sy - cf * ss * cy,
+    sf * cy + cf * ss * sy,
+    cf * cs,
+  ];
+}
+
+/**
+ * Places the points of a formation: its center plus the rotation of each point.
+ * @param {Float32Array} body xyz per point, in the axes of the formation, about its center
+ * @param {number[]} rotation from `poseRotation`
+ * @param {number} centerHeight height of the center, meters; the center is above the origin
+ * @param {Float32Array | Float64Array} [out] xyz per point; a new list when not given
+ * @returns {Float32Array | Float64Array} `out`
+ */
+export function placeBody(body, rotation, centerHeight, out = new Float32Array(body.length)) {
+  const [a, b, c, d, e, f, g, h, k] = rotation;
+  for (let i = 0; i < body.length; i += 3) {
+    const x = body[i];
+    const y = body[i + 1];
+    const z = body[i + 2];
+    out[i] = a * x + b * y + c * z;
+    out[i + 1] = d * x + e * y + f * z;
+    out[i + 2] = g * x + h * y + k * z + centerHeight;
+  }
+  return out;
 }

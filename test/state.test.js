@@ -7,6 +7,7 @@ import {
   FLEET_FIELDS,
   FORMATION_FIELDS,
   MAX_FORMATIONS,
+  MOTION_FIELDS,
   VOLUME_FIELDS,
   clampToField,
   defaultState,
@@ -28,8 +29,8 @@ test('the default state has a value in range for each field', () => {
     assert.equal(clampToField(field, state.fleet[field.key]), state.fleet[field.key]);
   }
   for (const formation of state.formations) {
-    for (const field of FORMATION_FIELDS) {
-      assert.equal(clampToField(field, formation[field.key]), formation[field.key]);
+    for (const field of [...FORMATION_FIELDS, ...MOTION_FIELDS]) {
+      assert.equal(clampToField(field, formation[field.key]), formation[field.key], field.key);
     }
   }
   for (const field of VOLUME_FIELDS) {
@@ -189,6 +190,27 @@ test('drawing colors need an SVG drawing', () => {
     }),
   );
   assert.equal(drawing.formations[0].colorPattern, 'drawing');
+});
+
+test('a formation from before tilt and swings stands upright and does not swing', () => {
+  const keys = ['tiltForward', 'tiltSide', 'swayAngle', 'swaySeconds', 'rockAngle', 'rockSeconds', 'rollAngle', 'rollSeconds'];
+  const loaded = parseProject(fileWith((data) => data.formations.forEach((formation) => keys.forEach((key) => delete formation[key]))));
+  for (const formation of loaded.formations) {
+    assert.deepEqual(
+      keys.map((key) => formation[key]),
+      [0, 0, 0, 8, 0, 8, 0, 8],
+    );
+  }
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].tiltForward = 100))), /formation 1: tiltForward must be a number from -90 to 90/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].swayAngle = -5))), /formation 2: swayAngle must be a number from 0 to 60/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[2].rollSeconds = 0))), /formation 3: rollSeconds must be a number from 1 to 60/);
+});
+
+test('each swing time field depends on its angle field', () => {
+  const byKey = Object.fromEntries(MOTION_FIELDS.map((field) => [field.key, field]));
+  for (const swing of ['sway', 'rock', 'roll']) {
+    assert.equal(byKey[`${swing}Seconds`].dependsOn, `${swing}Angle`);
+  }
 });
 
 test('nextFormation gives the next shape and the next color, and keeps the rest', () => {

@@ -34,7 +34,12 @@ When the march would bring two marchers too close, the band first opens its rank
 | Leg | One straight flight of the whole fleet. All drones start and stop together. |
 | Spread | A grown copy of a stop. When a direct flight brings drones too close, the fleet spreads out, crosses, and closes up. |
 | Hold | The time that the fleet stays at a stop. |
-| Turn | A slow rotation of a formation about the vertical axis during its hold. The formation turns as one rigid body. |
+| Tilt | A fixed lean of a formation: forward, toward the audience, and sideways, to the right as the audience sees it. Part of its pose, like the yaw. |
+| Turn | A slow rotation of a formation about its own axis during its hold, one way. The formation turns as one rigid body. |
+| Swing | A rotation back and forth during the hold that ends where it started. There are three swings: sway, rock, and roll. |
+| Sway | A swing about the formation's own axis, like a slow head shake. |
+| Rock | A swing toward the audience and back, like a nod. |
+| Roll | A swing to the left and to the right as the audience sees it. |
 | Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
 | Color pattern | How the drones of a formation get their light colors: one solid color, a gradient, or the drawing colors of an SVG drawing. |
 | Gradient | A blend from the formation color to a second color across the formation: rising, across, or outward. |
@@ -58,7 +63,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Drone placement | Even spread over the surface of a 3D shape, or along the outlines of a flat shape and of an SVG drawing. |
 | Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
 | Color | Each drone has its own light color. A formation has a color pattern: one solid color, a gradient of two colors (Rising, Across, or Outward), or, for an SVG drawing, the colors of the drawing. In a transition each drone blends from its old color to its new color. |
-| Slow turn | Each formation has a turn rate. The formation turns in its hold, so the audience sees its depth. |
+| Hold motion | Each formation can have a fixed tilt, forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time. The turn lets the audience see the depth of the shape. Each swing ends where it started. |
 | Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
@@ -90,7 +95,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Takeoff grid spacing | 3 m |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
-| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s. The torus has an outward gradient from orange on its inner ring to pink on its outer ring. |
+| Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s, and it rocks 5° toward the audience and back. The torus leans 20° toward the audience, and it has an outward gradient from orange on its inner ring to pink on its outer ring. |
 | Landing | On |
 
 The limits are starting values in the range that show design tools use.
@@ -193,8 +198,18 @@ At 1,000 drones the optimization takes about 50 to 120 ms per surface, and the w
 
 ### 3. Place the formation
 
-The simulator scales each unit point by the formation size.
-It then rotates the point by the yaw angle about the Z axis and moves it to the formation center.
+The simulator scales each unit point by the formation size. This gives the body of the formation: its points in its own axes, about its center.
+It then rotates each point about the center and moves it to the formation center, which is above the origin at the center height.
+
+The rotation has three parts, in this order:
+
+1. The yaw turns the formation about its own vertical axis.
+2. The sideways tilt leans its top to the right as the audience sees it: a rotation about the Y axis.
+3. The forward tilt leans its top toward the audience: a rotation about the X axis.
+
+So a tilted formation keeps leaning toward the audience while it turns about its own tilted axis.
+A rotation keeps every distance between two points, so the tilt does not change the spacing.
+The assignment key names the yaw and both tilts, so a tilt change needs new assignments for the transitions before and after the formation.
 
 ### 4. Check the spacing
 
@@ -262,13 +277,14 @@ Measured on a slow cloud CPU at 1,000 drones:
 | Change | Time |
 |---|---|
 | Size, height, grid spacing, color, chase, undo, redo | 3 to 30 ms |
+| A swing angle or swing time | 5 to 40 ms: a new check of the hold |
 | Turn rate of a turning formation, size of a turning formation | about 50 ms |
 | Drone count by a few drones | 0.5 to 0.8 seconds: new targets for each shape, and warm solves |
-| A new shape, or a yaw change | 0.2 to 0.5 seconds |
+| A new shape, a yaw change, or a tilt change | 0.2 to 0.7 seconds |
 | A cold plan of the default show | about 1 second |
 | A page open with stored pairings | about 0.35 seconds of planning |
 
-A slider for drone count, yaw, or turn rate applies each step of a drag up to 250 drones. Above 250 drones, it applies its value when the user lets go. The other sliders apply each step at every fleet size.
+A slider for drone count, yaw, tilt, or turn rate applies each step of a drag up to 250 drones. Above 250 drones, it applies its value when the user lets go. The other sliders apply each step at every fleet size.
 
 ### 7. Plan the motion
 
@@ -340,28 +356,39 @@ No stop grows to more than 3 times its size.
 A spread makes the transition longer, because the fleet flies farther.
 The light color blends in the cross leg only: the fleet spreads out in the old color and closes up in the new one.
 
-### 8. Plan the turns
+### 8. Plan the motion in the hold
 
-A formation with a turn rate turns in its hold.
-It rotates about the vertical axis through its center, as one rigid body.
-A rigid turn keeps every distance between two drones, so the formation spacing holds through the whole turn.
+In its hold a formation can turn, sway, rock, and roll, all at the same time.
+Each motion changes one angle of the pose (stage 3): the turn and the sway add to the yaw, the rock adds to the forward tilt, and the roll adds to the sideways tilt.
+The formation moves as one rigid body about its center, so the formation spacing holds through the whole hold.
 
-The turn starts and ends at rest.
+**Turn.** The turn goes one way. It starts and ends at rest.
 It uses the same trapezoid profile as a transition: speed up, keep the rate, slow down.
-The ramps use the acceleration limit at the target that is farthest from the axis.
+The ramps use the acceleration limit at the target that is farthest from the axis. That target also has the centripetal acceleration `ω² r` of the turn, so the ramps leave room for it: at the end of a ramp the total acceleration is the limit.
+When the formation also sways, rocks, or rolls, the turn ramps use half of the limit, so that the swings have room.
 A short hold has no time to reach the turn rate. The turn then speeds up to the middle of the hold and slows down.
 
-A drone that turns at rate `ω` at distance `r` from the axis moves at `ω × r`.
-The turn speed of a formation is this value for its farthest target, at the peak rate.
+**Swings.** A sway, a rock, or a roll has an angle (the largest angle each way) and a swing time (one full swing, back and forth).
+The hold fits a whole number of swings, as near to the swing time as it can, and at least one. So each swing ends where it started.
+A swing fades in over its first half swing and fades out over its last half swing:
+
+```
+angle(t) = A × sin(2π n t ÷ H) × fade(t)
+fade(t)  = smooth(t ÷ R) × smooth((H − t) ÷ R)       R = H ÷ (2n)
+smooth(x) = 3x² − 2x³, for x from 0 to 1
+```
+
+`A` is the angle, `n` the number of swings, and `H` the hold time. The swing starts and ends at rest.
 
 A formation that turns leaves its hold in a new pose: the same shape at a new yaw.
 The next transition starts from that pose.
 The assignment key of the next transition names the new yaw, so a change of turn rate needs a new assignment for that transition only.
+A sway, a rock, or a roll does not change the pose at the end of the hold, so it needs no new assignment.
 
 ### 9. Plan the light chase
 
 A light chase gives each drone a place `u` on the path of the bands, from 0 to 1. One lap of the path is 0 to 1.
-The path uses the axes of the formation itself, before its yaw, so a turning formation keeps its pattern.
+The path uses the axes of the formation itself, before its yaw and its tilt, so a turned, tilted, or moving formation keeps its pattern.
 
 | Pattern | Path |
 |---|---|
@@ -398,7 +425,7 @@ Each target gets a light color from the color pattern of its formation.
 | Outward gradient | A blend from the formation color at the target nearest the formation center to the second color at the farthest target. On a torus, this colors the inner ring and the outer ring. Every target of a sphere is at the same distance from its center, so a sphere gets the formation color only. |
 | Drawing colors | The color of the SVG outline that the target comes from. Only an SVG drawing offers this pattern. |
 
-A gradient uses the same paths as the light chase (stage 9), plus the distance from the center for Outward. The paths use the axes of the formation before its yaw, so a turning formation keeps its colors, like paint.
+A gradient uses the same paths as the light chase (stage 9), plus the distance from the center for Outward. The paths use the axes of the formation before its yaw and its tilt, so a turned, tilted, or moving formation keeps its colors, like paint.
 When all targets are at one place on the path, for example the height of a flat shape that lies on the ground plane, every target gets the formation color.
 
 A drawing is made for paper or a screen, but a drone light is brightest at full power. So the planner scales each drawing color up until its strongest channel is full: dark red becomes red, and black and gray become white. A target on an outline with no color gets the formation color.
@@ -415,19 +442,19 @@ The Checks section shows the worst value of the whole show.
 | Readout | How it is computed |
 |---|---|
 | Show duration | The end of the last step. |
-| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight legs and the volume is a box, so in a transition the drone stays inside exactly when each end of each leg is inside: its stops, and its spreads. In a turn the drone draws an arc. The check takes the box around that arc. A position on a face of the box is inside. |
-| Lowest target | Height of the lowest target of any formation. Red when it is below the ground. |
+| Drones outside volume | Number of drones that leave the flight volume at some time. A drone flies straight legs and the volume is a box, so in a transition the drone stays inside exactly when each end of each leg is inside: its stops, and its spreads. In the hold the check looks at the moving formation many times: the pose changes by at most 2° from one look to the next, each swing gets at least 32 looks, and the looks include the ends of the turn ramps. A drone then leaves its true path by at most 0.015% of its distance from the center between two looks. A hold gets at most 4,096 looks. A position on a face of the box is inside. |
+| Lowest target | Height of the lowest drone of any formation, at any time in its hold. Red when it is below the ground. |
 | Closest approach in flight | The smallest value of any transition. The value of a transition is the smallest value of its legs. The value of a direct flight or a cross is exact: for each pair of drones, the relative position moves along a straight segment, and the simulator takes the shortest distance from that segment to zero. The value of a spread leg is the spacing at its small end (stage 7a). Red below the minimum spacing. |
-| Peak speed | The largest value of any step. In a leg: longest path × peak rate of `s`. In a turn: the turn speed. |
+| Peak speed | The largest value of any step. In a leg: longest path × peak rate of `s`. In a hold: the fastest drone at any look. A look finds the velocity and the acceleration of each drone from its positions 1 ms before and after. |
 
 A formation has a problem when one of these is true:
 
 - Its targets are closer than the minimum spacing.
-- A target is below the ground.
-- A target is outside the flight volume.
+- A drone is below the ground at some time in the hold.
+- A drone is outside the flight volume at some time in the hold.
 - Drones come closer than the minimum spacing in the transition to it.
 - Drones leave the flight volume when they spread out in the transition to it.
-- Its turn speed is more than the maximum horizontal speed.
+- The motion in the hold is faster than the maximum horizontal speed, climbs or descends faster than the climb and descent limits, or accelerates more than the acceleration limit (with 0.1% for rounding).
 
 The storyboard list and the timeline mark each formation that has a problem.
 The timeline also marks a landing in which drones come too close, or leave the flight volume when they spread out.
@@ -445,8 +472,9 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 | Section | Contents |
 |---|---|
-| Storyboard | One row per formation: color (a gradient shows both colors in its direction), number, shape name, hold time, turn rate, a chase marker, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
-| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, turn rate, hold time, color, color pattern, light chase pattern. For a gradient: the second color. When the chase is on: chase bands and chase speed. Spacing readout and Fit button. The Drawing colors pattern is in the list only for an SVG drawing. An imported SVG drawing starts with its drawing colors. A change to a shape that is not an SVG drawing sets Drawing colors back to Solid. |
+| Storyboard | One row per formation: color (a gradient shows both colors in its direction), number, shape name, hold time, turn rate, the swings, a chase marker, and a problem marker. Icon buttons in the section header: add, move earlier, move later, remove. Land at the end toggle. |
+| Formation | The settings of the formation that is selected in the storyboard: shape selector with an OBJ import button, up axis selector, size, center height, yaw, tilt forward, tilt sideways, hold time, color, color pattern, light chase pattern. For a gradient: the second color. When the chase is on: chase bands and chase speed. Spacing readout and Fit button. The Drawing colors pattern is in the list only for an SVG drawing. An imported SVG drawing starts with its drawing colors. A change to a shape that is not an SVG drawing sets Drawing colors back to Solid. |
+| Motion in the hold | Turn rate. Sway, rock, and roll, each an angle with a swing time. A swing time shows only when its angle is not 0. |
 
 ### Fleet tab
 
@@ -571,7 +599,7 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 - Brightness: a second buffer holds the brightness of each light, from stage 9. The page writes it each frame. The selected drone stays at full brightness.
 - Light color: a third buffer holds the color of each light, from stage 9a. The page writes it each frame. The selected drone is white.
 - Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity, in the formation color. In a transition between two formations, the path color blends from one formation color to the other, in the cross leg. In a hold, the current step is the one that led to the hold.
-- Route: for the selected drone, the view draws its whole route: each leg of each step, and the arc of each turn as short straight lines of 10° each. The part of the current step is brightest.
+- Route: for the selected drone, the view draws its whole route: each leg of each step, and its path in each hold as short straight lines; the pose changes by at most 10° from one line to the next. The part of the current step is brightest.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
 - Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
@@ -610,7 +638,15 @@ The project file is JSON with the extension `.droneshow.json`.
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "holdSeconds": 10,
+      "tiltForward": 0,
+      "tiltSide": 0,
       "turnRate": 6,
+      "swayAngle": 0,
+      "swaySeconds": 8,
+      "rockAngle": 0,
+      "rockSeconds": 8,
+      "rollAngle": 0,
+      "rollSeconds": 8,
       "chase": "off",
       "chaseBands": 4,
       "chaseSpeed": 0.5,
@@ -633,7 +669,7 @@ An OBJ formation stores the full OBJ text, and an SVG formation stores the full 
 
 The simulator writes version 2 and reads versions 1 and 2.
 Version 1 had exactly one formation and no landing.
-A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, a formation with no `chase` has no light chase, and a formation with no `colorPattern` has one solid color. Older files then load with their old meaning.
+A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, a formation with no tilt stands upright, a formation with no swing angle does not swing (its swing times get 8 s), a formation with no `chase` has no light chase, and a formation with no `colorPattern` has one solid color. Older files then load with their old meaning.
 `colorPattern` is one of `solid`, `rising`, `across`, `outward`, and `drawing`. A formation that is not an SVG drawing and has `drawing` gets `solid`.
 A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
 
@@ -662,7 +698,7 @@ src/
   svg.js          SVG reader: path data, basic shapes, transforms, colors, and the outline sampler
   sample.js       farthest point sampling and optimization, the curve walk, smallest spacing
   assign.js       assignment solver (Jonker-Volgenant algorithm)
-  motion.js       takeoff grid, trapezoid timing, closest approach, turn profile
+  motion.js       takeoff grid, trapezoid timing, closest approach, turn and swing profiles, pose rotation
   mat4.js         matrix helpers for the camera
   camera.js       orbit camera and mouse input
   renderer.js     WebGL2 shaders, buffers, and draw calls
@@ -693,13 +729,13 @@ No `npm install` is necessary.
 |---|---|
 | `sample.js` | Target count. The first N picks stay the same for a larger N. Smallest spacing on a known point set. The grid sampler picks the same points as a plain search, for each built-in shape, an SVG drawing, an OBJ model, points on a line, and points with many ties. The walk spaces a ring evenly, keeps the spacing at a sharp corner, and handles small and large counts. The optimization never brings picks closer, gains at least 5 percent on each built-in surface, keeps the picks apart, and repeats. |
 | `assign.js` | Each drone gets one target. The total cost equals a brute-force search on small cases, and the plain Hungarian algorithm on larger cases. A warm start from a changed problem, or from a problem of another size, is still optimal. The prices prove the solution optimal. Scaling or moving a point set keeps the best pairing. Cold, warm, and coarse to fine solves of a large fleet with ties give the same pairing. |
-| `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds. The box around an arc equals a dense scan. |
+| `motion.js` | Duration for known cases. No limit is exceeded. Positions at the start and the end. Closest approach equals a dense time scan. Turn profile for long and short holds, with room for the centripetal acceleration. A swing fits whole swings in the hold, starts and ends at rest, and stays inside its speed bound. The hold angles add up. The pose rotation equals the three rotations in order, and each tilt leans the right way. |
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
-| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Turn: the end pose, the turn speed, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
+| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -743,6 +779,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 16 | Spread out to pass | A transition that is not safe as a direct flight spreads out, crosses, and closes up. Fit then needs no flight margin. | Done |
 | 17 | Color per drone | Rising, Across, and Outward gradients of two colors, and the colors of an SVG drawing. | Done |
 | 18 | Even spacing | A walk along curves, and farthest point optimization on surfaces. Fit makes shapes 9 to 32 percent smaller. | Done |
+| 19 | Tilt and swings | A fixed tilt forward and sideways. Sway, rock, and roll in the hold, mixed freely with the turn. Checks sample the motion of each hold. | Done |
 
 ## Known limits
 
@@ -763,13 +800,13 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The undo history does not survive a page reload. Only the project does.
 - Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
-- A turn goes one way at one rate. There is no sway back and forth, and no tilt.
+- The checks of a hold look at the motion many times, not at every moment. Between two looks a drone can leave its path by up to 0.015% of its distance from the center. A very long hold with a fast motion reaches the limit of 4,096 looks; its checks are then coarser.
+- A swing time snaps to fit a whole number of swings in the hold, so a swing can be faster or slower than the time that the user sets.
 - In a short hold the turn does not reach its turn rate. No readout shows the rate that it reaches.
 - A turn moves the end pose of a formation. The transition after it then needs a new assignment, which at 1,000 drones costs the same pause as other changes.
 
 ## Future features
 
-- Sway. A formation turns back and forth in its hold, so it ends where it started.
 - Drones that flow along an outline, so the drones themselves move, not only the lights.
 - More shape inputs: point lists and GLB models. Each one is a new source of candidate clouds. The stages after stage 1 do not change.
 - Filled SVG areas: drones spread over the inside of a filled shape, not only on its outline.

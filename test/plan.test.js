@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { closestApproach, takeoffGrid, turnAboutZ } from '../src/motion.js';
+import { closestApproach, placeBody, poseRotation, takeoffGrid } from '../src/motion.js';
 import {
   CHASE_DIM,
   FLIGHT_MARGIN,
@@ -28,11 +28,22 @@ import {
 } from '../src/plan.js';
 import { defaultState } from '../src/state.js';
 
-/** The default show, but no formation turns in its hold. */
+/** The default show, but no formation moves in its hold. The fixed tilts stay. */
 function stillState() {
   const state = defaultState();
-  state.formations = state.formations.map((formation) => ({ ...formation, turnRate: 0 }));
+  state.formations = state.formations.map((formation) => ({
+    ...formation,
+    turnRate: 0,
+    swayAngle: 0,
+    rockAngle: 0,
+    rollAngle: 0,
+  }));
   return state;
+}
+
+/** Turns points about the vertical axis through the origin, as a check of the planner. */
+function turnedAboutZ(points, angle) {
+  return placeBody(points, poseRotation(angle, 0, 0), 0);
 }
 
 /** A show with one formation that stands still, and no landing. */
@@ -518,14 +529,15 @@ test('a formation that turns ends its hold in a turned pose', () => {
   const state = defaultState();
   const plan = createPlanner()(state);
   const [first, second] = plan.steps;
+  const { turn } = first.motion;
   // 6 degrees per second for 10 s, less the two ramps.
-  assert.ok(first.turn.angle > 0.95 && first.turn.angle < (60 * Math.PI) / 180, `angle ${first.turn.angle}`);
-  assert.deepEqual(first.end, turnAboutZ(first.to, first.turn.angle, new Float32Array(first.to.length)));
+  assert.ok(turn.angle > 0.95 && turn.angle < (60 * Math.PI) / 180, `angle ${turn.angle}`);
+  const turned = turnedAboutZ(first.to, turn.angle);
+  for (let i = 0; i < turned.length; i++) near(first.end[i], turned[i], 1e-4);
   assert.deepEqual(second.from, first.end);
-  // The heart does not turn.
-  assert.equal(second.turn, null);
+  // The heart does not turn. Its rock ends where it started.
+  assert.equal(second.motion.turn, null);
   assert.equal(second.end, second.to);
-  assert.equal(second.turnSpeed, 0);
 
   const positions = new Float32Array(plan.count * 3);
   positionsAt(plan, holdStart(plan, 0), positions);
@@ -544,7 +556,7 @@ test('a formation that turns ends its hold in a turned pose', () => {
   assert.ok(moved > 1, 'the formation turns');
 });
 
-test('each stop still has one drone on each target when formations turn', () => {
+test('each stop still has one drone on each target when formations move', () => {
   const state = defaultState();
   const plan = createPlanner()(state);
   const still = createPlanner()(stillState());
@@ -567,8 +579,14 @@ test('the speed in a turn is the turn rate times the distance from the axis', ()
     // The turn starts and ends at rest.
     assert.equal(speedAt(plan, drone, holdStart(plan, 0)), 0);
   }
-  near(step.turnSpeed, fastest, 1e-6);
-  assert.ok(plan.peakSpeed >= step.turnSpeed);
+  const { motion } = plan.formations[0];
+  near(motion.horizontalSpeed, fastest, 1e-4);
+  near(motion.speed, fastest, 1e-4);
+  assert.ok(motion.climbSpeed < 1e-6 && motion.descentSpeed < 1e-6);
+  // The ramps keep the farthest drone at the acceleration limit, centripetal part included.
+  assert.ok(motion.acceleration <= state.fleet.maxAcceleration * 1.001, `acceleration ${motion.acceleration}`);
+  assert.ok(motion.acceleration >= state.fleet.maxAcceleration * 0.98, `acceleration ${motion.acceleration}`);
+  assert.ok(plan.peakSpeed >= motion.speed);
   assert.deepEqual(formationProblems(plan, 0, state.fleet), []);
 });
 
@@ -577,12 +595,16 @@ test('a turn that is too fast is a problem', () => {
   // The 100 m heart, asked to turn at 45 degrees per second. Its tips are 50 m from the axis,
   // so the 4 m/s² limit lets the turn rate grow by 0.08 rad/s each second. In a 10 s hold the
   // turn speeds up for 5 s and then must slow down: the tips reach 0.4 rad/s × 50 m = 20 m/s.
-  state.formations[1] = { ...state.formations[1], turnRate: 45 };
+  // At that rate the centripetal acceleration alone is 0.4² × 50 = 8 m/s².
+  state.formations[1] = { ...state.formations[1], turnRate: 45, rockAngle: 0 };
   const plan = createPlanner()(state);
-  near(plan.steps[1].turnSpeed, 20, 0.01);
-  assert.equal(plan.peakSpeed, plan.steps[1].turnSpeed);
+  const { motion } = plan.formations[1];
+  near(motion.horizontalSpeed, 20, 0.01);
+  assert.ok(motion.acceleration > 8);
+  near(plan.peakSpeed, motion.speed, 1e-9);
   assert.deepEqual(formationProblems(plan, 1, state.fleet), [
-    'The turn is faster than the maximum horizontal speed.',
+    'The motion in the hold is faster than the maximum horizontal speed.',
+    'The motion in the hold accelerates more than the maximum acceleration.',
   ]);
 });
 
@@ -601,7 +623,7 @@ test('a turn can take a formation out of the flight volume', () => {
   assert.match(formationProblems(turning, 1, state.fleet).join(), /outside the flight volume/);
 });
 
-test('routeOf gives the flight and the arc of one drone for each step', () => {
+test('routeOf gives the flight and the path in the hold of one drone for each step', () => {
   const plan = createPlanner()(defaultState());
   const drone = 17;
   const route = routeOf(plan, drone);
@@ -610,19 +632,19 @@ test('routeOf gives the flight and the arc of one drone for each step', () => {
     const points = route[index];
     assert.deepEqual(points.subarray(0, 3), step.from.subarray(drone * 3, drone * 3 + 3));
     assert.deepEqual(points.subarray(3, 6), step.to.subarray(drone * 3, drone * 3 + 3));
-    if (!step.turn) {
+    if (!step.motion) {
       assert.equal(points.length, 6);
       return;
     }
-    // The arc ends where the hold ends, and each of its points is a short turn from the last.
+    // The path ends where the hold ends. Each point is a short move from the last: the pose
+    // changes by at most 10 degrees.
     assert.ok(points.length > 6 * 3);
     const last = points.subarray(points.length - 3);
     for (let axis = 0; axis < 3; axis++) near(last[axis], step.end[drone * 3 + axis], 1e-4);
-    const radius = Math.hypot(points[3], points[4]);
+    const reach = Math.hypot(points[3], points[4], points[5] - step.centerHeight);
     for (let i = 6; i < points.length; i += 3) {
-      near(Math.hypot(points[i], points[i + 1]), radius, 1e-3);
-      assert.equal(points[i + 2], points[5]);
-      assert.ok(Math.hypot(points[i] - points[i - 3], points[i + 1] - points[i - 2]) <= radius * 0.18);
+      near(Math.hypot(points[i], points[i + 1], points[i + 2] - step.centerHeight), reach, 1e-3);
+      assert.ok(Math.hypot(points[i] - points[i - 3], points[i + 1] - points[i - 2], points[i + 2] - points[i - 1]) <= reach * 0.18);
     }
   });
 });
@@ -1191,4 +1213,164 @@ test('the colors stay with the drones through a spread', () => {
   for (let i = 0; i < out.length; i++) near(out[i], (before[i] + step.colors[i]) / 2, 1e-6);
   lightColorsAt(plan, step.start + closeUp.start + closeUp.timing.duration / 2, out);
   assert.deepEqual(out, step.colors);
+});
+
+// Tilt, sway, rock, and roll.
+
+/** True when each point of one list is near some point of the other list. */
+function sameSet(actual, expected, tolerance) {
+  for (let i = 0; i < actual.length; i += 3) {
+    let best = Infinity;
+    for (let j = 0; j < expected.length; j += 3) {
+      best = Math.min(best, Math.hypot(actual[i] - expected[j], actual[i + 1] - expected[j + 1], actual[i + 2] - expected[j + 2]));
+    }
+    assert.ok(best <= tolerance, `point ${i / 3} is ${best} from the nearest expected point`);
+  }
+}
+
+test('a forward tilt leans the formation toward the audience about its center', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  Object.assign(state.formations[0], { source: { type: 'builtin', shape: 'helix' }, size: 40 });
+  const upright = planner(state).steps[0].to;
+  state.formations[0].tiltForward = 30;
+  const tilted = planner(state).steps[0].to;
+  // The tilted targets are the upright ones, turned 30° about the X axis through the center.
+  const center = state.formations[0].centerHeight;
+  const body = upright.map((value, i) => (i % 3 === 2 ? value - center : value));
+  sameSet(tilted, placeBody(body, poseRotation(0, (30 * Math.PI) / 180, 0), center), 1e-3);
+  // The top of the helix is now nearer the audience, which stands on the negative Y axis.
+  const top = topDrone(planner(state).steps[0]);
+  assert.ok(tilted[top * 3 + 1] < -5, `top at y ${tilted[top * 3 + 1]}`);
+});
+
+/** The drone at the top of its formation, in the axes of the formation. */
+function topDrone(step) {
+  let top = 0;
+  for (let i = 0; i < step.body.length; i += 3) if (step.body[i + 2] > step.body[top * 3 + 2]) top = i / 3;
+  return top;
+}
+
+test('a sideways tilt leans the formation to the right as the audience sees it', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  Object.assign(state.formations[0], { source: { type: 'builtin', shape: 'helix' }, size: 40, tiltSide: 30 });
+  const step = planner(state).steps[0];
+  const top = topDrone(step);
+  // 20 m above the center, leaned 30°: 10 m to the right of the axis.
+  near(step.to[top * 3] - step.body[top * 3] * Math.cos(Math.PI / 6), 10, 0.5);
+});
+
+test('a sway turns the formation back and forth, and it ends where it started', () => {
+  const state = singleState();
+  Object.assign(state.formations[0], {
+    source: { type: 'builtin', shape: 'heart' },
+    size: 100,
+    swayAngle: 8,
+    swaySeconds: 10,
+    holdSeconds: 20,
+  });
+  const plan = createPlanner()(state);
+  const step = plan.steps[0];
+  assert.equal(step.motion.sway.cycles, 2);
+  assert.equal(step.end, step.to);
+  const positions = new Float32Array(plan.count * 3);
+  const start = holdStart(plan, 0);
+  // The heart faces the audience at the start. Three quarters of the first sway later, it is
+  // turned 8°: its tips, 50 m from the axis, are 7 m out of the plane.
+  let depth = 0;
+  positionsAt(plan, start + 7.5, positions);
+  for (let i = 0; i < positions.length; i += 3) depth = Math.max(depth, Math.abs(positions[i + 1]));
+  assert.ok(depth > 5, `depth ${depth}`);
+  // At the end of the hold it faces the audience again.
+  positionsAt(plan, start + step.hold - 1e-9, positions);
+  for (let i = 0; i < positions.length; i++) near(positions[i], step.to[i], 1e-3);
+  assert.deepEqual(formationProblems(plan, 0, state.fleet), []);
+});
+
+test('a rock can take a formation below the ground and out of the flight volume', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  // The torus stands upright. A forward tilt of 90° lays it flat: a ring 25 m from its axis,
+  // with a tube 7.5 m thick. At 10 m, its lowest point is 2.5 m up.
+  Object.assign(state.formations[0], {
+    source: { type: 'builtin', shape: 'torus' },
+    size: 50,
+    centerHeight: 10,
+    tiltForward: 90,
+  });
+  const still = planner(state);
+  assert.ok(still.formations[0].lowestTarget > 2, `lowest ${still.formations[0].lowestTarget}`);
+  // A rock of 30° each way dips the front and the back of the ring by more than 12 m.
+  state.formations[0].rockAngle = 30;
+  const rocking = planner(state);
+  assert.ok(rocking.formations[0].lowestTarget < -2, `lowest ${rocking.formations[0].lowestTarget}`);
+  assert.match(formationProblems(rocking, 0, state.fleet).join(), /below the ground/);
+
+  // Higher up, the rock stays above the ground, but it leaves a volume with a high floor.
+  Object.assign(state.formations[0], { centerHeight: 60 });
+  state.volume = { ...state.volume, z: 50 };
+  assert.equal(planner({ ...state, formations: [{ ...state.formations[0], rockAngle: 0 }] }).formations[0].outsideVolume, 0);
+  const high = planner(state);
+  assert.ok(high.formations[0].outsideVolume > 0);
+  assert.ok(high.outsideVolume > 0);
+});
+
+test('a swing that is too fast for the limits is a problem', () => {
+  const state = singleState();
+  // The 100 m heart, swaying 60° each way every 2 s: its tips move about 100 m/s.
+  Object.assign(state.formations[0], { source: { type: 'builtin', shape: 'heart' }, size: 100, swayAngle: 60, swaySeconds: 2 });
+  const plan = createPlanner()(state);
+  const { motion } = plan.formations[0];
+  assert.ok(motion.horizontalSpeed > 50, `speed ${motion.horizontalSpeed}`);
+  assert.ok(motion.acceleration > 100, `acceleration ${motion.acceleration}`);
+  const problems = formationProblems(plan, 0, state.fleet);
+  assert.ok(problems.includes('The motion in the hold is faster than the maximum horizontal speed.'));
+  assert.ok(problems.includes('The motion in the hold accelerates more than the maximum acceleration.'));
+  // A roll of a flat shape moves its drones up and down.
+  const rolling = createPlanner()({ ...state, formations: [{ ...state.formations[0], swayAngle: 0, rollAngle: 30, rollSeconds: 3 }] });
+  assert.ok(rolling.formations[0].motion.climbSpeed > 3);
+  assert.match(formationProblems(rolling, 0, state.fleet).join(), /climbs or descends faster/);
+});
+
+test('a light chase and a gradient stay on the drones of a tilted formation, like paint', () => {
+  const planner = createPlanner();
+  const state = singleState();
+  Object.assign(state.formations[0], { chase: 'rising', colorPattern: 'across', secondColor: '#00ff00' });
+  const upright = planner(state).steps[0];
+  state.formations[0] = { ...state.formations[0], tiltForward: 40, tiltSide: -25, yaw: 70 };
+  const tilted = planner(state).steps[0];
+  const sorted = (values) => Array.from(values).sort((a, b) => a - b);
+  assert.deepEqual(sorted(tilted.chase.u), sorted(upright.chase.u));
+  assert.deepEqual(sorted(tilted.colors), sorted(upright.colors));
+});
+
+test('turn, sway, rock, and roll run together, and the formation leaves its hold turned', () => {
+  const state = singleState();
+  Object.assign(state.formations[0], {
+    source: { type: 'builtin', shape: 'torus' },
+    size: 30,
+    tiltForward: 15,
+    turnRate: 5,
+    swayAngle: 6,
+    swaySeconds: 10,
+    rockAngle: 4,
+    rockSeconds: 10,
+    rollAngle: 4,
+    rollSeconds: 10,
+    holdSeconds: 20,
+  });
+  const plan = createPlanner()(state);
+  const step = plan.steps[0];
+  const { turn, sway, rock, roll } = step.motion;
+  assert.ok(turn && sway && rock && roll);
+  // At the end only the turn remains: the tilted torus has turned about its own tilted axis.
+  const center = state.formations[0].centerHeight;
+  const body = step.body;
+  const expected = placeBody(body, poseRotation(turn.angle, (15 * Math.PI) / 180, 0), center);
+  for (let i = 0; i < expected.length; i++) near(step.end[i], expected[i], 1e-4);
+  const positions = new Float32Array(plan.count * 3);
+  positionsAt(plan, holdStart(plan, 0) + step.hold - 1e-9, positions);
+  for (let i = 0; i < positions.length; i++) near(positions[i], step.end[i], 1e-3);
+  assert.deepEqual(formationProblems(plan, 0, state.fleet), []);
 });

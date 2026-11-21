@@ -15,6 +15,8 @@ import { BUILTIN_SHAPES } from './shapes.js';
  * @property {boolean} [slider] show a slider next to the number box
  * @property {number} [fallback] value for a project file that does not have the field,
  *   because the file is older than the field
+ * @property {string} [dependsOn] the sidebar shows the field only when this other field is not 0
+ * @property {string} [title] a longer explanation, for the tooltip
  */
 
 /** @type {NumberField[]} */
@@ -33,8 +35,24 @@ export const FORMATION_FIELDS = [
   { key: 'size', label: 'Size', unit: 'm', min: 1, max: 500, step: 1, slider: true },
   { key: 'centerHeight', label: 'Center height', unit: 'm', min: 0, max: 500, step: 1, slider: true },
   { key: 'yaw', label: 'Yaw', unit: '°', min: -180, max: 180, step: 1, slider: true },
-  { key: 'turnRate', label: 'Turn rate', unit: '°/s', min: -45, max: 45, step: 0.5, slider: true, fallback: 0 },
+  { key: 'tiltForward', label: 'Tilt forward', unit: '°', min: -90, max: 90, step: 1, slider: true, fallback: 0, title: 'Leans the top of the formation toward the audience. A negative tilt leans it away.' },
+  { key: 'tiltSide', label: 'Tilt sideways', unit: '°', min: -90, max: 90, step: 1, slider: true, fallback: 0, title: 'Leans the top of the formation to the right as the audience sees it. A negative tilt leans it to the left.' },
   { key: 'holdSeconds', label: 'Hold time', unit: 's', min: 0, max: 600, step: 1 },
+];
+
+/**
+ * The motion of a formation in its hold. The turn goes one way. Sway, rock, and roll swing
+ * back and forth and end where they started. All of them can run at the same time.
+ * @type {NumberField[]}
+ */
+export const MOTION_FIELDS = [
+  { key: 'turnRate', label: 'Turn rate', unit: '°/s', min: -45, max: 45, step: 0.5, slider: true, fallback: 0, title: 'Turns the formation about its own axis, one way, in its hold.' },
+  { key: 'swayAngle', label: 'Sway', unit: '°', min: 0, max: 60, step: 1, slider: true, fallback: 0, title: 'Turns the formation back and forth about its own axis, by this angle each way.' },
+  { key: 'swaySeconds', label: 'Sway time', unit: 's', min: 1, max: 60, step: 0.5, fallback: 8, dependsOn: 'swayAngle', title: 'Time of one full sway, back and forth. The hold fits a whole number of sways.' },
+  { key: 'rockAngle', label: 'Rock', unit: '°', min: 0, max: 45, step: 1, slider: true, fallback: 0, title: 'Leans the formation toward the audience and back, by this angle each way.' },
+  { key: 'rockSeconds', label: 'Rock time', unit: 's', min: 1, max: 60, step: 0.5, fallback: 8, dependsOn: 'rockAngle', title: 'Time of one full rock, toward the audience and back. The hold fits a whole number of rocks.' },
+  { key: 'rollAngle', label: 'Roll', unit: '°', min: 0, max: 45, step: 1, slider: true, fallback: 0, title: 'Leans the formation to the left and to the right, by this angle each way.' },
+  { key: 'rollSeconds', label: 'Roll time', unit: 's', min: 1, max: 60, step: 0.5, fallback: 8, dependsOn: 'rollAngle', title: 'Time of one full roll, to one side and back. The hold fits a whole number of rolls.' },
 ];
 
 /** The patterns of a light chase. The first one turns the chase off. */
@@ -131,8 +149,16 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  *   only for an SVG drawing
  * @property {string} secondColor the color at the other end of a gradient, `#rrggbb`
  * @property {number} holdSeconds time that the drones hold the formation
- * @property {number} turnRate how fast the formation turns about the vertical axis in its hold,
+ * @property {number} tiltForward fixed lean toward the audience, degrees; negative leans away
+ * @property {number} tiltSide fixed lean to the right as the audience sees it, degrees; negative leans left
+ * @property {number} turnRate how fast the formation turns about its own axis in its hold,
  *   degrees per second; positive is counterclockwise seen from above
+ * @property {number} swayAngle largest angle of the sway each way, degrees; 0 for no sway
+ * @property {number} swaySeconds asked time of one full sway, seconds
+ * @property {number} rockAngle largest angle of the rock each way, degrees; 0 for no rock
+ * @property {number} rockSeconds asked time of one full rock, seconds
+ * @property {number} rollAngle largest angle of the roll each way, degrees; 0 for no roll
+ * @property {number} rollSeconds asked time of one full roll, seconds
  * @property {keyof typeof CHASE_PATTERNS} chase the pattern of the light chase in the hold
  * @property {number} chaseBands number of bright bands of the light chase
  * @property {number} chaseSpeed laps per second of the light chase; negative runs the other way
@@ -148,6 +174,19 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {boolean} spreadToPass true when the fleet spreads out before it crosses, in a
  *   transition where a direct flight brings drones too close
  */
+
+// A formation with no tilt and no motion in its hold.
+const STILL = {
+  tiltForward: 0,
+  tiltSide: 0,
+  turnRate: 0,
+  swayAngle: 0,
+  swaySeconds: 8,
+  rockAngle: 0,
+  rockSeconds: 8,
+  rollAngle: 0,
+  rollSeconds: 8,
+};
 
 /** @returns {State} */
 export function defaultState() {
@@ -169,6 +208,7 @@ export function defaultState() {
     },
     formations: [
       {
+        ...STILL,
         source: { type: 'builtin', shape: 'sphere' },
         size: 40,
         centerHeight: 60,
@@ -184,6 +224,7 @@ export function defaultState() {
         seed: 1,
       },
       {
+        ...STILL,
         source: { type: 'builtin', shape: 'heart' },
         size: 100,
         centerHeight: 60,
@@ -192,17 +233,19 @@ export function defaultState() {
         colorPattern: 'solid',
         secondColor: DEFAULT_SECOND_COLOR,
         holdSeconds: 10,
-        turnRate: 0,
+        rockAngle: 5,
         chase: 'around',
         chaseBands: 5,
         chaseSpeed: 0.25,
         seed: 1,
       },
       {
+        ...STILL,
         source: { type: 'builtin', shape: 'torus' },
         size: 50,
         centerHeight: 60,
         yaw: 30,
+        tiltForward: 20,
         color: FORMATION_COLORS[2],
         colorPattern: 'outward',
         secondColor: FORMATION_COLORS[1],
@@ -339,6 +382,7 @@ function readFormation(saved, index) {
   if (colorPattern === 'drawing' && source.type !== 'svg') colorPattern = 'solid';
   return /** @type {Formation} */ ({
     ...readFields(name, saved, FORMATION_FIELDS),
+    ...readFields(name, saved, MOTION_FIELDS),
     ...readFields(name, saved, CHASE_FIELDS),
     source,
     color: saved.color,

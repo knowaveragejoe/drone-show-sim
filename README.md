@@ -35,7 +35,7 @@ The sidebar has three tabs.
 
 | Tab | What it does |
 |---|---|
-| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, turn rate, hold time, colors, and light chase of the selected formation. The color pattern gives the formation one color, a gradient of two colors (rising, across, or outward from the center), or the colors of an SVG drawing. A formation with a turn rate turns slowly in its hold. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
+| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, tilt, hold time, colors, and light chase of the selected formation. The Motion in the hold section makes the formation turn, sway (turn back and forth), rock (lean toward the audience and back), and roll (lean left and right), all at the same time if you like. Each swing ends where it started. The color pattern gives the formation one color, a gradient of two colors (rising, across, or outward from the center), or the colors of an SVG drawing. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
 | Fleet | Sets the drone count, the takeoff grid, the speed and acceleration limits, the minimum spacing, and the flight volume: the cube that the drones must stay inside. "Spread out to pass safely" lets the fleet open out before a crossing that would bring drones too close (on by default). |
 | Drones | Lists each drone with its position and speed at the current time. |
 
@@ -52,7 +52,7 @@ A shape is one of seven built-in shapes, an OBJ model, or an SVG drawing. The bu
 - An OBJ model gets drones on its surface. The importer reads vertices and faces. It ignores materials and textures.
 - An SVG drawing gets drones on its outlines, and it stands upright facing the audience. The importer reads paths, rectangles, circles, ellipses, lines, polylines, polygons, and transforms. It does not read text, so convert text to paths first. The drones take the stroke or fill color of each outline, at full brightness. Set the color pattern to Solid to use one color instead.
 
-Above 250 drones, the sliders for drone count, yaw, and turn rate apply their value when you let go. The others apply at once at every fleet size.
+Above 250 drones, the sliders for drone count, yaw, tilt, and turn rate apply their value when you let go. The others apply at once at every fleet size.
 
 ## How it works
 
