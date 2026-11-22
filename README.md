@@ -5,6 +5,8 @@ The drones take off from a ground grid, fly to each formation of a storyboard in
 
 ![The second formation of a show: a heart of 100 drones inside the flight volume. The sidebar shows the storyboard, and the timeline strip shows the whole show.](docs/screenshot.png)
 
+Try it at https://knowaveragejoe.github.io/drone-show-sim/.
+
 The page is static files. It has no dependencies and no build step.
 
 ## Run it
@@ -81,6 +83,8 @@ The smoke test needs Chrome or Chromium. Set `CHROME_PATH` if the script does no
 
 1. Make the repository public.
 2. In the repository settings, open Pages.
-3. Select "Deploy from a branch", then the branch and the `/ (root)` folder.
+3. Select "Deploy from a branch", then `main` and the `/ (root)` folder. `main` holds the last finished milestone.
 
 The empty `.nojekyll` file tells Pages to serve the files as they are.
+
+The page head has a link preview for chat apps and social sites. Its tags hold the full address of the site, because link crawlers need it. If you publish the site at another address, change those tags in `index.html` and the `SITE` constant in `test/page.test.js`.

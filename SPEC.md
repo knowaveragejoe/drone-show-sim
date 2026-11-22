@@ -686,6 +686,7 @@ README.md         how to run, use, test, and publish the simulator
 .nojekyll         tells GitHub Pages to serve the files as they are
 docs/
   screenshot.png  picture for the README
+  social.png      1200 × 630 picture for link previews
 src/
   main.js         start-up; connects state, plan, renderer, and user interface
   state.js        default state, field limits, project file export and import
@@ -703,6 +704,7 @@ src/
   camera.js       orbit camera and mouse input
   renderer.js     WebGL2 shaders, buffers, and draw calls
   ui.js           sidebar tabs and controls, storyboard, drone list, transport bar
+  version.js      the milestone number and date that the Project menu shows
 test/
   *.test.js       unit tests
 tools/
@@ -733,6 +735,7 @@ No `npm install` is necessary.
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
+| `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
 | `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the spread factors for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
@@ -750,8 +753,22 @@ The `CHROME_PATH` environment variable selects the browser binary.
 
 GitHub Pages serves the repository root from a branch.
 The site needs no build and no workflow file.
-All URLs in the code are relative, so the site works under `/drone-show-sim/`.
+All URLs that the page loads are relative, so the site works under `/drone-show-sim/`.
 `README.md` lists the steps to turn Pages on.
+
+The `main` branch holds the last finished milestone. Work happens on another branch, and `main` moves forward to it after each milestone. Pages is to serve `main`.
+
+The page head has these parts for hosting:
+
+| Part | Purpose |
+|---|---|
+| Module preload | One `<link rel="modulepreload">` per module of the page. Without it, the browser finds the modules one import level at a time: `main.js`, then `plan.js`, then `assign.js`, and so on, one round trip per level. With it, the browser fetches them all at once. A test checks that the list equals the modules that `src/main.js` imports, directly and through other modules. |
+| Icon | An inline SVG: three glowing dots on a dark square. It needs no file, so the browser makes no request that ends in a 404. |
+| Link preview | Open Graph and Twitter card tags: a title, a description, and `docs/social.png`, a 1200 × 630 picture of the default show. Link crawlers need absolute URLs, so these tags hold the full address of the site. They are the only absolute URLs, and the page does not load them. When the site moves, change them and the `SITE` constant of the page test. |
+| Description | A `description` meta tag for search results. |
+
+The version shows in the Project menu: the number of the last milestone that is done, and its date. It comes from `src/version.js`. The commit that finishes a milestone updates that file. A test checks that its number equals the last milestone in this file that is done.
+GitHub Pages lets a browser keep each file for 10 minutes, so for a few minutes after a deploy, a browser can show the old version.
 
 A local static server also runs the site: `uv run python -m http.server 8000`.
 
@@ -780,6 +797,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 17 | Color per drone | Rising, Across, and Outward gradients of two colors, and the colors of an SVG drawing. | Done |
 | 18 | Even spacing | A walk along curves, and farthest point optimization on surfaces. Fit makes shapes 9 to 32 percent smaller. | Done |
 | 19 | Tilt and swings | A fixed tilt forward and sideways. Sway, rock, and roll in the hold, mixed freely with the turn. Checks sample the motion of each hold. | Done |
+| 20 | Hosting polish | Module preload, an icon, a link preview, a version in the Project menu, and a `main` branch. | Done |
 
 ## Known limits
 

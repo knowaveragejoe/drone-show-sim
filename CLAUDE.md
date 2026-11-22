@@ -12,7 +12,7 @@ Status: the simulator plays a storyboard of several formations. A formation can 
 - No runtime dependencies: no 3D library and no user interface framework.
 - No build step. Plain JavaScript with native ES modules and JSDoc types.
 - Raw WebGL2 for the 3D view.
-- All URLs are relative, so the site works from a GitHub Pages subpath.
+- All URLs that the page loads are relative, so the site works from a GitHub Pages subpath. Only the link preview tags in the page head hold absolute URLs, because link crawlers need them.
 - YAGNI: build only what the current feature needs.
 
 ## Conventions
@@ -38,5 +38,8 @@ Status: the simulator plays a storyboard of several formations. A formation can 
   3. Take a headless browser screenshot only when a change needs a visual check. Do not use the browser for every small change. Keep screenshot scripts out of the repository.
 - In the cloud container, Chromium is at `/opt/pw-browsers/chromium` and Playwright is installed globally. WebGL2 runs there through software rendering.
 - Work in milestones. Commit and push after each one.
+- In the commit that finishes a milestone, add the milestone to `SPEC.md` and set the same number and the date in `src/version.js`. A test checks the number.
+- `main` holds the last finished milestone. After each milestone push, move `main` forward to the work branch (a fast-forward) and push it too.
+- A new module in `src/` needs a `modulepreload` link in `index.html`. A test checks the list.
 - When a design or technical decision changes, update `SPEC.md` and this file in the same commit. Update `README.md` when the controls or the commands change.
 - Prose style: Simplified Technical English. Short sentences, active voice, one term per concept.

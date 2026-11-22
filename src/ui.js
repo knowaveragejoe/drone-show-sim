@@ -3,6 +3,7 @@
 
 import { formationProblems, isBelowGround, isTooClose, speedAt } from './plan.js';
 import { BUILTIN_SHAPES } from './shapes.js';
+import { VERSION } from './version.js';
 import {
   CHASE_FIELDS,
   CHASE_PATTERNS,
@@ -106,6 +107,8 @@ export function createUi(actions) {
     isLive,
   );
   const motionFields = buildFields(byId('motion-fields'), MOTION_FIELDS, actions.setFormation, isLive);
+
+  byId('version').textContent = `Version ${VERSION.milestone} · ${VERSION.date}`;
 
   const undo = /** @type {HTMLButtonElement} */ (byId('undo'));
   const redo = /** @type {HTMLButtonElement} */ (byId('redo'));
