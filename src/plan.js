@@ -1124,6 +1124,42 @@ export function formationProblems(plan, formation, limits) {
   return problems;
 }
 
+const LANDING_PROBLEM = 'Drones come too close in the landing.';
+const LANDING_SPREAD_PROBLEM = 'Drones leave the flight volume when they spread out before the landing.';
+const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
+
+/**
+ * Lists every problem of the show, in words for the user.
+ * @param {import('./state.js').State} state
+ * @param {Plan} plan
+ * @returns {string[]}
+ */
+export function showProblems(state, plan) {
+  const problems = [];
+  if (plan.takeoffOutsideVolume > 0) problems.push(TAKEOFF_PROBLEM);
+  state.formations.forEach((formation, index) => {
+    for (const problem of formationProblems(plan, index, state.fleet)) {
+      problems.push(`Formation ${index + 1}: ${problem}`);
+    }
+  });
+  const last = plan.steps.at(-1);
+  if (last.formation < 0) problems.push(...landingProblems(last, state.fleet.minSpacing));
+  return problems;
+}
+
+/**
+ * Lists what is wrong with the landing, in words for the user.
+ * @param {Step} step the landing step
+ * @param {number} minSpacing meters
+ * @returns {string[]}
+ */
+export function landingProblems(step, minSpacing) {
+  const problems = [];
+  if (isTooClose(step.closestApproach, minSpacing)) problems.push(LANDING_PROBLEM);
+  if (step.spreadOutside > 0) problems.push(LANDING_SPREAD_PROBLEM);
+  return problems;
+}
+
 /**
  * Finds the step that a time is in.
  * @param {Plan} plan

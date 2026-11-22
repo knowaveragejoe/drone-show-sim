@@ -510,6 +510,18 @@ output.warn {
   white-space: nowrap;
 }
 
+/* A note while the page plans a show. The page does not draw while it plans. */
+#view-busy {
+  top: 12px;
+  left: 50%;
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 #view-hint {
   position: absolute;
   bottom: 10px;
@@ -787,7 +799,7 @@ output.warn {
   right: 0;
   z-index: 10;
   display: grid;
-  width: 220px;
+  width: 260px;
   padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -806,6 +818,34 @@ output.warn {
 .menu-items button:hover:not(:disabled) {
   border-color: transparent;
   background: var(--control-hover);
+}
+
+.menu-heading {
+  margin: 4px 0 0;
+  padding: 8px 10px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#demo-list {
+  display: grid;
+}
+
+/* A demo shows its name and, below it, a line about it. */
+.menu-items button.demo {
+  display: grid;
+  gap: 1px;
+  height: auto;
+  padding: 6px 10px;
+}
+
+.demo-summary {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .menu-note {

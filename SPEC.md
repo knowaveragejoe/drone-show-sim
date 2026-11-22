@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: the simulator plays a show of several formations. A formation can turn slowly in its hold, and a light chase can run across it. `README.md` tells how to run and publish it.
+Status: the simulator plays a show of several formations. A formation can tilt, turn, sway, rock, and roll, its drones can have their own colors, and a light chase can run across it. The Project menu opens two demo shows. `README.md` tells how to run and publish it.
 
 ## Purpose
 
@@ -71,6 +71,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Crossing conflict | When a direct flight brings drones too close, the fleet spreads out, crosses, and closes up. A setting turns this off. |
 | Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
 | Saving | Autosave in browser storage. Export and import of a JSON project file. |
+| Demos | Demo shows as project files in the `demos` folder. The Project menu opens them. Each one passes every check. |
 | Undo | Undo and redo of every change to the project. Quick changes of one field make one step. |
 | Tests | Node unit tests for the math. One headless browser smoke test. |
 | Hosting | GitHub Pages from the repository root. |
@@ -462,7 +463,7 @@ The timeline also marks a landing in which drones come too close, or leave the f
 ## User interface
 
 The 3D view fills the page. Overlays on the view hold the view controls and the checks.
-A sidebar sits on the right. Its header holds the title, the Undo and Redo buttons, and the Project menu: New show, Import, and Export.
+A sidebar sits on the right. Its header holds the title, the Undo and Redo buttons, and the Project menu: New show, Import, Export, and the Demos list.
 Under the header, three tabs: Show, Fleet, and Drones.
 A transport bar sits under the 3D view.
 
@@ -490,6 +491,7 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 |---|---|
 | Top left | Paths and Volume toggle buttons. Audience view button. |
 | Top right | The Checks panel: a status line, the five readouts, and a list of problems. A click on the status line folds the panel to one line. |
+| Top middle | A note while a new plan pauses the page: "Planning the show…" after an imported project file or shape, and "Loading" and the demo name while a demo loads. The page draws the note before it starts the plan. |
 | Bottom left | A short hint for the mouse controls. |
 
 The status line says "All checks pass", or counts the problems.
@@ -518,7 +520,7 @@ The left and right arrow keys move between the tabs.
 
 ### Undo and redo
 
-Every change to the project is a step that the user can undo: fields, the storyboard, imports, and New show.
+Every change to the project is a step that the user can undo: fields, the storyboard, imports, demos, and New show.
 A change of the view is not a step: the camera, the timeline, the selection, and the overlays.
 
 | Input | Action |
@@ -552,6 +554,25 @@ If the browser does not store the text, for example because a large OBJ model ma
 
 New show replaces the project with the default show. Undo brings the old show back.
 
+### Demos
+
+The `demos` folder holds demo shows as project files.
+The Demos list in the Project menu shows the name of each demo and a line about it.
+`src/demos.js` holds the list.
+
+| Demo | Drones | What it shows |
+|---|---|---|
+| First light | 120 | A short show for a first look, in solid colors: a sphere and a helix that turn, a ring with a light chase, and a heart that rocks with a light chase. Then the fleet lands. |
+| The works | 400 | Most features in one show. A disc with an Outward gradient, like a sunrise. A turning sphere with an Across gradient. Saturn, an OBJ model with a forward and a sideways tilt. A turning helix with a Rising gradient. A wireframe cube: an OBJ model of thin tubes along the 12 edges, so the drones sit on the edges. It tilts and turns, and an Outward gradient lights its corners. A quadcopter drawing in its drawing colors that sways, rocks, and rolls: a drone made of drones. A torus that turns and rolls. The word WOW! as a drawing. Three hearts inside each other, with a light chase. The fleet spreads out to pass in three transitions and in the landing. |
+
+A click on a demo fetches its file with a relative URL.
+The demo then opens like an imported project file: with the same checks, as one undo step, on its first formation, with the camera on the show.
+When the file does not load, a message under the header tells why, and the show does not change.
+
+Each demo must pass every check. A test plans each demo and checks that the problem list is empty.
+Another test checks that the list in `src/demos.js` and the files in `demos/` match.
+To add a demo, export the show, put the file in `demos/`, and add its name, its line, and its file to `src/demos.js`.
+
 ### Selection
 
 A click on a list row or on a drone in the 3D view selects that drone.
@@ -568,6 +589,11 @@ A click on empty space or the Escape key clears the selection.
 
 The Audience view button puts the camera 150 m in front of the takeoff grid at eye height.
 It aims the camera at the center of the selected formation.
+
+When a show opens, the camera frames it: on page open, on New show, on an imported project file, and on a demo.
+The camera looks from the start direction at the middle between the lowest bottom and the highest top of the formations.
+It stays at the start distance, 240 m, or moves back until that span fills three quarters of the view height.
+Undo and redo do not move the camera.
 
 ### Transport bar
 
@@ -687,6 +713,8 @@ README.md         how to run, use, test, and publish the simulator
 docs/
   screenshot.png  picture for the README
   social.png      1200 × 630 picture for link previews
+demos/
+  *.droneshow.json  demo shows; the Project menu opens them
 src/
   main.js         start-up; connects state, plan, renderer, and user interface
   state.js        default state, field limits, project file export and import
@@ -701,7 +729,8 @@ src/
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn and swing profiles, pose rotation
   mat4.js         matrix helpers for the camera
-  camera.js       orbit camera and mouse input
+  camera.js       orbit camera, the frame of a show, and mouse input
+  demos.js        the list of demo shows
   renderer.js     WebGL2 shaders, buffers, and draw calls
   ui.js           sidebar tabs and controls, storyboard, drone list, transport bar
   version.js      the milestone number and date that the Project menu shows
@@ -711,8 +740,10 @@ tools/
   smoke.js        headless browser smoke test
 ```
 
-`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, and `motion.js` are pure.
+`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, `motion.js`, and `demos.js` are pure.
 They use no DOM and no WebGL, so Node can run their tests.
+`camera.js` uses the DOM only in its mouse input function, so Node also tests its other functions.
+`plan.js` also lists the problems of a show in words, so a test can check the demos.
 
 ## Tests
 
@@ -735,6 +766,8 @@ No `npm install` is necessary.
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
+| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. |
+| `demos.test.js` | Each demo has a name, a line, and a relative URL of a file in `demos/`. The list and the folder match. Each demo loads like an imported project file and passes every check. |
 | `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
@@ -753,7 +786,7 @@ The `CHROME_PATH` environment variable selects the browser binary.
 
 GitHub Pages serves the repository root from a branch.
 The site needs no build and no workflow file.
-All URLs that the page loads are relative, so the site works under `/drone-show-sim/`.
+All URLs that the page loads are relative, so the site works under `/drone-show-sim/`. This includes the demo files, which the page fetches.
 `README.md` lists the steps to turn Pages on.
 
 The `main` branch holds the last finished milestone. Work happens on another branch, and `main` moves forward to it after each milestone. Pages serves `main`, so the site shows the last finished milestone.
@@ -798,6 +831,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 18 | Even spacing | A walk along curves, and farthest point optimization on surfaces. Fit makes shapes 9 to 32 percent smaller. | Done |
 | 19 | Tilt and swings | A fixed tilt forward and sideways. Sway, rock, and roll in the hold, mixed freely with the turn. Checks sample the motion of each hold. | Done |
 | 20 | Hosting polish | Module preload, an icon, a link preview, a version in the Project menu, and a `main` branch. | Done |
+| 21 | Demos | Two demo shows in the Project menu: First light and The works. The camera frames a show when it opens. A note on the 3D view while a plan pauses the page. | Done |
 
 ## Known limits
 
@@ -816,6 +850,9 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 - The undo history does not survive a page reload. Only the project does.
+- A demo loads with a fetch, so the page must come from a web server. A page opened as a local file cannot load a demo.
+- The first plan of The works takes about 1 second on a fast CPU. The page shows a note, but it does not draw while it plans.
+- The camera frame looks at the heights of the formations only. A wide formation can be wider than the view.
 - Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
 - The checks of a hold look at the motion many times, not at every moment. Between two looks a drone can leave its path by up to 0.015% of its distance from the center. A very long hold with a fast motion reaches the limit of 4,096 looks; its checks are then coarser.

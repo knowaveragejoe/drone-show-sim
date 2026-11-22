@@ -1,7 +1,15 @@
 // Sidebar tabs and controls, the storyboard, the drone list, the overlays on the 3D view,
 // and the transport bar.
 
-import { formationProblems, isBelowGround, isTooClose, speedAt } from './plan.js';
+import {
+  formationProblems,
+  isBelowGround,
+  isTooClose,
+  landingProblems,
+  showProblems,
+  speedAt,
+} from './plan.js';
+import { DEMOS } from './demos.js';
 import { BUILTIN_SHAPES } from './shapes.js';
 import { VERSION } from './version.js';
 import {
@@ -70,9 +78,8 @@ const FLEET_KEYS = ['count', 'gridSpacing'];
 // The checks panel lists this many problems. A last line counts the rest.
 const MAX_LISTED_PROBLEMS = 4;
 
-const LANDING_PROBLEM = 'Drones come too close in the landing.';
-const LANDING_SPREAD_PROBLEM = 'Drones leave the flight volume when they spread out before the landing.';
-const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
+// The note on the 3D view while a new plan pauses the page.
+const PLANNING_NOTE = 'Planning the show…';
 
 /**
  * @param {Actions} actions
@@ -130,9 +137,11 @@ export function createUi(actions) {
   byId('export-project').addEventListener('click', () => {
     download(PROJECT_FILE_NAME, actions.projectText());
   });
-  wireFilePicker(byId('import-project'), byId('project-file'), byId('project-error'), (fileName, text) =>
+  const projectError = byId('project-error');
+  wireFilePicker(byId('import-project'), byId('project-file'), projectError, (fileName, text) =>
     actions.importProject(text),
   );
+  buildDemoList(byId('demo-list'), projectError, actions.importProject);
 
   const storyboard = buildStoryboard(byId('formation-list'), actions.selectFormation);
   const addFormation = /** @type {HTMLButtonElement} */ (byId('add-formation'));
@@ -351,38 +360,6 @@ export function createUi(actions) {
   }
 
   return { refresh, showFrame, showHistory, revealDrone: droneList.reveal };
-}
-
-/**
- * Lists every problem of the show, in words for the user.
- * @param {import('./state.js').State} state
- * @param {import('./plan.js').Plan} plan
- * @returns {string[]}
- */
-function showProblems(state, plan) {
-  const problems = [];
-  if (plan.takeoffOutsideVolume > 0) problems.push(TAKEOFF_PROBLEM);
-  state.formations.forEach((formation, index) => {
-    for (const problem of formationProblems(plan, index, state.fleet)) {
-      problems.push(`Formation ${index + 1}: ${problem}`);
-    }
-  });
-  const last = plan.steps.at(-1);
-  if (last.formation < 0) problems.push(...landingProblems(last, state.fleet.minSpacing));
-  return problems;
-}
-
-/**
- * Lists what is wrong with the landing, in words for the user.
- * @param {import('./plan.js').Step} step the landing step
- * @param {number} minSpacing meters
- * @returns {string[]}
- */
-function landingProblems(step, minSpacing) {
-  const problems = [];
-  if (isTooClose(step.closestApproach, minSpacing)) problems.push(LANDING_PROBLEM);
-  if (step.spreadOutside > 0) problems.push(LANDING_SPREAD_PROBLEM);
-  return problems;
 }
 
 /**
@@ -700,18 +677,93 @@ function wireFilePicker(button, input, errorBox, importText) {
     // Empty the picker, so the same file can be picked again.
     picker.value = '';
     if (!file) return;
-    let message;
+    let text;
     try {
-      const text = await file.text();
-      message = importText(file.name, text);
+      text = await file.text();
     } catch (error) {
       // Only a failed read is expected here. Any other error is a bug and must stay visible.
       if (!(error instanceof DOMException)) throw error;
-      message = 'The browser could not read the file.';
+      showMessage(errorBox, 'The browser could not read the file.');
+      return;
     }
-    errorBox.textContent = message ?? '';
-    errorBox.hidden = message === null;
+    showMessage(errorBox, await withNote(PLANNING_NOTE, () => importText(file.name, text)));
   });
+}
+
+/**
+ * Fills the demo list of the Project menu. A demo opens like an imported project file, so
+ * Undo brings the old show back.
+ * @param {HTMLElement} list
+ * @param {HTMLElement} errorBox shows the error message of a demo that does not load
+ * @param {(text: string) => string | null} importProject returns an error message, or null
+ */
+function buildDemoList(list, errorBox, importProject) {
+  for (const demo of DEMOS) {
+    const button = element('button', 'demo');
+    button.type = 'button';
+    button.title = 'Open this demo show. Undo brings the old show back.';
+    const name = element('span', 'demo-name');
+    name.textContent = demo.name;
+    const summary = element('span', 'demo-summary');
+    summary.textContent = demo.summary;
+    button.append(name, summary);
+    button.addEventListener('click', async () => {
+      showMessage(errorBox, await withNote(`Loading ${demo.name}…`, () => loadDemo(demo, importProject)));
+    });
+    list.append(button);
+  }
+}
+
+/**
+ * Fetches the project file of a demo and opens it.
+ * @param {import('./demos.js').Demo} demo
+ * @param {(text: string) => string | null} importProject returns an error message, or null
+ * @returns {Promise<string | null>} an error message, or null
+ */
+async function loadDemo(demo, importProject) {
+  let text;
+  try {
+    const response = await fetch(demo.file);
+    if (!response.ok) {
+      return `The demo "${demo.name}" did not load. The server answered ${response.status}.`;
+    }
+    text = await response.text();
+  } catch (error) {
+    // Only a failed fetch is expected here. Any other error is a bug and must stay visible.
+    if (!(error instanceof TypeError)) throw error;
+    return `The demo "${demo.name}" did not load. Check the network connection.`;
+  }
+  return importProject(text);
+}
+
+/**
+ * Runs work that can pause the page, such as the plan of a large show. A note on the 3D view
+ * says what happens. The work starts after the browser has drawn the note.
+ * @template T
+ * @param {string} note
+ * @param {() => T | Promise<T>} work
+ * @returns {Promise<T>}
+ */
+async function withNote(note, work) {
+  const box = byId('view-busy');
+  box.textContent = note;
+  box.hidden = false;
+  // A frame callback runs before the browser draws the frame. A timer that it starts runs after.
+  await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));
+  try {
+    return await work();
+  } finally {
+    box.hidden = true;
+  }
+}
+
+/**
+ * @param {HTMLElement} box
+ * @param {string | null} message null hides the box
+ */
+function showMessage(box, message) {
+  box.textContent = message ?? '';
+  box.hidden = message === null;
 }
 
 /**

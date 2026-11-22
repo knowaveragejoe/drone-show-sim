@@ -31,6 +31,7 @@
   <link rel="modulepreload" href="src/state.js">
   <link rel="modulepreload" href="src/ui.js">
   <link rel="modulepreload" href="src/version.js">
+  <link rel="modulepreload" href="src/demos.js">
   <link rel="modulepreload" href="src/assign.js">
   <link rel="modulepreload" href="src/motion.js">
   <link rel="modulepreload" href="src/obj.js">
@@ -68,6 +69,7 @@
         </div>
       </details>
 
+      <p id="view-busy" class="hud" role="status" hidden></p>
       <p id="view-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a drone to select it</p>
       <p id="fatal" role="alert" hidden></p>
     </div>
@@ -102,6 +104,8 @@
             <button id="new-show" type="button" title="Start again from the default show. Undo brings the old show back.">New show</button>
             <button id="import-project" type="button" title="Load a project file">Import…</button>
             <button id="export-project" type="button" title="Save the project as a file">Export</button>
+            <p class="menu-heading" id="demos-heading">Demos</p>
+            <div id="demo-list" role="group" aria-labelledby="demos-heading"></div>
             <p class="menu-note">The show saves in this browser as you work.<br><span id="version"></span></p>
           </div>
         </details>

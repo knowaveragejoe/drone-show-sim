@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: the simulator plays a storyboard of several formations. A formation can tilt forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. Targets are evenly spaced: a walk along curves, and farthest point optimization on surfaces. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. `SPEC.md` lists the milestones, the known limits, and the future features.
+Status: the simulator plays a storyboard of several formations. A formation can tilt forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. Targets are evenly spaced: a walk along curves, and farthest point optimization on surfaces. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. The Project menu opens two demo shows from the `demos` folder. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 
@@ -41,5 +41,6 @@ Status: the simulator plays a storyboard of several formations. A formation can 
 - In the commit that finishes a milestone, add the milestone to `SPEC.md` and set the same number and the date in `src/version.js`. A test checks the number.
 - `main` holds the last finished milestone. After each milestone push, move `main` forward to the work branch (a fast-forward) and push it too.
 - A new module in `src/` needs a `modulepreload` link in `index.html`. A test checks the list.
+- Each demo in `demos/` must pass every check, and `src/demos.js` must list it. A test checks both. When a change to the planner breaks a demo, fix the demo or the change.
 - When a design or technical decision changes, update `SPEC.md` and this file in the same commit. Update `README.md` when the controls or the commands change.
 - Prose style: Simplified Technical English. Short sentences, active voice, one term per concept.

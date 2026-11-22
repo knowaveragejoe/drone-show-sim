@@ -3,6 +3,7 @@
 import {
   attachCameraControls,
   createCamera,
+  frameShow,
   pixelsPerMeter,
   setAudienceView,
   viewProjection,
@@ -121,6 +122,7 @@ function start() {
   let plan = firstPlan ?? planner(state);
   // The color of each formation, for the flight paths.
   let colors = state.formations.map((formation) => hexToRgb(formation.color));
+  frameShow(camera, state.formations);
   // The page opens on the first formation. Play runs the show from there.
   /** @type {import('./ui.js').View} */
   const view = {
@@ -210,6 +212,16 @@ function start() {
       else history.undo(snapshot);
     }
     changed();
+  }
+
+  /**
+   * Shows a project that the user opens: a project file, a demo, or the default show. The
+   * view starts like a page open: on the first formation, with the camera on the show.
+   */
+  function openedShow() {
+    showFormation(0);
+    view.selected = -1;
+    frameShow(camera, state.formations);
   }
 
   /**
@@ -324,17 +336,10 @@ function start() {
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }
-      // A loaded project opens like the page does: on the first formation.
-      return change(next, null, () => {
-        showFormation(0);
-        view.selected = -1;
-      });
+      return change(next, null, openedShow);
     },
     newShow() {
-      change(defaultState(), null, () => {
-        showFormation(0);
-        view.selected = -1;
-      });
+      change(defaultState(), null, openedShow);
     },
     undo() {
       travel('undo');

@@ -2,4 +2,4 @@
 // the date of that milestone. The commit that finishes a milestone updates both. A test checks
 // that the number matches SPEC.md.
 
-export const VERSION = { milestone: 20, date: '2026-11-22' };
+export const VERSION = { milestone: 21, date: '2026-11-22' };

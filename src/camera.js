@@ -78,6 +78,32 @@ export function setAudienceView(camera, centerHeight) {
   camera.elevation = Math.atan2(rise, AUDIENCE_DISTANCE);
 }
 
+// When the camera frames a show, the formations fill this share of the view height or less.
+const FRAME_FILL = 0.75;
+
+/**
+ * Aims the camera at the formations of a show, from the start direction. The camera aims at
+ * the middle between the lowest bottom and the highest top of the formations. It stays at the
+ * start distance, or moves back until that span fills `FRAME_FILL` of the view height.
+ * @param {Camera} camera
+ * @param {{centerHeight: number, size: number}[]} formations
+ */
+export function frameShow(camera, formations) {
+  let bottom = Infinity;
+  let top = -Infinity;
+  for (const { centerHeight, size } of formations) {
+    bottom = Math.min(bottom, centerHeight - size / 2);
+    top = Math.max(top, centerHeight + size / 2);
+  }
+  const start = createCamera();
+  camera.target = [0, 0, (bottom + top) / 2];
+  camera.azimuth = start.azimuth;
+  camera.elevation = start.elevation;
+  const fitDistance = (top - bottom) / FRAME_FILL / (2 * Math.tan(camera.fovY / 2));
+  camera.distance = Math.max(start.distance, fitDistance);
+  clampCamera(camera);
+}
+
 /** @param {Camera} camera */
 function clampCamera(camera) {
   camera.distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, camera.distance));
