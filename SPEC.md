@@ -756,7 +756,7 @@ The site needs no build and no workflow file.
 All URLs that the page loads are relative, so the site works under `/drone-show-sim/`.
 `README.md` lists the steps to turn Pages on.
 
-The `main` branch holds the last finished milestone. Work happens on another branch, and `main` moves forward to it after each milestone. Pages is to serve `main`.
+The `main` branch holds the last finished milestone. Work happens on another branch, and `main` moves forward to it after each milestone. Pages serves `main`, so the site shows the last finished milestone.
 
 The page head has these parts for hosting:
 
