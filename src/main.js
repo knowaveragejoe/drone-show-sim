@@ -1,8 +1,14 @@
 // Start-up. Connects the state, the plan, the renderer, and the user interface.
 
 import {
+  SHOWTIME_MAX_FOV,
+  SHOWTIME_MIN_FOV,
+  aimFromSeat,
   attachCameraControls,
+  audienceShot,
+  cameraAxes,
   createCamera,
+  easeShot,
   frameShow,
   pixelsPerMeter,
   setAudienceView,
@@ -49,6 +55,14 @@ const END_SLACK = 1e-6;
 // Longest step of the timeline in one frame, seconds. A browser tab in the background
 // draws no frames; without the limit the show would jump when the tab comes back.
 const MAX_FRAME_STEP = 0.1;
+
+// Longest step of the Showtime camera in one frame, seconds. It is longer than the step of the
+// timeline, so the camera keeps up on a slow computer that draws few frames.
+const MAX_CAMERA_STEP = 1;
+
+// In Showtime the orbit target is this far along the line of sight, meters. Only the
+// direction of the camera matters, so any distance works.
+const SHOWTIME_AIM_DISTANCE = 200;
 
 /**
  * Shows an error on the page and marks the page for the smoke test.
@@ -133,6 +147,13 @@ function start() {
     showPaths: true,
     showVolume: true,
   };
+
+  /**
+   * Showtime: the page hides its panels and plays the show from the audience seat. It keeps
+   * the camera of the editor, to put it back after Showtime. Null when Showtime is off.
+   * @type {{camera: import('./camera.js').Camera, shot: import('./camera.js').Shot | null} | null}
+   */
+  let showtime = null;
 
   const positions = new Float32Array(MAX_DRONES * 3);
   const brightness = new Float32Array(MAX_DRONES);
@@ -356,8 +377,27 @@ function start() {
       requestFrame();
     },
     audienceView() {
-      setAudienceView(camera, state.formations[view.formation].centerHeight);
+      // Step k flies to formation k, so its end is the formation as the hold starts.
+      setAudienceView(camera, plan.steps[view.formation].to, aspect());
       requestFrame();
+    },
+    startShowtime() {
+      if (showtime) return;
+      showtime = { camera: { ...camera, target: [...camera.target] }, shot: null };
+      view.time = 0;
+      view.playing = true;
+      lastFrameTime = performance.now();
+      renderer.setRoute([]);
+      ui.showShowtime(true);
+      requestFrame();
+    },
+    stopShowtime() {
+      if (!showtime) return;
+      Object.assign(camera, showtime.camera);
+      showtime = null;
+      view.playing = false;
+      ui.showShowtime(false);
+      showRoute();
     },
     togglePlay() {
       if (!view.playing && view.time >= plan.total) view.time = 0;
@@ -396,6 +436,7 @@ function start() {
    * @param {number} y CSS pixels from the top edge of the canvas
    */
   function pick(x, y) {
+    if (showtime) return;
     let nearest = -1;
     let nearestDistance = PICK_RADIUS;
     for (let drone = 0; drone < plan.count; drone++) {
@@ -425,11 +466,34 @@ function start() {
     requestAnimationFrame(drawFrame);
   }
 
+  /** @returns {number} width ÷ height of the 3D view */
+  function aspect() {
+    return canvas.clientWidth / Math.max(1, canvas.clientHeight);
+  }
+
+  /**
+   * Moves the Showtime camera toward a shot of the drones and of the place that they fly to.
+   * @param {number} seconds time since the last frame
+   */
+  function followShow(seconds) {
+    if (!showtime) return;
+    const step = plan.steps[stepAt(plan, view.time)];
+    const target = audienceShot(
+      [positions.subarray(0, plan.count * 3), step.to],
+      aspect(),
+      SHOWTIME_MIN_FOV,
+      SHOWTIME_MAX_FOV,
+    );
+    showtime.shot = showtime.shot ? easeShot(showtime.shot, target, seconds) : target;
+    aimFromSeat(camera, showtime.shot, SHOWTIME_AIM_DISTANCE);
+  }
+
   /** @param {number} now time of this frame, milliseconds */
   function drawFrame(now) {
     frameRequested = false;
+    const elapsed = Math.max(0, (now - lastFrameTime) / 1000);
     if (view.playing) {
-      view.time += Math.min(MAX_FRAME_STEP, Math.max(0, (now - lastFrameTime) / 1000));
+      view.time += Math.min(MAX_FRAME_STEP, elapsed);
       if (view.time >= plan.total) {
         view.time = plan.total;
         view.playing = false;
@@ -442,22 +506,32 @@ function start() {
     positionsAt(plan, view.time, positions);
     brightnessAt(plan, view.time, brightness);
     lightColorsAt(plan, view.time, lightColors);
-    viewProjection(camera, canvas.clientWidth / Math.max(1, canvas.clientHeight), viewProj);
+    followShow(Math.min(MAX_CAMERA_STEP, elapsed));
+    viewProjection(camera, aspect(), viewProj);
     renderer.draw({
       viewProj,
+      camera: cameraAxes(camera),
+      time: now / 1000,
       pixelsPerMeter: pixelsPerMeter(camera, canvas.clientHeight),
       positions: positions.subarray(0, plan.count * 3),
       brightness: brightness.subarray(0, plan.count),
       colors: lightColors.subarray(0, plan.count * 3),
       count: plan.count,
       pathColor: lightColorAt(plan, colors, view.time),
-      selected: view.selected,
+      // Showtime shows the show only: no selection, grid, volume, or paths.
+      selected: showtime ? -1 : view.selected,
       pathStep: stepAt(plan, view.time),
-      showPaths: view.showPaths,
-      showVolume: view.showVolume,
+      showGrid: !showtime,
+      showPaths: !showtime && view.showPaths,
+      showVolume: !showtime && view.showVolume,
       volumeBroken: plan.outsideVolume > 0,
     });
     ui.showFrame(plan, view, positions);
+    if (showtime) {
+      ui.showShowtimeState(view.playing, view.time >= plan.total);
+      // The camera eases and the stars twinkle, also while the show pauses.
+      requestFrame();
+    }
 
     if (firstFrame) {
       firstFrame = false;

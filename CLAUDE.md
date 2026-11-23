@@ -5,7 +5,7 @@ A browser tool that previews a drone light show in 3D.
 `SPEC.md` is the source of truth for scope, terms, algorithms, and milestones.
 Read it before any change.
 
-Status: the simulator plays a storyboard of several formations. A formation can tilt forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. Targets are evenly spaced: a walk along curves, and farthest point optimization on surfaces. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. The Project menu opens two demo shows from the `demos` folder. `SPEC.md` lists the milestones, the known limits, and the future features.
+Status: the simulator plays a storyboard of several formations. A formation can tilt forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time, and a light chase can run across it. Each drone has its own light color: a formation has one color, a two-color gradient, or the colors of an SVG drawing. Targets are evenly spaced: a walk along curves, and farthest point optimization on surfaces. When a direct flight would bring drones too close, the fleet spreads out, crosses, and closes up. The page has undo and redo, and it autosaves the show in the browser. The Project menu opens two demo shows from the `demos` folder. The 3D view shows a night sky, a field, hills, and a crowd, and Showtime plays the show full screen from the audience seat. `SPEC.md` lists the milestones, the known limits, and the future features.
 
 ## Hard constraints
 
@@ -19,7 +19,7 @@ Status: the simulator plays a storyboard of several formations. A formation can 
 
 - Units: meters, seconds, degrees.
 - Axes: right-handed, Z up. The audience stands on the negative Y axis and looks toward positive Y.
-- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, storyboard, takeoff grid, stop, transition, leg, spread, hold, tilt, turn, swing, sway, rock, roll, light chase, color pattern, gradient, step, assignment, flight volume.
+- Use the terms from `SPEC.md` in code, interface text, and docs: drone, fleet, shape, target, formation, storyboard, takeoff grid, stop, transition, leg, spread, hold, tilt, turn, swing, sway, rock, roll, light chase, color pattern, gradient, step, assignment, flight volume, audience seat, Showtime.
 - Math modules stay pure: no DOM and no WebGL. Node runs their tests.
 - Never change the project state in place. Each change makes a new state object. The undo history keeps old state objects as its steps.
 - Random sampling uses the seeded generator, so results repeat.

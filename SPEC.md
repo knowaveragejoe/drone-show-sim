@@ -1,6 +1,6 @@
 # Drone show simulator: specification
 
-Status: the simulator plays a show of several formations. A formation can tilt, turn, sway, rock, and roll, its drones can have their own colors, and a light chase can run across it. The Project menu opens two demo shows. `README.md` tells how to run and publish it.
+Status: the simulator plays a show of several formations. A formation can tilt, turn, sway, rock, and roll, its drones can have their own colors, and a light chase can run across it. The Project menu opens two demo shows. The 3D view shows a night sky, a field, hills, and a crowd, and Showtime plays the show full screen from the crowd. `README.md` tells how to run and publish it.
 
 ## Purpose
 
@@ -41,6 +41,8 @@ When the march would bring two marchers too close, the band first opens its rank
 | Rock | A swing toward the audience and back, like a nod. |
 | Roll | A swing to the left and to the right as the audience sees it. |
 | Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
+| Audience seat | The place in the crowd where the Audience view and Showtime put the camera: at eye height, 10 m behind the front row of the crowd. |
+| Showtime | A mode that hides the panels and plays the whole show full screen, from the audience seat. |
 | Color pattern | How the drones of a formation get their light colors: one solid color, a gradient, or the drawing colors of an SVG drawing. |
 | Gradient | A blend from the formation color to a second color across the formation: rising, across, or outward. |
 | Step | One transition and the hold after it. A show is a list of steps. |
@@ -65,6 +67,8 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Color | Each drone has its own light color. A formation has a color pattern: one solid color, a gradient of two colors (Rising, Across, or Outward), or, for an SVG drawing, the colors of the drawing. In a transition each drone blends from its old color to its new color. |
 | Hold motion | Each formation can have a fixed tilt, forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time. The turn lets the audience see the depth of the shape. Each swing ends where it started. |
 | Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
+| Scenery | A night sky with stars, a field, hills on the horizon, and a crowd at the audience line. They show the place and the scale of the show. The editor shows them too, with a faint grid on the field. |
+| Showtime | A Showtime button plays the whole show full screen from the audience seat. The camera follows the show. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
@@ -489,7 +493,7 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 | Place | Contents |
 |---|---|
-| Top left | Paths and Volume toggle buttons. Audience view button. |
+| Top left | Paths and Volume toggle buttons. Audience view button. Showtime button. |
 | Top right | The Checks panel: a status line, the five readouts, and a list of problems. A click on the status line folds the panel to one line. |
 | Top middle | A note while a new plan pauses the page: "Planning the show…" after an imported project file or shape, and "Loading" and the demo name while a demo loads. The page draws the note before it starts the plan. |
 | Bottom left | A short hint for the mouse controls. |
@@ -587,8 +591,32 @@ A click on empty space or the Escape key clears the selection.
 | Wheel | Zoom |
 | Right-drag or Shift-drag | Pan |
 
-The Audience view button puts the camera 150 m in front of the takeoff grid at eye height.
-It aims the camera at the center of the selected formation.
+The Audience view button puts the camera at the audience seat: 160 m in front of the takeoff grid, at eye height, inside the crowd.
+It aims the camera at the selected formation with the shot of the Showtime camera (see Showtime), but it keeps the field of view of the editor.
+After the Audience view, an orbit turns about the middle of the formation.
+
+### Showtime
+
+The Showtime button hides the sidebar, the transport bar, and the overlays, and asks the browser for full screen.
+The show plays from the takeoff grid. The view hides the grid, the flight volume, the paths, and the selection.
+A hint at the bottom says the keys. It and the pointer hide after 2.5 seconds with no input.
+
+| Input | Action |
+|---|---|
+| Space | Pause or play. While the show pauses, the hint says "Paused". |
+| Escape, or leaving full screen | Back to the editor |
+
+At the end of the show, a card offers "Watch again" and "Back to the editor".
+Back in the editor, the camera is where it was before Showtime. The timeline stays where Showtime stopped.
+
+The Showtime camera stands at the audience seat. For each frame it finds a shot (yaw, pitch, and field of view) that shows the drones and the stop that they fly to:
+
+1. The yaw aims at the middle of the points from left to right.
+2. When the points leave room, the bottom of the view shows 3° of ground below the horizon, so the heads of the crowd show at the bottom of the view, and the spare room goes above the points.
+3. The field of view grows from 30° until the points fit, with 8 percent of the view free at each edge, up to 75°. When the points do not fit with the ground, the ground leaves the view. When they do not fit at all, the shot aims at their middle.
+4. The angles are exact only in the middle of the view, so a last check projects every point and widens the view until each one fits.
+
+The camera eases toward the new shot: it closes 63 percent of the gap in 1.2 seconds. The ease depends on time, not on the number of frames.
 
 When a show opens, the camera frames it: on page open, on New show, on an imported project file, and on a demo.
 The camera looks from the start direction at the middle between the lowest bottom and the highest top of the formations.
@@ -617,11 +645,16 @@ When the plan changes, the timeline keeps the same moment: the end stays the end
 
 ## Rendering
 
-- Background: a dark night sky.
-- Ground: a line grid on `z = 0`.
-- Audience: a short line on the ground marks where the audience stands.
+The view draws these parts in this order:
+
+1. Sky, field, and hills: one triangle that covers the view. Its fragment shader finds the direction of each pixel from the camera axes. Above the horizon it draws a sky that is dark at the top and lighter at the horizon, with the faint glow of a town far behind the show. Below the horizon it finds where the ray meets the ground and draws grass with a faint grain. The light of the show tints the field under it a little. The hills stand on a ring 3.5 km from the show, 8 to 170 m high. Far ground and far hills fade into the haze of the horizon. A little noise keeps the dark gradients from showing bands.
+2. Stars: 1,600 points at infinity, above 4°, many dim and a few bright, in faint tints. They fade near the horizon and twinkle a little.
+3. Crowd: 1,200 people on the field from the audience line 35 m back, 140 m wide, denser at the front. Each person is one quad that turns about its vertical axis to face the camera. The fragment shader cuts out the outline of a person seen from behind: a head, a neck, sloped shoulders, and the body, with smooth joins. Heights and widths vary, a few people are children, and 5 percent hold up a phone with a lit screen. The show lights the top edges of the people with its mean color. Alpha to coverage smooths the outlines. The crowd is the only solid part: it writes the depth buffer.
+4. Ground grid, flight volume, paths, and route: lines with additive blending. They test the depth buffer, so the crowd hides them, and they write no depth.
+5. Drones: one `gl.POINTS` draw call with additive blending, also behind the crowd. Each point has the light itself, with a hot white center, and a soft glare around it, like a bright light at night. The light shrinks with distance but has a minimum size, so far drones stay visible. The glare is at least 22 CSS pixels wide.
+
+- Ground grid: a line grid on `z = 0`. The editor shows it; Showtime does not.
 - Flight volume: one `gl.LINES` draw call for the edges of the cube.
-- Drones: one `gl.POINTS` draw call. The fragment shader draws a soft glowing disc. Blending is additive. Point size shrinks with distance but has a minimum, so far drones stay visible.
 - Brightness: a second buffer holds the brightness of each light, from stage 9. The page writes it each frame. The selected drone stays at full brightness.
 - Light color: a third buffer holds the color of each light, from stage 9a. The page writes it each frame. The selected drone is white.
 - Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity, in the formation color. In a transition between two formations, the path color blends from one formation color to the other, in the cross leg. In a hold, the current step is the one that led to the hold.
@@ -729,9 +762,10 @@ src/
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn and swing profiles, pose rotation
   mat4.js         matrix helpers for the camera
-  camera.js       orbit camera, the frame of a show, and mouse input
+  camera.js       orbit camera, the frame of a show, the audience seat shot, and mouse input
   demos.js        the list of demo shows
-  renderer.js     WebGL2 shaders, buffers, and draw calls
+  renderer.js     WebGL2 shaders, buffers, and draw calls: scenery, lines, and lights
+  scenery.js      the people of the crowd and the stars
   ui.js           sidebar tabs and controls, storyboard, drone list, transport bar
   version.js      the milestone number and date that the Project menu shows
 test/
@@ -740,7 +774,7 @@ tools/
   smoke.js        headless browser smoke test
 ```
 
-`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, `motion.js`, and `demos.js` are pure.
+`state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, `motion.js`, `demos.js`, and `scenery.js` are pure.
 They use no DOM and no WebGL, so Node can run their tests.
 `camera.js` uses the DOM only in its mouse input function, so Node also tests its other functions.
 `plan.js` also lists the problems of a show in words, so a test can check the demos.
@@ -766,7 +800,8 @@ No `npm install` is necessary.
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
-| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. |
+| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. The audience seat shot: every point in the view, the horizon in the lower quarter, the narrowest view for a small show, no horizon for a tall show and the middle for a show that does not fit, a turn toward a show to one side. Easing by time and not by frames. The camera eye at the seat, the axes, and the Audience view. |
+| `scenery.js` | The crowd: its size, its area, the spacing of the people, the clear space at the seat, heights, phones, a denser front. The stars: unit directions above 4°, a few bright ones. Both are the same each time. |
 | `demos.test.js` | Each demo has a name, a line, and a relative URL of a file in `demos/`. The list and the folder match. Each demo loads like an imported project file and passes every check. |
 | `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
@@ -832,6 +867,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 19 | Tilt and swings | A fixed tilt forward and sideways. Sway, rock, and roll in the hold, mixed freely with the turn. Checks sample the motion of each hold. | Done |
 | 20 | Hosting polish | Module preload, an icon, a link preview, a version in the Project menu, and a `main` branch. | Done |
 | 21 | Demos | Two demo shows in the Project menu: First light and The works. The camera frames a show when it opens. A note on the 3D view while a plan pauses the page. | Done |
+| 22 | Showtime | A night sky with stars, a field, hills, and a crowd. A glare around each light. Showtime plays the show full screen from the audience seat, with a camera that follows the show. | Done |
 
 ## Known limits
 
@@ -853,6 +889,11 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - A demo loads with a fetch, so the page must come from a web server. A page opened as a local file cannot load a demo.
 - The first plan of The works takes about 1 second on a fast CPU. The page shows a note, but it does not draw while it plans.
 - The camera frame looks at the heights of the formations only. A wide formation can be wider than the view.
+- The audience seat is always 160 m in front of the takeoff grid. A large show at this distance fills a wide view, and a high formation shows far above the crowd with much empty sky between. Real audiences often stand farther away.
+- The people of the crowd are flat outlines that turn to face the camera. From straight above they are thin lines.
+- The glare is part of each point, not a bloom of the whole picture. A point whose center leaves the view loses its glare at once.
+- The hills are at a fixed distance on a ring, and the scenery has no moon, no clouds, and no shadows.
+- A browser can refuse full screen, for example in a frame. Showtime then runs in the window.
 - Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
 - The checks of a hold look at the motion many times, not at every moment. Between two looks a drone can leave its path by up to 0.015% of its distance from the center. A very long hold with a fast motion reaches the limit of 4,096 looks; its checks are then coarser.

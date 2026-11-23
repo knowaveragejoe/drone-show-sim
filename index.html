@@ -16,7 +16,7 @@
   <meta property="og:image" content="https://knowaveragejoe.github.io/drone-show-sim/docs/social.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="A heart of glowing drones in the 3D view of the simulator, with the sidebar and the timeline.">
+  <meta property="og:image:alt" content="The word WOW! in colored drone lights over the dark outlines of a crowd, in the Showtime mode of the simulator.">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
   <!-- Every module of the page. The browser fetches them all at once, not one import level
@@ -39,6 +39,7 @@
   <link rel="modulepreload" href="src/shapes.js">
   <link rel="modulepreload" href="src/svg.js">
   <link rel="modulepreload" href="src/rng.js">
+  <link rel="modulepreload" href="src/scenery.js">
 </head>
 <body>
   <main id="stage">
@@ -48,7 +49,11 @@
       <div id="view-tools" class="hud" role="toolbar" aria-label="View">
         <button id="show-paths" type="button" aria-pressed="true" title="Show the flight paths of the current step">Paths</button>
         <button id="show-volume" type="button" aria-pressed="true" title="Show the flight volume">Volume</button>
-        <button id="audience-view" type="button" title="Move the camera to where the audience stands">Audience view</button>
+        <button id="audience-view" type="button" title="Move the camera into the crowd and aim it at the selected formation">Audience view</button>
+        <button id="showtime" type="button" title="Watch the whole show full screen, from the crowd">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
+          Showtime
+        </button>
       </div>
 
       <details id="checks" class="hud" open>
@@ -70,6 +75,17 @@
       </details>
 
       <p id="view-busy" class="hud" role="status" hidden></p>
+
+      <div id="showtime-hud">
+        <p id="showtime-hint"><strong class="paused-label">Paused · </strong>Space to pause or play · Esc to leave</p>
+        <div id="showtime-end" hidden>
+          <p>That's the show!</p>
+          <div class="showtime-actions">
+            <button id="showtime-again" type="button">Watch again</button>
+            <button id="showtime-leave" type="button">Back to the editor</button>
+          </div>
+        </div>
+      </div>
       <p id="view-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a drone to select it</p>
       <p id="fatal" role="alert" hidden></p>
     </div>

@@ -3,7 +3,7 @@
 A browser tool that previews a drone light show in 3D.
 The drones take off from a ground grid, fly to each formation of a storyboard in turn, and land.
 
-![The second formation of a show: a heart of 100 drones inside the flight volume. The sidebar shows the storyboard, and the timeline strip shows the whole show.](docs/screenshot.png)
+![The sixth formation of The works demo: a quadcopter drawn by 400 drones, with red and green rotor guards, over a night field with hills on the horizon. Faint flight paths show the flight into it. The sidebar shows the storyboard, and the timeline strip shows the whole show.](docs/screenshot.png)
 
 Try it at https://knowaveragejoe.github.io/drone-show-sim/.
 
@@ -46,7 +46,9 @@ The show saves in your browser as you work, so a page reload brings it back. In 
 
 The Project menu also opens two demo shows. First light is a short show of four shapes. The works shows most features at once: gradients, tilts, swings, two OBJ models, three SVG drawings, a light chase, and the spread. Undo brings your own show back. The demo files are in the `demos` folder; to add one, export a show into that folder and list it in `src/demos.js`.
 
-Overlays on the 3D view show or hide the flight paths and the flight volume, and move the camera to where the audience stands.
+The 3D view shows the show at night over a field, with stars, hills on the horizon, and a crowd where the audience stands. They give a sense of place and scale. Overlays on the 3D view show or hide the flight paths and the flight volume, and move the camera into the crowd.
+
+**Showtime** plays the whole show full screen, as a person in the crowd sees it. The camera stands in the crowd and follows the show. Space pauses and plays, and Escape goes back to the editor.
 The Checks panel at the top right shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. It lists each problem in words. A click on its status line folds it.
 
 The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show.

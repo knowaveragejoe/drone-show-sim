@@ -510,6 +510,108 @@ output.warn {
   white-space: nowrap;
 }
 
+/* Showtime: the 3D view fills the window, and only a hint and the end card show over it. */
+
+#view-tools #showtime {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+}
+
+#view-tools #showtime svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+#showtime-hud {
+  display: none;
+}
+
+body.showtime {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.showtime #sidebar,
+body.showtime #transport,
+body.showtime #view-tools,
+body.showtime #checks,
+body.showtime #view-busy,
+body.showtime #view-hint {
+  display: none;
+}
+
+body.showtime #showtime-hud {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* The pointer hides when the user does nothing, but not while the end card needs it. */
+body.showtime.idle:not(.ended) {
+  cursor: none;
+}
+
+#showtime-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(12, 14, 21, 0.55);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  transition: opacity 0.8s;
+}
+
+body.idle #showtime-hint {
+  opacity: 0;
+}
+
+body.paused #showtime-hint {
+  opacity: 1;
+}
+
+.paused-label {
+  display: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+body.paused .paused-label {
+  display: inline;
+}
+
+/* The end card sits in the empty sky in the middle of the view, above the landed drones. */
+#showtime-end {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+#showtime-end p {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.showtime-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* A note while the page plans a show. The page does not draw while it plans. */
 #view-busy {
   top: 12px;

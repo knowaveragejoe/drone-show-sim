@@ -49,6 +49,8 @@ import {
  * @property {(show: boolean) => void} setShowPaths
  * @property {(show: boolean) => void} setShowVolume
  * @property {() => void} audienceView
+ * @property {() => void} startShowtime hides the panels and plays the show from the audience seat
+ * @property {() => void} stopShowtime goes back to the editor
  * @property {() => void} togglePlay
  * @property {(time: number) => void} seek
  * @property {(drone: number) => void} select index of the drone to select, or -1 to clear the selection
@@ -80,6 +82,9 @@ const MAX_LISTED_PROBLEMS = 4;
 
 // The note on the 3D view while a new plan pauses the page.
 const PLANNING_NOTE = 'Planning the show…';
+
+// In Showtime, the pointer and the key hint hide after this many milliseconds with no input.
+const SHOWTIME_IDLE_MS = 2500;
 
 /**
  * @param {Actions} actions
@@ -208,6 +213,7 @@ export function createUi(actions) {
   const showPaths = wireToggle(byId('show-paths'), actions.setShowPaths);
   const showVolume = wireToggle(byId('show-volume'), actions.setShowVolume);
   byId('audience-view').addEventListener('click', actions.audienceView);
+  const showtime = wireShowtime(actions);
 
   const play = byId('play');
   const playLabel = byId('play-label');
@@ -225,6 +231,16 @@ export function createUi(actions) {
 
   document.addEventListener('keydown', (event) => {
     const target = /** @type {HTMLElement} */ (event.target);
+    // Showtime takes two keys only. The panels are hidden, so no other key has a job.
+    if (showtime.isOn()) {
+      showtime.wake();
+      if (event.code === 'Escape') actions.stopShowtime();
+      if (event.code === 'Space' && !event.repeat && !target.closest('button')) {
+        event.preventDefault();
+        actions.togglePlay();
+      }
+      return;
+    }
     if (event.code === 'Escape') {
       projectMenu.open = false;
       actions.select(-1);
@@ -359,7 +375,96 @@ export function createUi(actions) {
     droneList.show(plan, view, positions);
   }
 
-  return { refresh, showFrame, showHistory, revealDrone: droneList.reveal };
+  /**
+   * Turns Showtime on or off in the page.
+   * @param {boolean} on
+   */
+  function showShowtime(on) {
+    if (on) projectMenu.open = false;
+    showtime.show(on);
+  }
+
+  return {
+    refresh,
+    showFrame,
+    showHistory,
+    showShowtime,
+    showShowtimeState: showtime.state,
+    revealDrone: droneList.reveal,
+  };
+}
+
+/**
+ * Connects the Showtime controls: the end card, full screen, and the hint that hides when the
+ * user does nothing.
+ * @param {Actions} actions
+ */
+function wireShowtime(actions) {
+  const { body } = document;
+  const end = byId('showtime-end');
+  let idleTimer = 0;
+  let playing = false;
+  let ended = false;
+
+  byId('showtime').addEventListener('click', actions.startShowtime);
+  // At the end of the timeline, play starts again from the takeoff grid.
+  byId('showtime-again').addEventListener('click', actions.togglePlay);
+  byId('showtime-leave').addEventListener('click', actions.stopShowtime);
+
+  const isOn = () => body.classList.contains('showtime');
+
+  /** Shows the pointer and the hint, and hides them again after a time with no input. */
+  function wake() {
+    body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => body.classList.add('idle'), SHOWTIME_IDLE_MS);
+  }
+
+  document.addEventListener('pointermove', () => {
+    if (isOn()) wake();
+  });
+  // The browser leaves full screen on the Escape key and does not pass the key to the page.
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isOn()) actions.stopShowtime();
+  });
+
+  /** @param {boolean} on */
+  function show(on) {
+    body.classList.toggle('showtime', on);
+    // The next frame shows the pause label and the end card again.
+    playing = true;
+    ended = false;
+    end.hidden = true;
+    body.classList.remove('paused', 'ended');
+    if (on) {
+      // A focused button keeps the Space key for itself, and the buttons are now hidden.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      wake();
+      // A page that may not go full screen, for example in a frame, runs Showtime in its window.
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      clearTimeout(idleTimer);
+      body.classList.remove('idle');
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  /**
+   * Shows the pause label and the end card. Call for each frame in Showtime.
+   * @param {boolean} isPlaying
+   * @param {boolean} isEnded true at the end of the timeline
+   */
+  function state(isPlaying, isEnded) {
+    if (isPlaying === playing && isEnded === ended) return;
+    playing = isPlaying;
+    ended = isEnded;
+    end.hidden = !ended;
+    body.classList.toggle('paused', !playing && !ended);
+    body.classList.toggle('ended', ended);
+    if (ended) wake();
+  }
+
+  return { isOn, wake, show, state };
 }
 
 /**
