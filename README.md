@@ -69,7 +69,7 @@ In short:
 1. Each shape becomes 40,000 points: random over a surface, or in order along a curve.
 2. One evenly spread target per drone. On a surface, farthest point sampling picks the targets, and then each target moves away from its nearest neighbors. On a curve, a walk along it keeps one point per spacing, and skips spots that are too close to another part of the curve.
 3. For each flight, an assignment solver pairs the drones with the targets so that the total of squared flight distances is the smallest. With these pairs, straight paths do not cross closer than 0.7 times the spacing.
-4. When a direct flight would still bring drones too close, the fleet spreads out first: the formations grow, the drones cross, and the new formation closes up. A larger spacing at both ends makes the crossing safe, and the pairs stay the best ones.
+4. When a direct flight would still bring drones too close, the fleet spreads out first: the formations grow, the drones cross, and the new formation closes up. A larger spacing at both ends makes the crossing safe, and the pairs stay the best ones. The formations grow only as much as an exact check of the crossing needs: when both grow by the same factor, every distance in the crossing grows by that factor too.
 5. In each flight, all drones fly on one shared accelerate, cruise, brake profile. The profile is the fastest one that keeps every drone inside every limit.
 
 ## Test it

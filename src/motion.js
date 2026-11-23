@@ -118,12 +118,18 @@ export function rateAt(timing, time) {
  *
  * The result is exact. All drones share one progress value, so the offset between two drones
  * moves along a straight segment. The smallest distance is the distance from that segment to zero.
+ *
+ * A check that only needs to know if the drones keep a distance can pass it as `stopBelow`.
+ * The search then stops at the first pair that comes closer, and returns that pair's distance.
  * @param {Float32Array} starts xyz per drone
  * @param {Float32Array} targets xyz per drone
  * @param {number} count
- * @returns {number} meters; Infinity when there are fewer than two drones
+ * @param {number} [stopBelow] meters; 0 searches all pairs
+ * @returns {number} meters; Infinity when there are fewer than two drones. With `stopBelow`,
+ *   a value below it means that some pair comes closer than `stopBelow`.
  */
-export function closestApproach(starts, targets, count) {
+export function closestApproach(starts, targets, count, stopBelow = 0) {
+  const stop = stopBelow * stopBelow;
   let smallest = Infinity;
   for (let i = 0; i < count; i++) {
     for (let j = i + 1; j < count; j++) {
@@ -143,7 +149,10 @@ export function closestApproach(starts, targets, count) {
       const y = oy + progress * cy;
       const z = oz + progress * cz;
       const distance = x * x + y * y + z * z;
-      if (distance < smallest) smallest = distance;
+      if (distance < smallest) {
+        smallest = distance;
+        if (smallest < stop) return Math.sqrt(smallest);
+      }
     }
   }
   return Math.sqrt(smallest);

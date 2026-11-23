@@ -11,7 +11,8 @@
 // drones start and stop together. Most transitions have one leg. When the drones would
 // pass too close in a direct flight, the fleet first spreads out: each formation grows
 // about a point on its axis. The fleet then crosses, and closes up at the new formation.
-// See `spreadFactors` for the reason that this keeps the drones apart.
+// The formations grow only as much as an exact check of the crossing needs. See
+// `spreadCandidates` and `spreadFactors` for the reasons that this keeps the drones apart.
 
 import { assignTargets } from './assign.js';
 import {
@@ -460,41 +461,78 @@ export function createPlanner() {
       let approach = direct;
       let spreadOutside = 0;
       if (state.spreadToPass && isTooClose(direct, minSpacing)) {
-        const [leaveFactor, arriveFactor] = spreadFactors(
-          previous.spacing,
-          stop.spacing,
-          previous.formation >= 0,
-          stop.formation >= 0,
-          minSpacing,
-        );
-        const leaveSpread = leaveFactor > 1 ? spreadOut(from, count, leaveFactor, volume) : from;
-        const arriveSpread = arriveFactor > 1 ? spreadOut(to, count, arriveFactor, volume) : to;
+        // The new stop in the order of the old one, for the searches of the crossing.
+        const arriveUnit = gather(stop.unit, match.columnOfRow);
         // A spread of a formation is the same shape at a larger size, moved up or down.
-        const crossApproach = approachAt(previous.scale * leaveFactor, stop.scale * arriveFactor);
-        // A leg that only spreads out or closes up moves each drone away from one point.
-        // The drones then only get farther apart, so the leg is closest at its small end.
-        const spreadApproach = Math.min(
-          crossApproach,
-          leaveFactor > 1 ? previous.spacing : Infinity,
-          arriveFactor > 1 ? stop.spacing : Infinity,
-        );
-        // A spread costs time. It is only worth that time when it makes the flight safe.
-        // It cannot help when a stop has crowded points itself.
-        if (!isTooClose(spreadApproach, minSpacing)) {
-          poses = [from];
-          if (leaveFactor > 1) poses.push(leaveSpread);
-          if (arriveFactor > 1) poses.push(arriveSpread);
-          poses.push(to);
-          cross = leaveFactor > 1 ? 1 : 0;
-          approach = spreadApproach;
-          const flags = new Uint8Array(count);
-          if (leaveFactor > 1) markOutside(leaveSpread, count, volume, flags);
-          if (arriveFactor > 1) markOutside(arriveSpread, count, volume, flags);
-          flags.forEach((flag, drone) => {
-            spreadOutside += flag;
+        // The searches call the exact check directly, so that they do not fill the store.
+        /** @param {number} leave @param {number} arrive @param {number} [stopBelow] */
+        const crossApproach = (leave, arrive, stopBelow = 0) =>
+          closestApproach(
+            scaled(previous.leaveUnit, previous.scale * leave),
+            scaled(arriveUnit, stop.scale * arrive),
+            count,
+            stopBelow,
+          );
+        const canLeave = previous.formation >= 0;
+        const canArrive = stop.formation >= 0;
+        /** @param {number[] | null} room */
+        const spreadsWith = (room) =>
+          spreadCandidates(
+            crossApproach,
+            direct,
+            previous.spacing,
+            stop.spacing,
+            canLeave,
+            canArrive,
+            minSpacing,
+            room,
+          );
+        const shapeKey = `${linkKey}|${previous.scale}|${stop.scale}|${minSpacing}`;
+        const quick = remember(`spreads|${shapeKey}`, () => spreadsWith(null));
+        let best = bestSpread(quick);
+        // The quick spreads leave the flight volume. Search the spreads that fit in it: these
+        // searches take longer, so they only run when they can help.
+        if (best && best.leaving > 0) {
+          // Rounded down, so that a spread that fits stays inside after rounding too.
+          const room = [canLeave ? spreadLimit(from, count, volume) : 1, canArrive ? spreadLimit(to, count, volume) : 1]
+            .map((limit) => Math.floor(limit * 1000) / 1000);
+          const fitting = remember(`fitting|${shapeKey}|${room}`, () => spreadsWith(room));
+          best = bestSpread([...quick, ...fitting]);
+        }
+        if (best) {
+          ({ poses, cross, approach } = best);
+          spreadOutside = best.leaving;
+          best.flags.forEach((flag, drone) => {
             outside[drone] |= flag;
           });
         }
+      }
+
+      /**
+       * Of the spreads that make the flight safe, takes the one that keeps the most drones
+       * inside the flight volume, and of those the fastest one. A spread costs time, so it is
+       * only worth that time when it makes the flight safe, and every spread in the list does.
+       * @param {Spread[]} spreads
+       */
+      function bestSpread(spreads) {
+        let best = null;
+        for (const spread of spreads) {
+          const poses = [from];
+          if (spread.leave > 1) poses.push(spreadOut(from, count, spread.leave, volume));
+          if (spread.arrive > 1) poses.push(spreadOut(to, count, spread.arrive, volume));
+          poses.push(to);
+          const flags = new Uint8Array(count);
+          for (const pose of poses.slice(1, -1)) markOutside(pose, count, volume, flags);
+          const leaving = flags.reduce((sum, flag) => sum + flag, 0);
+          let time = 0;
+          for (let leg = 1; leg < poses.length; leg++) {
+            time += planTiming(poses[leg - 1], poses[leg], count, state.fleet).duration;
+          }
+          if (!best || leaving < best.leaving || (leaving === best.leaving && time < best.time)) {
+            best = { poses, cross: spread.leave > 1 ? 1 : 0, approach: spread.approach, flags, leaving, time };
+          }
+        }
+        return best;
       }
 
       /** @type {Leg[]} */
@@ -1025,6 +1063,159 @@ export function spreadFactors(leaveSpacing, arriveSpacing, canLeave, canArrive, 
   const factor = (spacing, target, can) =>
     can && spacing > 0 && Number.isFinite(spacing) ? Math.min(MAX_SPREAD, Math.max(1, target / spacing)) : 1;
   return [factor(leaveSpacing, leave, canLeave), factor(arriveSpacing, arrive, canArrive)];
+}
+
+// A search for the smallest spread stops when it knows the factor this closely.
+const SPREAD_PRECISION = 0.01;
+
+/**
+ * @typedef {object} Spread
+ * @property {number} leave spread factor of the stop that the fleet leaves; 1 for no spread
+ * @property {number} arrive spread factor of the stop that the fleet flies to; 1 for no spread
+ * @property {number} approach closest approach in all legs of the spread flight, meters
+ */
+
+/**
+ * Lists the spreads that make a flight safe. Each one has been checked: its closest approach
+ * comes from an exact search of the crossing, and the legs that only spread out or close up
+ * are closest at their small end.
+ *
+ * - Between two formations, both grow by the same factor f. Every offset between two drones
+ *   in the crossing is then f times the offset in the direct flight, because the moves of
+ *   the two spread points cancel out. So the closest approach is f times that of the direct
+ *   flight, and f = m ÷ (closest approach of the direct flight) is just enough, where m is
+ *   the minimum spacing plus a small margin.
+ * - In a takeoff or a landing, only the formation grows. The closest approach then has no
+ *   simple formula, so a bisection finds the smallest factor that a check passes.
+ * - The spread of `spreadFactors` is also in the list. It comes from a bound that holds for
+ *   every pair of stops, so it is often larger than necessary, but it can be the faster
+ *   flight when only one end needs to grow.
+ *
+ * With `room`, the list holds spreads that fit in the flight volume instead, found by
+ * bisection: one stop grows alone, or one stop grows as far as the volume lets it and the
+ * other as far as it must. These searches take longer, so the planner only runs them when
+ * every quick spread leaves the volume.
+ *
+ * A spread cannot help when a stop has crowded points itself. The list is then empty.
+ * @param {(leave: number, arrive: number, stopBelow?: number) => number} crossApproach closest
+ *   approach, meters, of the flight from the old stop grown by `leave` to the new stop grown
+ *   by `arrive`; with `stopBelow`, any value below it when some pair comes closer than it
+ * @param {number} direct closest approach of the direct flight, meters
+ * @param {number} leaveSpacing spacing of the stop that the fleet leaves, meters
+ * @param {number} arriveSpacing spacing of the stop that the fleet flies to, meters
+ * @param {boolean} canLeave true when the stop that the fleet leaves is a formation
+ * @param {boolean} canArrive true when the stop that the fleet flies to is a formation
+ * @param {number} minSpacing meters
+ * @param {number[] | null} [room] the largest factors that keep each stop inside the flight
+ *   volume (see `spreadLimit`); null for the quick spreads
+ * @returns {Spread[]}
+ */
+export function spreadCandidates(
+  crossApproach,
+  direct,
+  leaveSpacing,
+  arriveSpacing,
+  canLeave,
+  canArrive,
+  minSpacing,
+  room = null,
+) {
+  const target = minSpacing * SPREAD_MARGIN;
+  // A stop with crowded points cannot grow: its spread leg would be too close at its small
+  // end. So no search tries it.
+  canLeave = canLeave && !isTooClose(leaveSpacing, minSpacing);
+  canArrive = canArrive && !isTooClose(arriveSpacing, minSpacing);
+  // A search only needs to know if the crossing keeps the distance, so its checks stop at
+  // the first pair that comes too close. A spread in the list gets one full check.
+  /** @param {number} leave @param {number} arrive */
+  const passes = (leave, arrive) => crossApproach(leave, arrive, target) >= target;
+
+  /** @type {number[][]} */
+  const factors = [];
+  if (room) {
+    const [leaveRoom, arriveRoom] = room.map((limit) => Math.min(MAX_SPREAD, limit));
+    if (canLeave) factors.push([smallestFactor((factor) => passes(factor, 1), leaveRoom), 1]);
+    if (canArrive) factors.push([1, smallestFactor((factor) => passes(1, factor), arriveRoom)]);
+    if (canLeave && canArrive) {
+      factors.push([leaveRoom, smallestFactor((factor) => passes(leaveRoom, factor), arriveRoom)]);
+      factors.push([smallestFactor((factor) => passes(factor, arriveRoom), leaveRoom), arriveRoom]);
+    }
+  } else {
+    if (canLeave && canArrive) {
+      if (direct > 0) {
+        const even = Math.min(MAX_SPREAD, Math.max(1, target / direct));
+        factors.push([even, even]);
+      }
+    } else if (canLeave) {
+      factors.push([smallestFactor((factor) => passes(factor, 1)), 1]);
+    } else if (canArrive) {
+      factors.push([1, smallestFactor((factor) => passes(1, factor))]);
+    }
+    factors.push(spreadFactors(leaveSpacing, arriveSpacing, canLeave, canArrive, minSpacing));
+  }
+
+  /** @type {Spread[]} */
+  const safe = [];
+  for (const [leave, arrive] of factors) {
+    if (!Number.isFinite(leave) || !Number.isFinite(arrive) || (leave === 1 && arrive === 1)) continue;
+    if (safe.some((spread) => spread.leave === leave && spread.arrive === arrive)) continue;
+    // A leg that only spreads out or closes up moves each drone straight away from one
+    // point. The drones then only get farther apart, so the leg is closest at its small end.
+    // A stop with crowded points fails here, before the long check of the crossing.
+    const legs = Math.min(leave > 1 ? leaveSpacing : Infinity, arrive > 1 ? arriveSpacing : Infinity);
+    if (isTooClose(legs, minSpacing)) continue;
+    const approach = Math.min(crossApproach(leave, arrive), legs);
+    if (!isTooClose(approach, minSpacing)) safe.push({ leave, arrive, approach });
+  }
+  return safe;
+}
+
+/**
+ * The smallest spread factor that passes a check, by bisection. The upper end of the search
+ * always passes the check, so the result passes even where the closest approach does not
+ * grow steadily with the factor.
+ * @param {(factor: number) => boolean} passes true when the flight keeps the distance at a factor
+ * @param {number} [largest] the largest factor to try
+ * @returns {number} the factor, or NaN when even the largest factor does not pass
+ */
+function smallestFactor(passes, largest = MAX_SPREAD) {
+  let low = 1;
+  let high = largest;
+  if (high <= low || !passes(high)) return NaN;
+  while (high - low > SPREAD_PRECISION) {
+    const middle = (low + high) / 2;
+    if (passes(middle)) high = middle;
+    else low = middle;
+  }
+  return high;
+}
+
+/**
+ * The largest spread factor that keeps a fleet inside the flight volume, as `spreadOut`
+ * grows it. Across, each drone moves straight away from the vertical axis, so each one
+ * limits the factor by its room to the side of the volume. Up and down, `spreadOut` moves
+ * the spread point to fit, so only the height of the fleet against the height of the
+ * volume limits it.
+ * @param {Float32Array} positions xyz per drone
+ * @param {number} count
+ * @param {Bounds} bounds the flight volume
+ * @returns {number} at least 1; 1 when the fleet cannot grow at all, also when it is outside already
+ */
+export function spreadLimit(positions, count, { low, high }) {
+  let limit = MAX_SPREAD;
+  let lowest = Infinity;
+  let highest = -Infinity;
+  for (let drone = 0; drone < count; drone++) {
+    for (let axis = 0; axis < 2; axis++) {
+      const value = positions[drone * 3 + axis];
+      if (value > 0) limit = Math.min(limit, high[axis] / value);
+      else if (value < 0) limit = Math.min(limit, low[axis] / value);
+    }
+    lowest = Math.min(lowest, positions[drone * 3 + 2]);
+    highest = Math.max(highest, positions[drone * 3 + 2]);
+  }
+  if (highest > lowest) limit = Math.min(limit, (high[2] - low[2]) / (highest - lowest));
+  return Math.max(1, limit);
 }
 
 /**

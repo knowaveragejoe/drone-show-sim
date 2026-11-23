@@ -21,7 +21,10 @@ import {
   retime,
   routeOf,
   speedAt,
+  showProblems,
+  spreadCandidates,
   spreadFactors,
+  spreadLimit,
   spreadOut,
   stepAt,
   volumeBounds,
@@ -894,6 +897,73 @@ test('spreadFactors stops at the largest spread', () => {
   assert.deepEqual(spreadFactors(Infinity, Infinity, true, true, 2), [1, 1]);
 });
 
+test('spreadCandidates grows two formations by the same factor, just enough', () => {
+  // A crossing whose closest approach grows in proportion to the factors.
+  const crossApproach = (leave, arrive) => 1.8 * Math.min(leave, arrive);
+  const spreads = spreadCandidates(crossApproach, 1.8, 2, 2, true, true, 2);
+  const [even] = spreads;
+  near(even.leave, 2.02 / 1.8);
+  near(even.arrive, 2.02 / 1.8);
+  near(even.approach, 2);
+  // The spread of the bound is in the list too, and it is larger.
+  assert.equal(spreads.length, 2);
+  assert.ok(spreads[1].leave > even.leave);
+  for (const spread of spreads) assert.ok(!isTooClose(spread.approach, 2));
+});
+
+test('spreadCandidates searches the smallest spread of a takeoff and of a landing', () => {
+  let calls = 0;
+  // Safe from a factor of 1.3 on.
+  const growing = (factor) => {
+    calls++;
+    return factor >= 1.3 ? 2.1 : 1.5;
+  };
+  const [takeoff] = spreadCandidates((leave, arrive) => growing(arrive), 1.5, 3, 2, false, true, 2);
+  assert.equal(takeoff.leave, 1);
+  assert.ok(takeoff.arrive >= 1.3 && takeoff.arrive < 1.3 + 0.01, `factor ${takeoff.arrive}`);
+  assert.ok(calls < 15, `${calls} checks`);
+  const [landing] = spreadCandidates((leave) => growing(leave), 1.5, 2, 3, true, false, 2);
+  assert.equal(landing.arrive, 1);
+  assert.ok(landing.leave >= 1.3 && landing.leave < 1.31);
+});
+
+test('spreadCandidates lists no spread that a check does not pass', () => {
+  // The crossing never gets safe.
+  assert.deepEqual(spreadCandidates(() => 1, 1, 2, 2, true, true, 2), []);
+  assert.deepEqual(spreadCandidates(() => 1, 1, 3, 2, false, true, 2), []);
+  // A stop has crowded points: 1 m apart. The crossing starts there, so it is no wider than
+  // that unless the stop grows, and the leg that grows it starts crowded too.
+  assert.deepEqual(spreadCandidates((leave) => Math.min(5, leave), 1, 1, 2, true, true, 2), []);
+});
+
+test('spreadCandidates with room lists only spreads that fit in it', () => {
+  // Either stop alone makes the crossing safe when it grows enough.
+  const crossApproach = (leave, arrive) => 1.8 * Math.max(leave, arrive);
+  const room = [1.05, 3];
+  const spreads = spreadCandidates(crossApproach, 1.8, 2, 2, true, true, 2, room);
+  assert.ok(spreads.length > 0);
+  for (const spread of spreads) {
+    assert.ok(spread.leave <= room[0] && spread.arrive <= room[1], `${spread.leave}, ${spread.arrive}`);
+    assert.ok(!isTooClose(spread.approach, 2));
+  }
+  // Without room, the even spread grows the first stop past its room.
+  const [even] = spreadCandidates(crossApproach, 1.8, 2, 2, true, true, 2);
+  assert.ok(even.leave > room[0]);
+});
+
+test('spreadLimit is the largest spread that keeps a fleet inside the flight volume', () => {
+  const bounds = { low: [-50, -50, 0], high: [50, 50, 100] };
+  // Across, the room is 50 ÷ 20 = 2.5 and 50 ÷ 25 = 2. Up and down, it is 100 ÷ 40 = 2.5.
+  const positions = new Float32Array([20, 0, 30, -10, 25, 70]);
+  near(spreadLimit(positions, 2, bounds), 2);
+  const spread = spreadOut(positions, 2, 2, bounds);
+  for (let i = 0; i < spread.length; i++) {
+    assert.ok(spread[i] >= bounds.low[i % 3] - 1e-4 && spread[i] <= bounds.high[i % 3] + 1e-4);
+  }
+  // A fleet that is outside already cannot grow.
+  assert.equal(spreadLimit(new Float32Array([60, 0, 10]), 1, bounds), 1);
+});
+
 test('spreadOut grows the fleet about the middle of the axis', () => {
   const tall = { low: [-500, -500, 0], high: [500, 500, 500] };
   const positions = new Float32Array([0, 0, 50, 4, -2, 60, -3, 1, 55]);
@@ -959,6 +1029,13 @@ test('the fleet spreads out to pass, and keeps the minimum spacing in every leg'
   for (const index of [0, 1, 2]) assert.deepEqual(formationProblems(plan, index, state.fleet), []);
   // The spread costs time.
   assert.ok(plan.total > direct.total);
+  // The formations grow just enough: between two formations, the crossing comes within a
+  // percent or two of the minimum spacing, far below the bound of the old spread.
+  for (const step of plan.steps.slice(1, 3)) {
+    const cross = step.legs[step.cross];
+    const crossApproach = closestApproach(cross.from, cross.to, count);
+    assert.ok(crossApproach < minSpacing * 1.03, `crossing ${crossApproach}`);
+  }
 });
 
 test('the legs of a transition join end to end, and the drones stay above the ground', () => {
@@ -1055,15 +1132,32 @@ test('a spread that does not make the flight safe is not used', () => {
 test('a spread that leaves the flight volume is a problem', () => {
   const planner = createPlanner();
   const state = tightState(planner);
-  // The heart fits, but it is too wide when it spreads out.
-  state.volume = { ...state.volume, size: 90 };
+  // The heart fits, but it is too wide when it spreads out, even by the little that it needs.
+  state.formations = state.formations.map((formation) => ({ ...formation, centerHeight: 34 }));
+  state.volume = { ...state.volume, size: 66 };
   const plan = planner(state);
   assert.deepEqual(plan.formations.map((checks) => checks.outsideVolume), [0, 0, 0]);
   assert.deepEqual(plan.steps.map((step) => step.spreadOutside > 0), [false, true, true, false]);
-  assert.equal(plan.outsideVolume, plan.steps[1].spreadOutside);
+  // The plan counts each drone that leaves the volume one time, in whichever spread it leaves.
+  const [, first, second] = plan.steps.map((step) => step.spreadOutside);
+  assert.ok(plan.outsideVolume >= Math.max(first, second) && plan.outsideVolume <= first + second);
   assert.deepEqual(formationProblems(plan, 1, state.fleet), [
     'Drones leave the flight volume when they spread out to pass.',
   ]);
+});
+
+test('a spread that fits in the flight volume wins over a faster one that leaves it', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  // The heart nearly fills the volume. Grown evenly with the formation before or after it,
+  // it would leave the volume.
+  state.formations = state.formations.map((formation) => ({ ...formation, centerHeight: 34 }));
+  state.volume = { ...state.volume, size: 70 };
+  const plan = planner(state);
+  assert.deepEqual(plan.steps.map((step) => step.legs.length), [2, 3, 3, 2]);
+  assert.deepEqual(plan.steps.map((step) => step.spreadOutside), [0, 0, 0, 0]);
+  assert.equal(plan.outsideVolume, 0);
+  assert.deepEqual(showProblems(state, plan), []);
 });
 
 test('Fit with a margin of 1 gives the plain minimum spacing', () => {

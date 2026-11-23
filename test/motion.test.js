@@ -159,6 +159,20 @@ test('closestApproach equals a dense scan over time', () => {
   near(exact, scanned, 1e-3);
 });
 
+test('closestApproach can stop at the first pair that comes too close', () => {
+  const random = createRng(4);
+  const count = 40;
+  const starts = Float32Array.from({ length: count * 3 }, () => random() * 40);
+  const targets = Float32Array.from({ length: count * 3 }, () => random() * 40);
+  const exact = closestApproach(starts, targets, count);
+  // A limit below the closest approach: the search runs to the end and gives the exact value.
+  assert.equal(closestApproach(starts, targets, count, exact * 0.99), exact);
+  // A limit above it: the answer is below the limit, and is the distance of a real pair.
+  const limit = exact * 3;
+  const early = closestApproach(starts, targets, count, limit);
+  assert.ok(early < limit && early >= exact);
+});
+
 test('closestApproach is infinite for one drone', () => {
   assert.equal(closestApproach(new Float32Array(3), new Float32Array(3), 1), Infinity);
 });
