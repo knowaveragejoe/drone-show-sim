@@ -168,6 +168,16 @@ test('a project file from before the spread gets it, and a file can turn it off'
   assert.equal(parseProject(fileWith((data) => (data.spreadToPass = false))).spreadToPass, false);
 });
 
+test('a project file from before the vertical spacing has one spacing in all directions', () => {
+  const old = parseProject(fileWith((data) => {
+    delete data.fleet.minVerticalSpacing;
+    data.fleet.minSpacing = 2.5;
+  }));
+  assert.equal(old.fleet.minVerticalSpacing, 2.5);
+  assert.equal(parseProject(fileWith((data) => (data.fleet.minVerticalSpacing = 4))).fleet.minVerticalSpacing, 4);
+  assert.throws(() => parseProject(fileWith((data) => (data.fleet.minVerticalSpacing = 0))), /minVerticalSpacing/);
+});
+
 test('a formation from before color patterns gets one solid color', () => {
   const loaded = parseProject(
     fileWith((data) => {

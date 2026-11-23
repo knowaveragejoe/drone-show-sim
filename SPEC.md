@@ -48,6 +48,8 @@ When the march would bring two marchers too close, the band first opens its rank
 | Step | One transition and the hold after it. A show is a list of steps. |
 | Assignment | The mapping from each drone to one target. The drill chart. |
 | Flight volume | The cube that the drones must stay inside. |
+| Vertical spacing | The smallest distance between two drones when one is straight above the other. A drone pushes air down (its downwash), so a drone under it needs more room than a drone beside it. |
+| Spacing distance | The distance that the spacing checks use: the distance between two drones with the height difference times minimum spacing ÷ vertical spacing. It compares with the minimum spacing. |
 
 Formation, transition, and storyboard are the terms that Skybrush uses.
 
@@ -72,6 +74,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
 | Path display | The paths of the current step, faint. The route of the selected drone, bright. A toggle hides the faint paths. |
 | Spacing conflict | Markers and readouts warn. A Fit button sets the smallest safe size. |
+| Downwash | A vertical spacing, separate from the minimum spacing. The two make an ellipsoid of room around each drone. |
 | Crossing conflict | When a direct flight brings drones too close, the fleet spreads out, crosses, and closes up. A setting turns this off. |
 | Flight volume | A cube with one size value and a position. The view draws it. A check counts the drones that leave it. |
 | Saving | Autosave in browser storage. Export and import of a JSON project file. |
@@ -97,6 +100,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Maximum descent speed | 3 m/s |
 | Maximum acceleration | 4 m/s² |
 | Minimum spacing | 2 m |
+| Vertical spacing | 3 m |
 | Takeoff grid spacing | 3 m |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
@@ -218,8 +222,14 @@ The assignment key names the yaw and both tilts, so a tilt change needs new assi
 
 ### 4. Check the spacing
 
-For each formation, the simulator finds the smallest distance between any two targets.
+A drone pushes air down. A drone in that downwash, under another drone, gets less lift and shakes. So the room that a drone needs is an ellipsoid: the minimum spacing across, and the vertical spacing up and down.
+All spacing checks use the spacing distance: the distance between two drones with the height difference times `k = minimum spacing ÷ vertical spacing`. Two drones are too close when the spacing distance is below the minimum spacing, which is the same as one drone inside the ellipsoid of the other. With the defaults, a drone straight above another needs 3 m, and a drone beside it needs 2 m.
+The planner gets the spacing distance from copies of the points with each height times `k`. That scale is linear, so a straight flight on the copies is still straight, all drones still share one progress value, and every exact check of stage 7 and stage 7a works on the copies as it is. A shrink or growth of a stop is still a uniform scale on the copies too.
+
+For each formation, the simulator finds the smallest spacing distance between any two targets.
 The readout shows this distance in red when it is below the minimum spacing.
+A turn about the vertical axis does not change any height difference. A tilt, a rock, a roll, and a turn about a tilted axis do. With a vertical spacing that is not the minimum spacing, the spacing of a formation that leans in its hold is the smallest spacing at up to 24 poses of the hold, about one for each 5° of motion.
+A formation that lies flat has no height differences, so the vertical spacing does not change it. An upright curve, such as a ring or the sides of a heart, has drones above one another, so it needs a larger size.
 
 Spacing grows in proportion to size.
 The Fit button sets the size so that the smallest distance is the minimum spacing.
@@ -244,6 +254,7 @@ Squared distance matters.
 With this assignment and with all drones on the same count, straight paths stay apart.
 If the closest spacing at both stops is `D`, the closest approach in flight is at least `D ÷ √2`.
 Skybrush documents the same bound.
+The bound holds for the plain distance, because the assignment uses plain squared distances. It does not hold for the spacing distance of a vertical spacing. The exact checks do not need it.
 
 The drones are interchangeable.
 A drone goes to the target that the pairs give for the point where it is now.
@@ -505,7 +516,7 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 | Section | Contents |
 |---|---|
 | Fleet | Drone count. Takeoff grid spacing. |
-| Limits | The four speed and acceleration limits. Minimum spacing. Spread out to pass safely toggle (stage 7a). |
+| Limits | The four speed and acceleration limits. Minimum spacing. Vertical spacing. Spread out to pass safely toggle (stage 7a). |
 | Flight volume | Size. Center X and Y. Floor height. |
 
 ### Overlays on the 3D view
@@ -585,8 +596,8 @@ The Demos list in the Project menu shows the name of each demo and a line about 
 
 | Demo | Drones | What it shows |
 |---|---|---|
-| First light | 120 | A short show for a first look, in solid colors: a sphere and a helix that turn, a ring with a light chase, and a heart that rocks with a light chase. Then the fleet lands. |
-| The works | 400 | Most features in one show. A disc with an Outward gradient, like a sunrise. A turning sphere with an Across gradient. Saturn, an OBJ model with a forward and a sideways tilt. A turning helix with a Rising gradient. A wireframe cube: an OBJ model of thin tubes along the 12 edges, so the drones sit on the edges. It tilts and turns, and an Outward gradient lights its corners. A quadcopter drawing in its drawing colors that sways, rocks, and rolls: a drone made of drones. A torus that turns and rolls. The word WOW! as a drawing. Three hearts inside each other, with a light chase. The fleet spreads out to pass in three transitions and in the landing. |
+| First light | 120 | A short show for a first look, in solid colors and with the default spacings: a sphere and a helix that turn, a ring with a light chase, and a heart that rocks with a light chase. Then the fleet lands. The ring and the heart stand upright, so the vertical spacing makes them larger, and the fleet spreads out to pass in three transitions and in the landing. |
+| The works | 400 | Most features in one show. A disc with an Outward gradient, like a sunrise. A turning sphere with an Across gradient. Saturn, an OBJ model with a forward and a sideways tilt. A turning helix with a Rising gradient. A wireframe cube: an OBJ model of thin tubes along the 12 edges, so the drones sit on the edges. It tilts and turns, and an Outward gradient lights its corners. A quadcopter drawing in its drawing colors that sways, rocks, and rolls: a drone made of drones. A torus that turns and rolls. The word WOW! as a drawing. Three hearts inside each other, with a light chase. The minimum spacing is 1.5 m and the vertical spacing 2.25 m. The fleet spreads out to pass in six transitions and in the landing. |
 
 A click on a demo fetches its file with a relative URL.
 The demo then opens like an imported project file: with the same checks, as one undo step, on its first formation, with the camera on the show.
@@ -698,6 +709,7 @@ The project file is JSON with the extension `.droneshow.json`.
     "maxDescentSpeed": 3,
     "maxAcceleration": 4,
     "minSpacing": 2,
+    "minVerticalSpacing": 3,
     "gridSpacing": 3
   },
   "volume": {
@@ -750,6 +762,7 @@ Version 1 had exactly one formation and no landing.
 A file with no `landAtEnd` gets no landing, a file with no `volume` gets the default flight volume, a formation with no `turnRate` does not turn, a formation with no tilt stands upright, a formation with no swing angle does not swing (its swing times get 8 s), a formation with no `chase` has no light chase, and a formation with no `colorPattern` has one solid color. Older files then load with their old meaning.
 `colorPattern` is one of `solid`, `rising`, `across`, `outward`, and `drawing`. A formation that is not an SVG drawing and has `drawing` gets `solid`.
 A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
+A file with no `minVerticalSpacing` gets the minimum spacing as its vertical spacing: one spacing in all directions, as before.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -888,6 +901,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 21 | Demos | Two demo shows in the Project menu: First light and The works. The camera frames a show when it opens. A note on the 3D view while a plan pauses the page. | Done |
 | 22 | Showtime | A night sky with stars, a field, hills, and a crowd. A glare around each light. Showtime plays the show full screen from the audience seat, with a camera that follows the show. | Done |
 | 23 | Spread just enough | The formations grow only as much as an exact check of the crossing needs. Spreads that fit in the flight volume when the quick ones do not. | Done |
+| 24 | Downwash spacing | A vertical spacing. Every spacing check uses an ellipsoid: the minimum spacing across, the vertical spacing up and down. The demos have one too. | Done |
 
 ## Known limits
 
@@ -906,6 +920,9 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The flight volume is a cube. It has no rotation and no separate width, depth, and height.
 - Fit changes the size only. A large shape with a low center reaches the ground; the Lowest target check shows this.
 - The undo history does not survive a page reload. Only the project does.
+- The spacing of a formation that leans in its hold comes from up to 24 poses, not from every moment of the hold.
+- The assignment pairs drones by plain squared distance, not by spacing distance. With a vertical spacing, the bound `D ÷ √2` then does not hold, so more flights need a spread. The exact checks keep each flight safe.
+- The ellipsoid is a simple model of downwash. Real downwash is a cone below the drone that also depends on the wind.
 - A demo loads with a fetch, so the page must come from a web server. A page opened as a local file cannot load a demo.
 - The first plan of The works takes about 1 second on a fast CPU. The page shows a note, but it does not draw while it plans.
 - The camera frame looks at the heights of the formations only. A wide formation can be wider than the view.

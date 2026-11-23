@@ -26,7 +26,8 @@ export const FLEET_FIELDS = [
   { key: 'maxClimbSpeed', label: 'Max climb speed', unit: 'm/s', min: 0.5, max: 30, step: 0.5 },
   { key: 'maxDescentSpeed', label: 'Max descent speed', unit: 'm/s', min: 0.5, max: 30, step: 0.5 },
   { key: 'maxAcceleration', label: 'Max acceleration', unit: 'm/s²', min: 0.5, max: 30, step: 0.5 },
-  { key: 'minSpacing', label: 'Minimum spacing', unit: 'm', min: 0.5, max: 20, step: 0.1 },
+  { key: 'minSpacing', label: 'Minimum spacing', unit: 'm', min: 0.5, max: 20, step: 0.1, title: 'Smallest distance between two drones side by side.' },
+  { key: 'minVerticalSpacing', label: 'Vertical spacing', unit: 'm', min: 0.5, max: 40, step: 0.1, title: 'Smallest distance between two drones when one is straight above the other. A drone pushes air down, so a drone under it needs more room. Between side by side and straight above, the limit blends from the minimum spacing to this one.' },
   { key: 'gridSpacing', label: 'Takeoff grid spacing', unit: 'm', min: 0.5, max: 20, step: 0.1 },
 ];
 
@@ -114,7 +115,9 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} maxClimbSpeed m/s
  * @property {number} maxDescentSpeed m/s
  * @property {number} maxAcceleration m/s²
- * @property {number} minSpacing meters
+ * @property {number} minSpacing smallest distance between two drones side by side, meters
+ * @property {number} minVerticalSpacing smallest distance between two drones when one is
+ *   straight above the other, meters
  * @property {number} gridSpacing meters
  */
 
@@ -198,6 +201,7 @@ export function defaultState() {
       maxDescentSpeed: 3,
       maxAcceleration: 4,
       minSpacing: 2,
+      minVerticalSpacing: 3,
       gridSpacing: 3,
     },
     volume: {
@@ -346,8 +350,10 @@ export function parseProject(text) {
     throw new Error('spreadToPass must be true or false.');
   }
 
+  // A project file from before the vertical spacing existed has one spacing in all directions.
+  const fleet = { minVerticalSpacing: data.fleet.minSpacing, ...data.fleet };
   return {
-    fleet: /** @type {Fleet} */ (readFields('fleet', data.fleet, FLEET_FIELDS)),
+    fleet: /** @type {Fleet} */ (readFields('fleet', fleet, FLEET_FIELDS)),
     volume,
     formations: data.formations.map(readFormation),
     landAtEnd: data.landAtEnd === true,

@@ -67,7 +67,7 @@
             <div><dt>Show duration</dt><dd><output id="duration"></output></dd></div>
             <div><dt>Drones outside volume</dt><dd><output id="outside"></output></dd></div>
             <div><dt>Lowest target</dt><dd><output id="lowest"></output></dd></div>
-            <div><dt>Closest approach in flight</dt><dd><output id="approach"></output></dd></div>
+            <div title="The smallest distance between two drones in any flight. A height difference counts as less when the vertical spacing is larger than the minimum spacing, so this distance compares with the minimum spacing."><dt>Closest approach in flight</dt><dd><output id="approach"></output></dd></div>
             <div><dt>Peak speed</dt><dd><output id="peak-speed"></output></dd></div>
           </dl>
           <ul id="checks-problems" hidden></ul>
@@ -199,7 +199,7 @@
             <select id="chase" title="Bright bands that travel across the formation in its hold"></select>
           </div>
           <div class="fields" id="chase-fields" hidden></div>
-          <div class="field readout">
+          <div class="field readout" title="The smallest distance between two targets of this formation. A height difference counts as less when the vertical spacing is larger than the minimum spacing, so this distance compares with the minimum spacing.">
             <span class="label">Closest spacing</span>
             <output id="spacing"></output>
             <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing, also in flight">Fit</button>

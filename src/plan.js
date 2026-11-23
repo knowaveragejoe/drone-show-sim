@@ -288,7 +288,9 @@ export function createPlanner() {
 
   /** @param {import('./state.js').State} state */
   const plan = (state) => {
-    const { count, gridSpacing, maxAcceleration, minSpacing } = state.fleet;
+    const { count, gridSpacing, maxAcceleration, minSpacing, minVerticalSpacing } = state.fleet;
+    // Distances for the spacing checks count heights times this factor (see `spacingCopy`).
+    const heightScale = minSpacing / minVerticalSpacing;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
     const shapes = state.formations.map(sampleOf);
     /** @type {WarmStart[]} */
@@ -384,10 +386,11 @@ export function createPlanner() {
         key,
         points,
         unit,
-        // A rotation does not change the spacing. The spacing comes from the canonical copy,
-        // so that it is exactly the same for every height.
-        spacing: remember(`spacing|${count}|${key}|${formation.size}`, () =>
-          closestSpacing(scaled(unit, formation.size), count),
+        // The spacing comes from the canonical copy, so that it is exactly the same for every
+        // height. A tilt or a swing changes the heights of the points, so with a vertical
+        // spacing the hold needs a look at more poses.
+        spacing: remember(`spacing|${checkKey}|${heightScale}`, () =>
+          holdSpacing(unit, body, motion, formation.size, heightScale),
         ),
         motion,
         body,
@@ -438,10 +441,10 @@ export function createPlanner() {
       // canonical copies, so that rounding gives the same result for every height.
       /** @param {number} leaveScale @param {number} arriveScale */
       const approachAt = (leaveScale, arriveScale) =>
-        remember(`approach|${linkKey}|${leaveScale}|${arriveScale}`, () =>
+        remember(`approach|${linkKey}|${leaveScale}|${arriveScale}|${heightScale}`, () =>
           closestApproach(
-            scaled(previous.leaveUnit, leaveScale),
-            scaled(gather(stop.unit, match.columnOfRow), arriveScale),
+            spacingCopy(previous.leaveUnit, leaveScale, heightScale),
+            spacingCopy(gather(stop.unit, match.columnOfRow), arriveScale, heightScale),
             count,
           ),
         );
@@ -468,8 +471,8 @@ export function createPlanner() {
         /** @param {number} leave @param {number} arrive @param {number} [stopBelow] */
         const crossApproach = (leave, arrive, stopBelow = 0) =>
           closestApproach(
-            scaled(previous.leaveUnit, previous.scale * leave),
-            scaled(arriveUnit, stop.scale * arrive),
+            spacingCopy(previous.leaveUnit, previous.scale * leave, heightScale),
+            spacingCopy(arriveUnit, stop.scale * arrive, heightScale),
             count,
             stopBelow,
           );
@@ -487,7 +490,7 @@ export function createPlanner() {
             minSpacing,
             room,
           );
-        const shapeKey = `${linkKey}|${previous.scale}|${stop.scale}|${minSpacing}`;
+        const shapeKey = `${linkKey}|${previous.scale}|${stop.scale}|${minSpacing}|${heightScale}`;
         const quick = remember(`spreads|${shapeKey}`, () => spreadsWith(null));
         let best = bestSpread(quick);
         // The quick spreads leave the flight volume. Search the spreads that fit in it: these
@@ -684,6 +687,59 @@ function anchored(points) {
  */
 function scaled(points, factor) {
   return points.map((value) => value * factor);
+}
+
+/**
+ * A copy of points for the spacing checks: at a new size, with each height times
+ * `heightScale`. A drone pushes air down, so the drone under it needs more room than a drone
+ * beside it. The checks model this with an ellipsoid around each drone: the minimum spacing
+ * across, and the vertical spacing up and down. With `heightScale` = minimum spacing ÷
+ * vertical spacing, the ellipsoid becomes a sphere, and a plain distance between two points
+ * of the copy compares with the minimum spacing. The scale is linear, so a straight flight
+ * stays straight, and all checks of a straight flight work on the copy as they are.
+ * @param {Float32Array} points xyz per point
+ * @param {number} factor size factor
+ * @param {number} heightScale factor for the heights after the size factor
+ * @returns {Float32Array}
+ */
+function spacingCopy(points, factor, heightScale) {
+  const out = new Float32Array(points.length);
+  for (let i = 0; i < points.length; i += 3) {
+    out[i] = points[i] * factor;
+    out[i + 1] = points[i + 1] * factor;
+    out[i + 2] = points[i + 2] * factor * heightScale;
+  }
+  return out;
+}
+
+// With a vertical spacing, the spacing of a formation that leans in its hold is the smallest
+// spacing at up to this many poses, about one for each step of this angle.
+const SPACING_STEP = 5 * DEGREE;
+const MAX_SPACING_POSES = 24;
+
+/**
+ * The smallest spacing of a formation in its hold, for the spacing checks (see
+ * `spacingCopy`). A turn about the vertical axis does not change the distances of the
+ * checks, because it does not change any height difference. A rock, a roll, or a turn of a
+ * tilted formation does, so the function then looks at several poses of the hold.
+ * @param {Float32Array} unit the points at unit size, in the pose at the start of the hold, about the center
+ * @param {Float32Array} body the points at their size, in the axes of the formation
+ * @param {import('./motion.js').HoldMotion} motion
+ * @param {number} size meters
+ * @param {number} heightScale
+ * @returns {number} meters; Infinity for one point
+ */
+function holdSpacing(unit, body, motion, size, heightScale) {
+  const count = body.length / 3;
+  let smallest = closestSpacing(spacingCopy(unit, size, heightScale), count);
+  const tilted = motion.forward !== 0 || motion.side !== 0;
+  const leans = motion.rock !== null || motion.roll !== null || (tilted && (motion.turn !== null || motion.sway !== null));
+  if (heightScale === 1 || !leans) return smallest;
+  for (const time of holdTimes(motion, SPACING_STEP, MAX_SPACING_POSES)) {
+    const points = placeBody(body, poseRotation(...holdAngles(motion, time)), 0);
+    smallest = Math.min(smallest, closestSpacing(spacingCopy(points, 1, heightScale), count));
+  }
+  return smallest;
 }
 
 /**
@@ -1289,7 +1345,7 @@ export function formationProblems(plan, formation, limits) {
   const step = plan.steps[formation];
   const problems = [];
   if (isTooClose(checks.spacing, limits.minSpacing)) {
-    problems.push('Targets are closer than the minimum spacing.');
+    problems.push('Targets are too close together.');
   }
   if (isBelowGround(checks.lowestTarget)) problems.push('Targets are below the ground.');
   if (checks.outsideVolume > 0) problems.push('Targets are outside the flight volume.');

@@ -29,7 +29,17 @@ import {
   stepAt,
   volumeBounds,
 } from '../src/plan.js';
-import { defaultState } from '../src/state.js';
+import { defaultState as projectDefault } from '../src/state.js';
+
+/**
+ * The default show with one spacing in all directions. Most tests here are about other
+ * things than the vertical spacing, and their numbers come from a spherical spacing.
+ */
+function defaultState() {
+  const state = projectDefault();
+  state.fleet.minVerticalSpacing = state.fleet.minSpacing;
+  return state;
+}
 
 /** The default show, but no formation moves in its hold. The fixed tilts stay. */
 function stillState() {
@@ -518,7 +528,7 @@ test('formationProblems lists what is wrong with a formation', () => {
   const broken = planner(state);
   const problems = formationProblems(broken, 1, state.fleet);
   assert.equal(problems.length, 4);
-  assert.match(problems[0], /closer than the minimum spacing/);
+  assert.match(problems[0], /too close together/);
   assert.match(problems[1], /below the ground/);
   assert.match(problems[2], /outside the flight volume/);
   assert.match(problems[3], /too close in the transition/);
@@ -991,6 +1001,100 @@ test('spreadOut keeps the fleet between the floor and the top of the flight volu
   assert.deepEqual(heights(15, 48), [15, 55]);
   // A drone below the floor does not go lower.
   assert.deepEqual(heights(25, 100), [20, 60]);
+});
+
+// The vertical spacing.
+
+/**
+ * Smallest distance between two points when heights count times a factor: the distance
+ * that the spacing checks compare with the minimum spacing.
+ */
+function heightScaledSpacing(points, factor) {
+  let smallest = Infinity;
+  for (let i = 0; i < points.length; i += 3) {
+    for (let j = i + 3; j < points.length; j += 3) {
+      const dz = (points[i + 2] - points[j + 2]) * factor;
+      smallest = Math.min(smallest, Math.hypot(points[i] - points[j], points[i + 1] - points[j + 1], dz));
+    }
+  }
+  return smallest;
+}
+
+/** A copy of points with each height times a factor. */
+function heightScaled(points, factor) {
+  return points.map((value, i) => (i % 3 === 2 ? value * factor : value));
+}
+
+test('with a vertical spacing, a drone above another needs more room than one beside it', () => {
+  const state = singleState();
+  // An upright ring has drones above one another at its sides.
+  state.formations[0] = { ...state.formations[0], source: { type: 'builtin', shape: 'ring' }, size: 80 };
+  const planner = createPlanner();
+  const round = planner(state).formations[0].spacing;
+  state.fleet.minVerticalSpacing = 3;
+  const plan = planner(state);
+  const { spacing } = plan.formations[0];
+  near(spacing, heightScaledSpacing(plan.steps[0].to, 2 / 3), 1e-4);
+  assert.ok(spacing < round * 0.8, `${spacing} against ${round}`);
+  // Fit grows the ring more, until the drones above one another have the vertical spacing.
+  const fitted = fitSize(80, spacing, 2, 1);
+  const roundFit = fitSize(80, round, 2, 1);
+  assert.ok(fitted > roundFit * 1.25, `fit ${fitted} against ${roundFit}`);
+});
+
+test('a vertical spacing does not change a formation that lies flat', () => {
+  const state = singleState();
+  state.formations[0] = { ...state.formations[0], source: { type: 'builtin', shape: 'disc' }, size: 60, tiltForward: 90 };
+  const planner = createPlanner();
+  const round = planner(state).formations[0].spacing;
+  state.fleet.minVerticalSpacing = 4;
+  near(planner(state).formations[0].spacing, round, 1e-3);
+});
+
+test('with a vertical spacing, the spacing of a hold looks at the poses of a rock', () => {
+  const state = singleState();
+  state.fleet.minVerticalSpacing = 4;
+  // A disc that lies flat has no height differences. A rock tips it, and then it has some.
+  state.formations[0] = { ...state.formations[0], source: { type: 'builtin', shape: 'disc' }, size: 60, tiltForward: 90 };
+  const planner = createPlanner();
+  const still = planner(state).formations[0].spacing;
+  state.formations[0] = { ...state.formations[0], rockAngle: 30, rockSeconds: 10, holdSeconds: 10 };
+  const rocking = planner(state).formations[0].spacing;
+  assert.ok(rocking < still * 0.99, `${rocking} against ${still}`);
+  // The axis of the flat disc lies on its side, so a turn about it stands the disc up.
+  state.formations[0] = { ...state.formations[0], rockAngle: 0, turnRate: 10 };
+  assert.ok(planner(state).formations[0].spacing < still * 0.6);
+  // A formation that stands upright turns about the vertical axis. That changes no height
+  // difference, so it changes nothing.
+  const upright = { ...state.formations[0], source: { type: 'builtin', shape: 'ring' }, tiltForward: 0, turnRate: 0 };
+  state.formations[0] = upright;
+  const ring = planner(state).formations[0].spacing;
+  state.formations[0] = { ...upright, turnRate: 10 };
+  near(planner(state).formations[0].spacing, ring, 1e-4);
+});
+
+test('with a vertical spacing, the closest approach and the spread count heights the same way', () => {
+  const planner = createPlanner();
+  const state = tightState(planner);
+  state.fleet.minVerticalSpacing = 3;
+  // Make the formations fit the vertical spacing, so a spread can make each flight safe.
+  const loose = planner(state);
+  state.formations = state.formations.map((formation, index) => ({
+    ...formation,
+    size: fitSize(formation.size, loose.formations[index].spacing, 2, 1),
+    centerHeight: 70,
+  }));
+  state.volume = { ...state.volume, size: 200 };
+  const plan = planner(state);
+  const factor = 2 / 3;
+  for (const step of plan.steps) {
+    const legApproaches = step.legs.map((leg) =>
+      closestApproach(heightScaled(leg.from, factor), heightScaled(leg.to, factor), plan.count),
+    );
+    near(Math.min(...legApproaches), step.closestApproach, 1e-3);
+    assert.ok(!isTooClose(step.closestApproach, 2), `step ${step.formation}: ${step.closestApproach}`);
+  }
+  assert.deepEqual(showProblems(state, plan), []);
 });
 
 test('a direct flight that is safe has one leg', () => {

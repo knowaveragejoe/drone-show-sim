@@ -8,29 +8,23 @@
     "maxDescentSpeed": 3,
     "maxAcceleration": 4,
     "minSpacing": 2,
+    "minVerticalSpacing": 3,
     "gridSpacing": 3
   },
   "volume": {
-    "size": 120,
+    "size": 160,
     "x": 0,
     "y": 0,
     "z": 0
   },
   "formations": [
     {
-      "source": {
-        "type": "builtin",
-        "shape": "sphere"
-      },
       "size": 40,
       "centerHeight": 55,
       "yaw": 0,
-      "color": "#66ccff",
-      "colorPattern": "solid",
-      "secondColor": "#ffffff",
-      "holdSeconds": 10,
       "tiltForward": 0,
       "tiltSide": 0,
+      "holdSeconds": 10,
       "turnRate": 8,
       "swayAngle": 0,
       "swaySeconds": 8,
@@ -38,25 +32,25 @@
       "rockSeconds": 8,
       "rollAngle": 0,
       "rollSeconds": 8,
-      "chase": "off",
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "source": {
+        "type": "builtin",
+        "shape": "sphere"
+      },
+      "color": "#66ccff",
+      "colorPattern": "solid",
+      "secondColor": "#ffffff",
+      "chase": "off",
       "seed": 1
     },
     {
-      "source": {
-        "type": "builtin",
-        "shape": "helix"
-      },
       "size": 64,
       "centerHeight": 55,
       "yaw": 0,
-      "color": "#7dff9b",
-      "colorPattern": "solid",
-      "secondColor": "#ffffff",
-      "holdSeconds": 10,
       "tiltForward": 0,
       "tiltSide": 0,
+      "holdSeconds": 10,
       "turnRate": 12,
       "swayAngle": 0,
       "swaySeconds": 8,
@@ -64,25 +58,25 @@
       "rockSeconds": 8,
       "rollAngle": 0,
       "rollSeconds": 8,
-      "chase": "off",
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "source": {
+        "type": "builtin",
+        "shape": "helix"
+      },
+      "color": "#7dff9b",
+      "colorPattern": "solid",
+      "secondColor": "#ffffff",
+      "chase": "off",
       "seed": 1
     },
     {
-      "source": {
-        "type": "builtin",
-        "shape": "ring"
-      },
-      "size": 80,
-      "centerHeight": 60,
+      "size": 119,
+      "centerHeight": 78,
       "yaw": 0,
-      "color": "#ffb347",
-      "colorPattern": "solid",
-      "secondColor": "#ffffff",
-      "holdSeconds": 10,
       "tiltForward": 0,
       "tiltSide": 0,
+      "holdSeconds": 10,
       "turnRate": 0,
       "swayAngle": 0,
       "swaySeconds": 8,
@@ -90,25 +84,25 @@
       "rockSeconds": 8,
       "rollAngle": 0,
       "rollSeconds": 8,
-      "chase": "around",
       "chaseBands": 3,
       "chaseSpeed": 0.3,
+      "source": {
+        "type": "builtin",
+        "shape": "ring"
+      },
+      "color": "#ffb347",
+      "colorPattern": "solid",
+      "secondColor": "#ffffff",
+      "chase": "around",
       "seed": 1
     },
     {
-      "source": {
-        "type": "builtin",
-        "shape": "heart"
-      },
-      "size": 80,
-      "centerHeight": 60,
+      "size": 119,
+      "centerHeight": 78,
       "yaw": 0,
-      "color": "#ff5c8a",
-      "colorPattern": "solid",
-      "secondColor": "#ffffff",
-      "holdSeconds": 12,
       "tiltForward": 0,
       "tiltSide": 0,
+      "holdSeconds": 12,
       "turnRate": 0,
       "swayAngle": 0,
       "swaySeconds": 8,
@@ -116,9 +110,16 @@
       "rockSeconds": 12,
       "rollAngle": 0,
       "rollSeconds": 8,
-      "chase": "around",
       "chaseBands": 4,
       "chaseSpeed": 0.25,
+      "source": {
+        "type": "builtin",
+        "shape": "heart"
+      },
+      "color": "#ff5c8a",
+      "colorPattern": "solid",
+      "secondColor": "#ffffff",
+      "chase": "around",
       "seed": 1
     }
   ],
