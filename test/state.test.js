@@ -178,6 +178,17 @@ test('a project file from before the vertical spacing has one spacing in all dir
   assert.throws(() => parseProject(fileWith((data) => (data.fleet.minVerticalSpacing = 0))), /minVerticalSpacing/);
 });
 
+test('a project file from before the hover layer takes off straight from the grid', () => {
+  const old = parseProject(fileWith((data) => {
+    delete data.fleet.hoverHeight;
+    delete data.fleet.rowDelay;
+  }));
+  assert.equal(old.fleet.hoverHeight, 0);
+  assert.equal(old.fleet.rowDelay, 0.5);
+  const hovering = parseProject(fileWith((data) => (data.fleet.hoverHeight = 15)));
+  assert.equal(hovering.fleet.hoverHeight, 15);
+});
+
 test('a formation from before color patterns gets one solid color', () => {
   const loaded = parseProject(
     fileWith((data) => {

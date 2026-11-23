@@ -75,7 +75,7 @@ const LIVE_SLIDER_MAX_DRONES = 250;
 const SLOW_FIELDS = ['count', 'yaw', 'tiltForward', 'tiltSide', 'turnRate'];
 
 // The Fleet section of the Fleet tab holds these fields. The Limits section holds the others.
-const FLEET_KEYS = ['count', 'gridSpacing'];
+const FLEET_KEYS = ['count', 'gridSpacing', 'hoverHeight', 'rowDelay'];
 
 // The checks panel lists this many problems. A last line counts the rest.
 const MAX_LISTED_PROBLEMS = 4;

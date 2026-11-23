@@ -62,10 +62,15 @@ import { svgCloud } from './svg.js';
  */
 
 /**
- * One straight flight of the whole fleet. All drones start and stop together.
+ * One straight flight of the whole fleet. In most legs all drones start and stop together.
+ * In the lift-off and the touchdown, the rows of the takeoff grid go one after another: each
+ * drone then starts after its own delay.
  * @typedef {object} Leg
  * @property {number} start time when the leg starts, seconds from the start of its step
- * @property {import('./motion.js').Timing} timing
+ * @property {number} duration length of the leg, seconds: the timing plus the longest delay
+ * @property {import('./motion.js').Timing} timing the flight of each drone, from its own start
+ * @property {Float32Array | null} delays time from the start of the leg to the start of each
+ *   drone, seconds; null when all drones start together
  * @property {Float32Array} from position of each drone when the leg starts, xyz
  * @property {Float32Array} to position of each drone when the leg ends, xyz
  * @property {Float32Array} pathLengths flight distance of each drone in the leg, meters
@@ -102,6 +107,7 @@ import { svgCloud } from './svg.js';
  * @property {Bounds} volume corners of the flight volume
  * @property {number} outsideVolume number of drones that leave the flight volume at some time
  * @property {number} takeoffOutsideVolume number of takeoff grid cells outside the flight volume
+ * @property {number} hoverOutsideVolume number of points of the hover layer outside the flight volume
  */
 
 /**
@@ -130,7 +136,9 @@ import { svgCloud } from './svg.js';
  * and the key of a pose names only its shape and its rotation. A change of formation size,
  * formation height, or grid spacing then needs no new assignment.
  * @typedef {object} Stop
- * @property {number} formation index of the formation, or -1 for the takeoff grid
+ * @property {number} formation index of the formation, or -1 for the takeoff grid and the hover layer
+ * @property {boolean} canSpread true when the stop can grow to let the fleet pass: a formation or
+ *   the hover layer, but not the takeoff grid on the ground
  * @property {string} family the shape of the stop, without its pose
  * @property {number} scale size of the formation, or spacing of the grid, meters
  * @property {string} key shape and rotation of the stop when the fleet arrives
@@ -288,7 +296,8 @@ export function createPlanner() {
 
   /** @param {import('./state.js').State} state */
   const plan = (state) => {
-    const { count, gridSpacing, maxAcceleration, minSpacing, minVerticalSpacing } = state.fleet;
+    const { count, gridSpacing, hoverHeight, rowDelay, maxAcceleration, minSpacing, minVerticalSpacing } =
+      state.fleet;
     // Distances for the spacing checks count heights times this factor (see `spacingCopy`).
     const heightScale = minSpacing / minVerticalSpacing;
     // Sample every shape first. A shape that fails then leaves the stored results as they were.
@@ -309,6 +318,7 @@ export function createPlanner() {
     /** @type {Stop} */
     const grid = {
       formation: -1,
+      canSpread: false,
       family: 'grid',
       scale: gridSpacing,
       key: 'grid',
@@ -381,6 +391,7 @@ export function createPlanner() {
       ].join('|');
       stops.push({
         formation: index,
+        canSpread: true,
         family,
         scale: formation.size,
         key,
@@ -417,6 +428,29 @@ export function createPlanner() {
     const outside = new Uint8Array(count);
     const takeoffOutsideVolume = markOutside(grid.points, count, volume, outside);
 
+    // The hover layer: the takeoff grid, lifted straight up. The rows lift off to it one after
+    // another, and the fleet flies on from it as from a stop. In the air it can spread out.
+    // It has the canonical copy and the key of the grid, so the assignments are the same.
+    /** @type {Stop | null} */
+    let hover = null;
+    let hoverOutsideVolume = 0;
+    if (hoverHeight > 0) {
+      const points = gridPoints.map((value, i) => (i % 3 === 2 ? value + hoverHeight : value));
+      hover = {
+        ...grid,
+        canSpread: true,
+        points,
+        centerHeight: hoverHeight,
+        check: stillCheck(points, count, volume),
+        leavePoints: points,
+      };
+      hoverOutsideVolume = markOutside(points, count, volume, outside);
+    }
+    // The row of each point of the takeoff grid. Row 0 is the row nearest the audience.
+    const columns = Math.ceil(Math.sqrt(count));
+    /** @param {Int32Array} gridSlots the grid point of each drone */
+    const rowDelays = (gridSlots) => Float32Array.from(gridSlots, (slot) => Math.floor(slot / columns) * rowDelay);
+
     // slots[drone] is the point of the current stop where the drone is.
     let slots = Int32Array.from({ length: count }, (unused, drone) => drone);
     let from = grid.points;
@@ -424,8 +458,16 @@ export function createPlanner() {
     /** @type {Step[]} */
     const steps = [];
     for (let index = 1; index < stops.length; index++) {
-      const previous = stops[index - 1];
-      const stop = stops[index];
+      // With a hover layer, the takeoff flies on from it after the lift-off, and the landing
+      // flies to it before the touchdown.
+      const liftOff = hover !== null && index === 1;
+      const touchdown = hover !== null && state.landAtEnd && index === stops.length - 1;
+      const previous = liftOff ? /** @type {Stop} */ (hover) : stops[index - 1];
+      const stop = touchdown ? /** @type {Stop} */ (hover) : stops[index];
+      const ground = from;
+      // Each drone lifts off in the row of the grid cell that it starts from.
+      const liftDelays = liftOff ? rowDelays(slots) : null;
+      if (liftOff) from = gather(previous.points, slots);
 
       // The assignment pairs the points of two stops. It does not depend on which drone
       // is at which point, so one result serves every order of the stops before it.
@@ -476,8 +518,8 @@ export function createPlanner() {
             count,
             stopBelow,
           );
-        const canLeave = previous.formation >= 0;
-        const canArrive = stop.formation >= 0;
+        const canLeave = previous.canSpread;
+        const canArrive = stop.canSpread;
         /** @param {number[] | null} room */
         const spreadsWith = (room) =>
           spreadCandidates(
@@ -490,7 +532,7 @@ export function createPlanner() {
             minSpacing,
             room,
           );
-        const shapeKey = `${linkKey}|${previous.scale}|${stop.scale}|${minSpacing}|${heightScale}`;
+        const shapeKey = `${linkKey}|${previous.scale}|${stop.scale}|${minSpacing}|${heightScale}|${canLeave}|${canArrive}`;
         const quick = remember(`spreads|${shapeKey}`, () => spreadsWith(null));
         let best = bestSpread(quick);
         // The quick spreads leave the flight volume. Search the spreads that fit in it: these
@@ -538,13 +580,30 @@ export function createPlanner() {
         return best;
       }
 
+      // The lift-off and the touchdown: the rows climb or descend straight, one after
+      // another. Each drone keeps its distance across to every other drone, so no two drones
+      // come closer than the grid spacing.
+      /** @type {{from: Float32Array, to: Float32Array, delays: Float32Array | null}[]} */
+      const flights = [];
+      if (liftOff) flights.push({ from: ground, to: from, delays: liftDelays });
+      for (let pose = 1; pose < poses.length; pose++) {
+        flights.push({ from: poses[pose - 1], to: poses[pose], delays: null });
+      }
+      /** @type {Float32Array} */
+      let arrival = to;
+      if (touchdown) {
+        // Each drone lands in the row of the grid cell that it lands on.
+        arrival = gather(grid.points, slots);
+        flights.push({ from: to, to: arrival, delays: rowDelays(slots) });
+      }
+      if (liftOff) cross++;
+      if (liftOff || touchdown) approach = Math.min(approach, grid.spacing);
+
       /** @type {Leg[]} */
       const legs = [];
       let duration = 0;
       let peakSpeed = 0;
-      for (let index = 1; index < poses.length; index++) {
-        const legFrom = poses[index - 1];
-        const legTo = poses[index];
+      for (const { from: legFrom, to: legTo, delays } of flights) {
         const pathLengths = new Float32Array(count);
         let longest = 0;
         for (let drone = 0; drone < count; drone++) {
@@ -557,8 +616,9 @@ export function createPlanner() {
           longest = Math.max(longest, pathLengths[drone]);
         }
         const timing = planTiming(legFrom, legTo, count, state.fleet);
-        legs.push({ start: duration, timing, from: legFrom, to: legTo, pathLengths });
-        duration += timing.duration;
+        const legDuration = timing.duration + (delays ? Math.max(0, ...delays) : 0);
+        legs.push({ start: duration, duration: legDuration, timing, delays, from: legFrom, to: legTo, pathLengths });
+        duration += legDuration;
         peakSpeed = Math.max(peakSpeed, longest * timing.peakRate);
       }
 
@@ -571,13 +631,13 @@ export function createPlanner() {
         cross,
         spreadOutside,
         hold,
-        from,
-        to,
+        from: ground,
+        to: arrival,
         motion: stop.motion,
         body: stop.body && gather(stop.body, slots),
         centerHeight: stop.centerHeight,
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
-        end,
+        end: touchdown ? arrival : end,
         colors,
         closestApproach: approach,
         peakSpeed: Math.max(peakSpeed, stop.check.speeds.speed),
@@ -608,6 +668,7 @@ export function createPlanner() {
       volume,
       outsideVolume: outside.reduce((sum, flag) => sum + flag, 0),
       takeoffOutsideVolume,
+      hoverOutsideVolume,
     };
   };
 
@@ -1374,6 +1435,7 @@ export function formationProblems(plan, formation, limits) {
 const LANDING_PROBLEM = 'Drones come too close in the landing.';
 const LANDING_SPREAD_PROBLEM = 'Drones leave the flight volume when they spread out before the landing.';
 const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
+const HOVER_PROBLEM = 'The hover layer is outside the flight volume.';
 
 /**
  * Lists every problem of the show, in words for the user.
@@ -1384,6 +1446,7 @@ const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
 export function showProblems(state, plan) {
   const problems = [];
   if (plan.takeoffOutsideVolume > 0) problems.push(TAKEOFF_PROBLEM);
+  if (plan.hoverOutsideVolume > 0) problems.push(HOVER_PROBLEM);
   state.formations.forEach((formation, index) => {
     for (const problem of formationProblems(plan, index, state.fleet)) {
       problems.push(`Formation ${index + 1}: ${problem}`);
@@ -1461,7 +1524,14 @@ export function positionsAt(plan, time, out) {
     }
     return;
   }
-  const { start, timing, from, to } = legAt(step, offset);
+  const { start, timing, delays, from, to } = legAt(step, offset);
+  if (delays) {
+    for (let drone = 0; drone < plan.count; drone++) {
+      const progress = progressAt(timing, offset - start - delays[drone]);
+      for (let i = drone * 3; i < drone * 3 + 3; i++) out[i] = from[i] + progress * (to[i] - from[i]);
+    }
+    return;
+  }
   const progress = progressAt(timing, offset - start);
   for (let i = 0; i < plan.count * 3; i++) {
     out[i] = from[i] + progress * (to[i] - from[i]);
@@ -1481,7 +1551,8 @@ export function speedAt(plan, drone, time) {
   const held = offset - step.duration;
   if (held < 0) {
     const leg = legAt(step, offset);
-    return rateAt(leg.timing, offset - leg.start) * leg.pathLengths[drone];
+    const delay = leg.delays ? leg.delays[drone] : 0;
+    return rateAt(leg.timing, offset - leg.start - delay) * leg.pathLengths[drone];
   }
   const { motion, body } = step;
   // The motion starts and ends at rest.

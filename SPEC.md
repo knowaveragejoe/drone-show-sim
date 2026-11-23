@@ -29,6 +29,7 @@ When the march would bring two marchers too close, the band first opens its rank
 | Formation | One static picture made of drones: a shape plus its size, position, and color. |
 | Storyboard | The ordered list of formations in a show. |
 | Takeoff grid | The ground positions where the drones start, and where they land. |
+| Hover layer | The takeoff grid lifted straight up to the hover height. The rows of the grid lift off to it one after another, and the fleet flies on from it as from a stop. The landing comes back to it, and the rows descend one after another. |
 | Stop | A place where the fleet rests: the takeoff grid or a formation. |
 | Transition | The flight from one stop to the next. It has one leg, or more when the fleet spreads out. |
 | Leg | One straight flight of the whole fleet. All drones start and stop together. |
@@ -65,7 +66,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Fleet size | 1 to 1,000 drones. Default 100. |
 | Shape inputs | Built-in shapes, OBJ models, and SVG drawings. |
 | Drone placement | Even spread over the surface of a 3D shape, or along the outlines of a flat shape and of an SVG drawing. |
-| Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. |
+| Show | Takeoff, 1 to 20 formations in storyboard order, and a landing that the user can turn off. The rows of the takeoff grid lift off to a hover layer one after another, and land the same way, as real shows do. |
 | Color | Each drone has its own light color. A formation has a color pattern: one solid color, a gradient of two colors (Rising, Across, or Outward), or, for an SVG drawing, the colors of the drawing. In a transition each drone blends from its old color to its new color. |
 | Hold motion | Each formation can have a fixed tilt, forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time. The turn lets the audience see the depth of the shape. Each swing ends where it started. |
 | Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
@@ -102,6 +103,8 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Minimum spacing | 2 m |
 | Vertical spacing | 3 m |
 | Takeoff grid spacing | 3 m |
+| Hover height | 10 m |
+| Row delay | 0.5 s |
 | Flight volume size | 120 m |
 | Flight volume position | Centered on the origin, floor on the ground |
 | Storyboard | A 40 m sphere, a 100 m heart, and a 50 m torus. Each has its center at 60 m and a hold of 10 s. The sphere turns at 6°/s, the torus at −6°/s. The heart is flat, so it does not turn; it runs a light chase around its outline instead, with 5 bands at 0.25 laps/s, and it rocks 5° toward the audience and back. The torus leans 20° toward the audience, and it has an outward gradient from orange on its inner ring to pink on its outer ring. |
@@ -244,6 +247,18 @@ Drone ids run from 1 to N, row by row.
 
 The default grid spacing of 3 m is more than `√2 × 2 m`, so the grid has the same margin as a formation that Fit sets with the spread off.
 
+Real shows do not lift the whole fleet at once. The rows lift off one after another, so no drone waits in the downwash of another near the ground, and the fleet climbs to a low hover height before it flies to the first formation. The simulator does the same:
+
+1. Lift-off: each row of the grid climbs straight up to the hover height, the row nearest the audience first. Row `r` starts `r × row delay` after the first one. Within a row, all drones climb together.
+2. The fleet flies from the hover layer to the first formation, as from any stop.
+3. For the landing, the fleet flies from the last formation to the hover layer.
+4. Touchdown: each row descends straight to the ground, in the same order as at the lift-off. A drone lands in the row of the grid cell that it lands on.
+
+A drone that climbs or descends straight keeps its distance across to every other drone. So in a lift-off and a touchdown, no two drones come closer than the grid spacing, at any vertical spacing, and the planner needs no search for it.
+The hover layer is in the air, so unlike the grid on the ground it can spread out (stage 7a). A takeoff to a formation that nearly fills the flight volume can then grow both ends by the same factor.
+A hover height of 0 turns this off: the fleet flies straight from the grid, and straight back to it.
+On the 60 random shows of stage 7a, the hover layer cut the spreads that leave the flight volume from 9 to 2.
+
 ### 6. Assign drones to targets
 
 For each transition, the solver pairs the points of the two stops.
@@ -333,6 +348,8 @@ A term with a zero divisor sets no limit.
 A transition with a spread has more than one leg.
 Each leg is a straight flight with its own trapezoid profile, and the next leg starts when the last one ends.
 
+In the lift-off and the touchdown each drone has a delay: the start of its row. A drone then follows the shared profile from its own start: `position(t) = from + s(t − delay) × (to − from)`, with `s` 0 before the start. Such a leg lasts the profile plus the longest delay.
+
 Each step starts when the step before it ends: after that step's transition and hold.
 The landing has no hold.
 
@@ -350,7 +367,7 @@ When this happens and the spread setting is on, the fleet flies the transition i
 3. Close up: the new stop shrinks to its real size.
 
 A stop that does not need to grow has no spread leg.
-The takeoff grid never grows, so a takeoff or a landing has two legs.
+The takeoff grid on the ground never grows, so a takeoff or a landing straight from the grid has two legs. The hover layer can grow, so a takeoff from it can have a spread leg at both ends, after the lift-off.
 
 Why this keeps the drones apart:
 
@@ -515,7 +532,7 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 | Section | Contents |
 |---|---|
-| Fleet | Drone count. Takeoff grid spacing. |
+| Fleet | Drone count. Takeoff grid spacing. Hover height. Row delay, shown only when the hover height is not 0. |
 | Limits | The four speed and acceleration limits. Minimum spacing. Vertical spacing. Spread out to pass safely toggle (stage 7a). |
 | Flight volume | Size. Center X and Y. Floor height. |
 
@@ -710,7 +727,9 @@ The project file is JSON with the extension `.droneshow.json`.
     "maxAcceleration": 4,
     "minSpacing": 2,
     "minVerticalSpacing": 3,
-    "gridSpacing": 3
+    "gridSpacing": 3,
+    "hoverHeight": 10,
+    "rowDelay": 0.5
   },
   "volume": {
     "size": 120,
@@ -763,6 +782,7 @@ A file with no `landAtEnd` gets no landing, a file with no `volume` gets the def
 `colorPattern` is one of `solid`, `rising`, `across`, `outward`, and `drawing`. A formation that is not an SVG drawing and has `drawing` gets `solid`.
 A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
 A file with no `minVerticalSpacing` gets the minimum spacing as its vertical spacing: one spacing in all directions, as before.
+A file with no `hoverHeight` gets 0: the fleet flies straight from the takeoff grid and back, as before. A file with no `rowDelay` gets 0.5 s.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -837,8 +857,8 @@ No `npm install` is necessary.
 | `demos.test.js` | Each demo has a name, a line, and a relative URL of a file in `demos/`. The list and the folder match. Each demo loads like an imported project file and passes every check. |
 | `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
-| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
-| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Spread: the even factor between two formations, the bisection of a takeoff and a landing, no candidate that fails a check, a crossing within 3% of the minimum spacing, the room of a stop in the flight volume, spreads that fit their room, a spread that fits winning over a faster one that leaves the volume, the spread factors of the bound for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
+| `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no vertical spacing has one spacing, and a file with no hover height flies straight from the grid. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. |
+| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Hover layer and rows: a straight lift-off in rows with the row delays, the first row higher halfway, a drone that waits at rest, a touchdown in rows onto the grid, the grid spacing in both legs (checked over time), a takeoff to a large formation that fits only with the hover layer, a hover layer outside the flight volume. Spread: the even factor between two formations, the bisection of a takeoff and a landing, no candidate that fails a check, a crossing within 3% of the minimum spacing, the room of a stop in the flight volume, spreads that fit their room, a spread that fits winning over a faster one that leaves the volume, the spread factors of the bound for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -902,6 +922,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 22 | Showtime | A night sky with stars, a field, hills, and a crowd. A glare around each light. Showtime plays the show full screen from the audience seat, with a camera that follows the show. | Done |
 | 23 | Spread just enough | The formations grow only as much as an exact check of the crossing needs. Spreads that fit in the flight volume when the quick ones do not. | Done |
 | 24 | Downwash spacing | A vertical spacing. Every spacing check uses an ellipsoid: the minimum spacing across, the vertical spacing up and down. The demos have one too. | Done |
+| 25 | Rows and hover layer | The rows of the takeoff grid lift off to a hover layer one after another, and land the same way. The hover layer can spread out. | Done |
 
 ## Known limits
 
@@ -912,6 +933,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - Drones fly straight legs. The spread keeps the minimum spacing in a transition, but it makes the transition longer. The formations grow only as much as an exact check needs, but in a takeoff or a landing only the formation can grow, so a formation that nearly fills the flight volume can still leave it. The simulator does not plan a path around a single conflict, and it does not move only the drones that conflict: in a stress test, a median of 19% of the drones took part in the conflicts of an unsafe flight.
 - A spread cannot fix a stop whose targets are too close together. It also cannot fix a takeoff when the grid spacing is not more than the minimum spacing.
 - A drone can land on a grid cell that is not the one it started from.
+- The rows lift off and land in one fixed order, the row nearest the audience first, with one delay for all rows.
 - The OBJ importer puts drones on every surface of the model, also on surfaces inside it.
 - The SVG importer puts drones on outlines only. It does not fill a filled area. It does not read `text` (fonts), `use`, nested `svg` positions, CSS classes, or units such as percent.
 - Drawing colors come from `stroke`, `fill`, and `color` only. CSS classes, gradients, opacity, and color names other than the basic ones give no color. Each color goes to full brightness, so a drawing that uses dark and light shades of one hue shows one hue.

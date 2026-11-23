@@ -32,12 +32,14 @@ import {
 import { defaultState as projectDefault } from '../src/state.js';
 
 /**
- * The default show with one spacing in all directions. Most tests here are about other
- * things than the vertical spacing, and their numbers come from a spherical spacing.
+ * The default show with one spacing in all directions and a takeoff straight from the grid.
+ * Most tests here are about other things than the vertical spacing and the hover layer, and
+ * their numbers come from a spherical spacing and a direct takeoff.
  */
 function defaultState() {
   const state = projectDefault();
   state.fleet.minVerticalSpacing = state.fleet.minSpacing;
+  state.fleet.hoverHeight = 0;
   return state;
 }
 
@@ -1095,6 +1097,108 @@ test('with a vertical spacing, the closest approach and the spread count heights
     assert.ok(!isTooClose(step.closestApproach, 2), `step ${step.formation}: ${step.closestApproach}`);
   }
   assert.deepEqual(showProblems(state, plan), []);
+});
+
+// The hover layer and the rows of the takeoff grid.
+
+/** The default show with one spacing in all directions, a 10 m hover layer, and 0.5 s per row. */
+function hoverState() {
+  const state = projectDefault();
+  state.fleet.minVerticalSpacing = state.fleet.minSpacing;
+  state.fleet.hoverHeight = 10;
+  state.fleet.rowDelay = 0.5;
+  return state;
+}
+
+test('the rows lift off straight up to the hover layer, one after another', () => {
+  const plan = createPlanner()(hoverState());
+  const { count } = plan;
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  const [lift] = plan.steps[0].legs;
+  for (let drone = 0; drone < count; drone++) {
+    const o = drone * 3;
+    assert.equal(lift.to[o], lift.from[o]);
+    assert.equal(lift.to[o + 1], lift.from[o + 1]);
+    assert.equal(lift.from[o + 2], 0);
+    near(lift.to[o + 2], 10, 1e-5);
+    near(lift.delays[drone], Math.floor(drone / columns) * 0.5);
+  }
+  near(lift.duration, lift.timing.duration + (rows - 1) * 0.5);
+  // Row 0 is the row nearest the audience, which stands toward negative y.
+  assert.ok(lift.from[1] < lift.from[(count - 1) * 3 + 1]);
+  // Halfway through the lift-off, the first row is higher than the last one.
+  const positions = new Float32Array(count * 3);
+  positionsAt(plan, lift.duration / 2, positions);
+  assert.ok(positions[2] > positions[(count - 1) * 3 + 2]);
+  // A drone of the last row waits on the ground at first.
+  assert.equal(speedAt(plan, count - 1, 0.2), 0);
+  assert.ok(speedAt(plan, 0, 0.2) > 0);
+  // After the lift-off, the fleet flies on from the hover layer.
+  assert.equal(plan.steps[0].legs[1].from, lift.to);
+});
+
+test('the fleet lands on the takeoff grid in rows, straight down from the hover layer', () => {
+  const plan = createPlanner()(hoverState());
+  const landing = plan.steps.at(-1);
+  const touchdown = landing.legs.at(-1);
+  assert.ok(touchdown.delays);
+  assert.deepEqual(pointSet(landing.to), pointSet(takeoffGrid(plan.count, 3)));
+  for (let drone = 0; drone < plan.count; drone++) {
+    const o = drone * 3;
+    assert.equal(touchdown.to[o], touchdown.from[o]);
+    near(touchdown.from[o + 2], 10, 1e-5);
+  }
+  // The row nearest the audience lands first.
+  const front = Math.min(...Array.from({ length: plan.count }, (unused, drone) => touchdown.to[drone * 3 + 1]));
+  for (let drone = 0; drone < plan.count; drone++) {
+    if (touchdown.to[drone * 3 + 1] === front) assert.equal(touchdown.delays[drone], 0);
+    else assert.ok(touchdown.delays[drone] > 0);
+  }
+  const positions = new Float32Array(plan.count * 3);
+  positionsAt(plan, plan.total, positions);
+  assert.deepEqual(positions, landing.to);
+});
+
+test('the rows keep the grid spacing in the lift-off and in the touchdown', () => {
+  const state = hoverState();
+  state.fleet.minVerticalSpacing = 3;
+  const plan = createPlanner()(state);
+  const positions = new Float32Array(plan.count * 3);
+  for (const step of [plan.steps[0], plan.steps.at(-1)]) {
+    const leg = step === plan.steps[0] ? step.legs[0] : step.legs.at(-1);
+    let smallest = Infinity;
+    for (let k = 0; k <= 40; k++) {
+      positionsAt(plan, step.start + leg.start + (k / 40) * leg.duration, positions);
+      smallest = Math.min(smallest, heightScaledSpacing(positions, 2 / 3));
+    }
+    near(smallest, state.fleet.gridSpacing, 1e-4);
+    assert.ok(step.closestApproach <= state.fleet.gridSpacing);
+  }
+});
+
+test('the hover layer can spread, so a takeoff to a large formation fits in the flight volume', () => {
+  const planner = createPlanner();
+  const state = hoverState();
+  state.formations = [{ ...state.formations[0], source: { type: 'builtin', shape: 'ring' }, turnRate: 0, size: 66, centerHeight: 45 }];
+  state.volume = { ...state.volume, size: 80 };
+  state.fleet.hoverHeight = 0;
+  const ground = planner(state);
+  assert.ok(ground.steps.every((step) => step.spreadOutside > 0));
+  state.fleet.hoverHeight = 10;
+  const plan = planner(state);
+  // Lift-off, spread of the hover layer, crossing, close-up; and the same back for the landing.
+  assert.deepEqual(plan.steps.map((step) => step.legs.length), [4, 4]);
+  assert.deepEqual(plan.steps.map((step) => step.spreadOutside), [0, 0]);
+  assert.deepEqual(showProblems(state, plan), []);
+});
+
+test('a hover layer outside the flight volume is a problem', () => {
+  const state = hoverState();
+  state.volume = { ...state.volume, z: 20 };
+  const plan = createPlanner()(state);
+  assert.equal(plan.hoverOutsideVolume, plan.count);
+  assert.ok(showProblems(state, plan).includes('The hover layer is outside the flight volume.'));
 });
 
 test('a direct flight that is safe has one leg', () => {

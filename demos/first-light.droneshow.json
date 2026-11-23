@@ -9,7 +9,9 @@
     "maxAcceleration": 4,
     "minSpacing": 2,
     "minVerticalSpacing": 3,
-    "gridSpacing": 3
+    "gridSpacing": 3,
+    "hoverHeight": 10,
+    "rowDelay": 0.5
   },
   "volume": {
     "size": 160,

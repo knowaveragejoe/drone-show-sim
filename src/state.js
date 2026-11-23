@@ -29,6 +29,8 @@ export const FLEET_FIELDS = [
   { key: 'minSpacing', label: 'Minimum spacing', unit: 'm', min: 0.5, max: 20, step: 0.1, title: 'Smallest distance between two drones side by side.' },
   { key: 'minVerticalSpacing', label: 'Vertical spacing', unit: 'm', min: 0.5, max: 40, step: 0.1, title: 'Smallest distance between two drones when one is straight above the other. A drone pushes air down, so a drone under it needs more room. Between side by side and straight above, the limit blends from the minimum spacing to this one.' },
   { key: 'gridSpacing', label: 'Takeoff grid spacing', unit: 'm', min: 0.5, max: 20, step: 0.1 },
+  { key: 'hoverHeight', label: 'Hover height', unit: 'm', min: 0, max: 100, step: 1, fallback: 0, title: 'The rows of the takeoff grid climb straight up to this height, one row after another, before the fleet flies to the first formation. For the landing, the fleet comes back to it, and the rows descend one after another. 0 flies straight from the takeoff grid and back.' },
+  { key: 'rowDelay', label: 'Row delay', unit: 's', min: 0, max: 10, step: 0.1, fallback: 0.5, dependsOn: 'hoverHeight', title: 'Time between one row of the takeoff grid and the next, at the takeoff and at the landing. The row nearest the audience goes first.' },
 ];
 
 /** @type {NumberField[]} */
@@ -119,6 +121,9 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {number} minVerticalSpacing smallest distance between two drones when one is
  *   straight above the other, meters
  * @property {number} gridSpacing meters
+ * @property {number} hoverHeight height of the hover layer above the takeoff grid, meters; 0 for
+ *   a takeoff and a landing straight from and to the grid
+ * @property {number} rowDelay time between two rows of the takeoff grid when they lift off or land, seconds
  */
 
 /**
@@ -203,6 +208,8 @@ export function defaultState() {
       minSpacing: 2,
       minVerticalSpacing: 3,
       gridSpacing: 3,
+      hoverHeight: 10,
+      rowDelay: 0.5,
     },
     volume: {
       size: 120,
