@@ -16,11 +16,15 @@ import {
   CHASE_FIELDS,
   CHASE_PATTERNS,
   COLOR_PATTERNS,
+  DARK_LEVEL_EFFECTS,
   FLEET_FIELDS,
   FORMATION_FIELDS,
+  LANDING_FIELDS,
   MAX_FORMATIONS,
   MOTION_FIELDS,
   PROJECT_FILE_NAME,
+  FLIGHT_LIGHT_FIELDS,
+  FLIGHT_LIGHTS,
   VOLUME_FIELDS,
   clampToField,
 } from './state.js';
@@ -34,6 +38,7 @@ import {
  * @property {() => void} removeFormation
  * @property {(step: number) => void} moveFormation -1 moves the formation earlier, 1 later
  * @property {(land: boolean) => void} setLandAtEnd
+ * @property {(key: string, value: number | string) => void} setLanding sets the lights of the landing
  * @property {(spread: boolean) => void} setSpreadToPass
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
@@ -159,6 +164,12 @@ export function createUi(actions) {
   moveLater.addEventListener('click', () => actions.moveFormation(1));
   const landAtEnd = /** @type {HTMLInputElement} */ (byId('land-at-end'));
   landAtEnd.addEventListener('change', () => actions.setLandAtEnd(landAtEnd.checked));
+  const landingLightsGroup = byId('landing-lights-group');
+  const landingLights = wireLightsChoice(byId('landing-lights'), (effect) =>
+    actions.setLanding('landingLights', effect),
+  );
+  const landingBox = byId('landing-fields');
+  const landingFields = buildFields(landingBox, LANDING_FIELDS, actions.setLanding, () => true);
 
   const formationTitle = byId('formation-title');
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
@@ -189,6 +200,13 @@ export function createUi(actions) {
   const secondColorRow = byId('second-color-row');
   const secondColor = /** @type {HTMLInputElement} */ (byId('second-color'));
   secondColor.addEventListener('input', () => actions.setFormation('secondColor', secondColor.value));
+
+  const flightLights = wireLightsChoice(byId('flight-lights'), (effect) =>
+    actions.setFormation('flightLights', effect),
+  );
+  const flightLightBox = byId('flight-light-fields');
+  // Flight lights need no new assignment, so their sliders are live for every fleet size.
+  const flightLightFields = buildFields(flightLightBox, FLIGHT_LIGHT_FIELDS, actions.setFormation, () => true);
 
   const chase = /** @type {HTMLSelectElement} */ (byId('chase'));
   for (const [key, label] of Object.entries(CHASE_PATTERNS)) chase.add(new Option(label, key));
@@ -296,6 +314,10 @@ export function createUi(actions) {
     moveEarlier.disabled = view.formation === 0;
     moveLater.disabled = view.formation === formations.length - 1;
     landAtEnd.checked = state.landAtEnd;
+    landingLightsGroup.hidden = !state.landAtEnd;
+    landingLights.value = state.landingLights;
+    landingBox.hidden = !DARK_LEVEL_EFFECTS.includes(state.landingLights);
+    landingFields.show(state);
 
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
@@ -306,6 +328,9 @@ export function createUi(actions) {
     colorPattern.value = formation.colorPattern;
     secondColorRow.hidden = !isGradient(formation);
     secondColor.value = formation.secondColor;
+    flightLights.value = formation.flightLights;
+    flightLightBox.hidden = !DARK_LEVEL_EFFECTS.includes(formation.flightLights);
+    flightLightFields.show(formation);
     chase.value = formation.chase;
     chaseBox.hidden = formation.chase === 'off';
     chaseFields.show(formation);
@@ -567,14 +592,28 @@ function buildStoryboard(list, onSelect) {
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
       const swings = ['sway', 'rock', 'roll'].filter((swing) => formation[`${swing}Angle`] !== 0);
       const motion = swings.length === 0 ? '' : ` · ${swings.join('/')}`;
+      const effect = formation.flightLights === 'blend' ? '' : ` · ${FLIGHT_LIGHTS[formation.flightLights].toLowerCase()}`;
       const lights = formation.chase === 'off' ? '' : ' · chase';
-      meta.textContent = `${formation.holdSeconds} s${turn}${motion}${lights}`;
+      meta.textContent = `${formation.holdSeconds} s${turn}${motion}${effect}${lights}`;
       problem.textContent = problems.length > 0 ? '!' : '';
       row.title = problems.join(' ');
     });
   }
 
   return { show };
+}
+
+/**
+ * Fills a list with the flight light effects and reports a choice.
+ * @param {HTMLElement} list a select element
+ * @param {(effect: string) => void} onChange
+ * @returns {HTMLSelectElement}
+ */
+function wireLightsChoice(list, onChange) {
+  const select = /** @type {HTMLSelectElement} */ (list);
+  for (const [key, label] of Object.entries(FLIGHT_LIGHTS)) select.add(new Option(label, key));
+  select.addEventListener('change', () => onChange(select.value));
+  return select;
 }
 
 /**
@@ -617,9 +656,11 @@ function buildTimeline(strip, actions) {
       flight.style.flexGrow = String(step.duration);
       flight.style.setProperty('--from', colorBefore);
       flight.style.setProperty('--to', colorAfter);
+      flight.dataset.lights = step.lights.effect;
       flight.title = [landing ? 'Landing' : `Flight to formation ${step.formation + 1}`]
         .concat(
           `${step.duration.toFixed(1)} s`,
+          step.lights.effect === 'blend' ? [] : `Lights: ${FLIGHT_LIGHTS[step.lights.effect]}`,
           step.legs.length > 1 ? 'The drones spread out to pass' : [],
           problems,
         )

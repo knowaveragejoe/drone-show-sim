@@ -5,8 +5,8 @@ import { closestApproach, placeBody, poseRotation, takeoffGrid } from '../src/mo
 import {
   CHASE_DIM,
   FLIGHT_MARGIN,
+  LIGHTS_FADE,
   MAX_SPREAD,
-  brightnessAt,
   countOutside,
   createPlanner,
   fitSize,
@@ -14,9 +14,10 @@ import {
   hexToRgb,
   holdStart,
   isBelowGround,
+  effectShare,
   isTooClose,
   lightColorAt,
-  lightColorsAt,
+  lightsAt,
   positionsAt,
   retime,
   routeOf,
@@ -67,6 +68,16 @@ function singleState() {
   state.formations = [state.formations[0]];
   state.landAtEnd = false;
   return state;
+}
+
+/** Writes the brightness of every drone light at one time. */
+function brightnessAt(plan, time, out) {
+  lightsAt(plan, time, new Float32Array(plan.count * 3), out);
+}
+
+/** Writes the light color of every drone at one time. */
+function lightColorsAt(plan, time, out) {
+  lightsAt(plan, time, out, new Float32Array(plan.count));
 }
 
 /** Positions as a sorted list of "x,y,z" strings, to compare two sets without regard to drone order. */
@@ -669,9 +680,21 @@ test('routeOf gives the flight and the path in the hold of one drone for each st
 /** A plan with one step: a hold of 10 s that runs a light chase over the given drones. */
 function chasePlan(u, bands, speed) {
   const count = u.length;
+  const arrived = { duration: 0, acceleration: 1, rampTime: 0, peakRate: 0 };
   return {
     count,
-    steps: [{ start: 0, duration: 0, hold: 10, chase: { u: Float32Array.from(u), bands, speed } }],
+    steps: [
+      {
+        start: 0,
+        duration: 0,
+        legs: [{ start: 0, duration: 0, timing: arrived }],
+        cross: 0,
+        hold: 10,
+        colors: new Float32Array(count * 3).fill(1),
+        lights: { effect: 'blend', level: 0 },
+        chase: { u: Float32Array.from(u), bands, speed },
+      },
+    ],
   };
 }
 
@@ -1515,6 +1538,68 @@ test('the colors stay with the drones through a spread', () => {
   for (let i = 0; i < out.length; i++) near(out[i], (before[i] + step.colors[i]) / 2, 1e-6);
   lightColorsAt(plan, step.start + closeUp.start + closeUp.timing.duration / 2, out);
   assert.deepEqual(out, step.colors);
+});
+
+// Flight lights.
+
+test('an effect comes in at the start of a flight and goes out at its end', () => {
+  assert.equal(effectShare(20, 0), 0);
+  near(effectShare(20, LIGHTS_FADE / 2), 0.5, 1e-9);
+  assert.equal(effectShare(20, LIGHTS_FADE), 1);
+  assert.equal(effectShare(20, 10), 1);
+  near(effectShare(20, 20 - LIGHTS_FADE / 2), 0.5, 1e-9);
+  assert.equal(effectShare(20, 20), 0);
+  // The share grows smoothly: slow at the ends of a fade, fast in its middle.
+  assert.ok(effectShare(20, LIGHTS_FADE / 10) < 0.1);
+  // A short flight uses a quarter of its time for each fade.
+  near(effectShare(2, 0.25), 0.5, 1e-9);
+  assert.equal(effectShare(2, 1), 1);
+  assert.equal(effectShare(0, 0), 0);
+});
+
+test('dark flight lights go down for the flight and come back at the new formation', () => {
+  const state = defaultState();
+  state.formations[1] = { ...state.formations[1], flightLights: 'dark', darkLevel: 0 };
+  state.formations[2] = { ...state.formations[2], flightLights: 'dark', darkLevel: 20 };
+  const plan = createPlanner()(state);
+  const light = new Float32Array(plan.count);
+  const [takeoff, second, third] = plan.steps;
+  const all = (value) => light.every((level) => Math.abs(level - value) < 1e-6);
+
+  // The takeoff blends, so its lights stay on.
+  brightnessAt(plan, takeoff.duration / 2, light);
+  assert.ok(all(1));
+  // The fleet leaves the first formation with its lights on, and flies dark.
+  brightnessAt(plan, second.start, light);
+  assert.ok(all(1));
+  brightnessAt(plan, second.start + second.duration / 2, light);
+  assert.ok(all(0));
+  // The lights come back as the fleet arrives, and stay on in the hold.
+  brightnessAt(plan, second.start + second.duration - LIGHTS_FADE / 2, light);
+  assert.ok(all(0.5), `arriving ${light[0]}`);
+  brightnessAt(plan, holdStart(plan, 1) + 0.01, light);
+  assert.ok(light.every((level) => level > CHASE_DIM - 1e-6));
+  // A dark level keeps the lights faint in the flight.
+  brightnessAt(plan, third.start + third.duration / 2, light);
+  assert.ok(all(0.2));
+  // The colors still blend as before.
+  const colors = new Float32Array(plan.count * 3);
+  lightColorsAt(plan, second.start + second.duration / 2, colors);
+  for (let i = 0; i < colors.length; i++) near(colors[i], (takeoff.colors[i] + second.colors[i]) / 2, 1e-6);
+});
+
+test('the landing has flight lights of its own', () => {
+  const state = defaultState();
+  state.landingLights = 'dark';
+  state.landingDarkLevel = 10;
+  const plan = createPlanner()(state);
+  const landing = plan.steps[plan.steps.length - 1];
+  assert.deepEqual(landing.lights, { effect: 'dark', level: 0.1 });
+  const light = new Float32Array(plan.count);
+  brightnessAt(plan, landing.start + landing.duration / 2, light);
+  assert.ok(light.every((level) => Math.abs(level - 0.1) < 1e-6));
+  // The formations keep their own lights.
+  assert.ok(plan.steps.slice(0, -1).every((step) => step.lights.effect === 'blend'));
 });
 
 // Tilt, sway, rock, and roll.

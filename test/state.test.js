@@ -6,8 +6,11 @@ import { BUILTIN_SHAPES } from '../src/shapes.js';
 import {
   FLEET_FIELDS,
   FORMATION_FIELDS,
+  LANDING_FIELDS,
   MAX_FORMATIONS,
   MOTION_FIELDS,
+  FLIGHT_LIGHT_FIELDS,
+  FLIGHT_LIGHTS,
   VOLUME_FIELDS,
   clampToField,
   defaultState,
@@ -29,10 +32,15 @@ test('the default state has a value in range for each field', () => {
     assert.equal(clampToField(field, state.fleet[field.key]), state.fleet[field.key]);
   }
   for (const formation of state.formations) {
-    for (const field of [...FORMATION_FIELDS, ...MOTION_FIELDS]) {
+    for (const field of [...FORMATION_FIELDS, ...MOTION_FIELDS, ...FLIGHT_LIGHT_FIELDS]) {
       assert.equal(clampToField(field, formation[field.key]), formation[field.key], field.key);
     }
+    assert.ok(Object.hasOwn(FLIGHT_LIGHTS, formation.flightLights));
   }
+  for (const field of LANDING_FIELDS) {
+    assert.equal(clampToField(field, state[field.key]), state[field.key]);
+  }
+  assert.ok(Object.hasOwn(FLIGHT_LIGHTS, state.landingLights));
   for (const field of VOLUME_FIELDS) {
     assert.equal(clampToField(field, state.volume[field.key]), state.volume[field.key]);
   }
@@ -282,6 +290,39 @@ test('import rejects a bad light chase', () => {
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 0))), /formation 1: chaseBands must be a whole number from 1 to 12/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseBands = 2.5))), /chaseBands/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].chaseSpeed = 9))), /formation 1: chaseSpeed must be a number from -2 to 2/);
+});
+
+test('a project file from before the flight lights keeps the lights on in every flight', () => {
+  const text = fileWith((data) => {
+    delete data.landingLights;
+    delete data.landingDarkLevel;
+    data.formations.forEach((formation) => {
+      delete formation.flightLights;
+      delete formation.darkLevel;
+    });
+  });
+  const state = parseProject(text);
+  assert.equal(state.landingLights, 'blend');
+  assert.equal(state.landingDarkLevel, 0);
+  for (const formation of state.formations) {
+    assert.equal(formation.flightLights, 'blend');
+    assert.equal(formation.darkLevel, 0);
+  }
+});
+
+test('export then import keeps the flight lights', () => {
+  const state = defaultState();
+  state.formations[1] = { ...state.formations[1], flightLights: 'dark', darkLevel: 15 };
+  state.landingLights = 'dark';
+  state.landingDarkLevel = 30;
+  assert.deepEqual(parseProject(serializeProject(state)), state);
+});
+
+test('import rejects bad flight lights', () => {
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].flightLights = 'disco'))), /formation 2: flightLights must be one of blend, dark/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].darkLevel = 60))), /formation 1: darkLevel must be a number from 0 to 50/);
+  assert.throws(() => parseProject(fileWith((data) => (data.landingLights = 3))), /the show: landingLights must be one of/);
+  assert.throws(() => parseProject(fileWith((data) => (data.landingDarkLevel = -1))), /the show: landingDarkLevel must be a number from 0 to 50/);
 });
 
 test('export then import keeps an SVG drawing', () => {

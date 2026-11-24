@@ -284,6 +284,8 @@ precision highp float;
 in float vBrightness;
 in vec3 vColor;
 in float vLight;
+// The gray of the mark on a drone whose light is off. 0 shows no mark.
+uniform float uUnlit;
 out vec4 outColor;
 void main() {
   // 0 at the center of the point, 1 at its edge.
@@ -295,7 +297,10 @@ void main() {
   // A soft glare around the light, as a camera or an eye sees a bright light at night.
   float glare = exp(-d * d * 8.0) * (1.0 - d);
   vec3 color = vColor * (light + 0.3 * glare) + vec3(0.55) * hot;
-  outColor = vec4(color * vBrightness, 1.0);
+  // A dull gray dot, with no glare, shows where a dark drone is.
+  float lit = vBrightness * max(vColor.r, max(vColor.g, vColor.b));
+  float mark = uUnlit * light * (1.0 - smoothstep(0.0, 0.1, lit));
+  outColor = vec4(color * vBrightness + vec3(mark), 1.0);
 }`;
 
 const LINE_VERTEX_SHADER = `#version 300 es
@@ -337,6 +342,8 @@ const MIN_LIGHT_PIXELS = 4;
 const MIN_SELECTED_PIXELS = 14;
 // Diameter of the glare around a light, CSS pixels.
 const GLARE_PIXELS = 22;
+// The gray of the mark that the editor puts on a drone whose light is off.
+const UNLIT_GRAY = 0.22;
 
 // The light of the show reaches its full strength on the scenery at this total brightness:
 // about this many drones at full brightness.
@@ -366,6 +373,7 @@ const OTHER_STEP_BRIGHTNESS = 0.3;
  * @property {number} selected index of the selected drone, or -1
  * @property {number} pathStep index of the step whose flight paths the view shows
  * @property {boolean} showGrid
+ * @property {boolean} showUnlit true to mark the drones whose lights are off with a dull gray dot
  * @property {boolean} showPaths
  * @property {boolean} showVolume
  * @property {boolean} volumeBroken true when a drone leaves the flight volume
@@ -399,6 +407,7 @@ export function createRenderer(canvas) {
     'uSize',
     'uMinPixels',
     'uGlarePixels',
+    'uUnlit',
   ]);
   const lineUniforms = uniformLocations(gl, lineProgram, ['uViewProj', 'uColor', 'uFade']);
 
@@ -611,6 +620,7 @@ export function createRenderer(canvas) {
     gl.uniformMatrix4fv(pointUniforms.uViewProj, false, frame.viewProj);
     gl.uniform1f(pointUniforms.uPixelsPerMeter, frame.pixelsPerMeter * dpr);
     gl.uniform1f(pointUniforms.uGlarePixels, GLARE_PIXELS * dpr);
+    gl.uniform1f(pointUniforms.uUnlit, frame.showUnlit ? UNLIT_GRAY : 0);
     gl.bindVertexArray(drones.vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, drones.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, frame.positions, gl.DYNAMIC_DRAW);

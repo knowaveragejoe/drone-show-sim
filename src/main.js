@@ -18,14 +18,13 @@ import { createAutosave } from './autosave.js';
 import { createHistory } from './history.js';
 import { projectToScreen } from './mat4.js';
 import {
-  brightnessAt,
   createPlanner,
   FLIGHT_MARGIN,
   fitSize,
   hexToRgb,
   holdStart,
   lightColorAt,
-  lightColorsAt,
+  lightsAt,
   positionsAt,
   retime,
   routeOf,
@@ -316,6 +315,9 @@ function start() {
     setSpreadToPass(spreadToPass) {
       change({ ...state, spreadToPass }, null);
     },
+    setLanding(key, value) {
+      change({ ...state, [key]: value }, key);
+    },
     setFormation(key, value) {
       changeFormation({ [key]: value }, key);
     },
@@ -504,8 +506,7 @@ function start() {
     lastFrameTime = now;
 
     positionsAt(plan, view.time, positions);
-    brightnessAt(plan, view.time, brightness);
-    lightColorsAt(plan, view.time, lightColors);
+    lightsAt(plan, view.time, lightColors, brightness);
     followShow(Math.min(MAX_CAMERA_STEP, elapsed));
     viewProjection(camera, aspect(), viewProj);
     renderer.draw({
@@ -522,6 +523,8 @@ function start() {
       selected: showtime ? -1 : view.selected,
       pathStep: stepAt(plan, view.time),
       showGrid: !showtime,
+      // The editor marks the drones whose lights are off. The audience does not see them.
+      showUnlit: !showtime,
       showPaths: !showtime && view.showPaths,
       showVolume: !showtime && view.showVolume,
       volumeBroken: plan.outsideVolume > 0,

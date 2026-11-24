@@ -90,6 +90,42 @@ export const CHASE_FIELDS = [
   { key: 'chaseSpeed', label: 'Chase speed', unit: 'laps/s', min: -2, max: 2, step: 0.05, slider: true, fallback: 0.5 },
 ];
 
+/**
+ * What the drone lights do in the transition to a formation, and in the landing. Blend keeps
+ * the lights on and blends the colors. Dark turns the lights down for the flight.
+ */
+export const FLIGHT_LIGHTS = {
+  blend: 'Blend',
+  dark: 'Dark',
+};
+
+/** The flight light effects that use the dark level. */
+export const DARK_LEVEL_EFFECTS = ['dark'];
+
+const DARK_LEVEL_FIELD = {
+  label: 'Dark level',
+  unit: '%',
+  min: 0,
+  max: 50,
+  step: 1,
+  slider: true,
+  fallback: 0,
+  title: 'The brightness of the lights in the flight, as a share of full brightness. 0 turns them off.',
+};
+
+/**
+ * Fields of the flight lights of a formation. The sidebar shows them only for an effect
+ * that uses them.
+ * @type {NumberField[]}
+ */
+export const FLIGHT_LIGHT_FIELDS = [{ key: 'darkLevel', ...DARK_LEVEL_FIELD }];
+
+/**
+ * Fields of the lights in the landing. The sidebar shows them only for an effect that uses them.
+ * @type {NumberField[]}
+ */
+export const LANDING_FIELDS = [{ key: 'landingDarkLevel', ...DARK_LEVEL_FIELD }];
+
 /** @type {NumberField[]} */
 export const VOLUME_FIELDS = [
   { key: 'size', label: 'Size', unit: 'm', min: 10, max: 1000, step: 1, slider: true },
@@ -170,6 +206,10 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {keyof typeof CHASE_PATTERNS} chase the pattern of the light chase in the hold
  * @property {number} chaseBands number of bright bands of the light chase
  * @property {number} chaseSpeed laps per second of the light chase; negative runs the other way
+ * @property {keyof typeof FLIGHT_LIGHTS} flightLights what the lights do in the flight
+ *   to this formation
+ * @property {number} darkLevel brightness of the lights in the flight to this formation, percent
+ *   of full brightness, for an effect that turns the lights down
  * @property {number} seed seed of the random sampler
  */
 
@@ -181,6 +221,9 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {boolean} landAtEnd true when the show ends with a flight back to the takeoff grid
  * @property {boolean} spreadToPass true when the fleet spreads out before it crosses, in a
  *   transition where a direct flight brings drones too close
+ * @property {keyof typeof FLIGHT_LIGHTS} landingLights what the lights do in the landing
+ * @property {number} landingDarkLevel brightness of the lights in the landing, percent of full
+ *   brightness, for an effect that turns the lights down
  */
 
 // A formation with no tilt and no motion in its hold.
@@ -232,6 +275,8 @@ export function defaultState() {
         chase: 'off',
         chaseBands: 4,
         chaseSpeed: 0.5,
+        flightLights: 'blend',
+        darkLevel: 0,
         seed: 1,
       },
       {
@@ -248,6 +293,8 @@ export function defaultState() {
         chase: 'around',
         chaseBands: 5,
         chaseSpeed: 0.25,
+        flightLights: 'blend',
+        darkLevel: 0,
         seed: 1,
       },
       {
@@ -265,11 +312,15 @@ export function defaultState() {
         chase: 'off',
         chaseBands: 4,
         chaseSpeed: 0.5,
+        flightLights: 'blend',
+        darkLevel: 0,
         seed: 1,
       },
     ],
     landAtEnd: true,
     spreadToPass: true,
+    landingLights: 'blend',
+    landingDarkLevel: 0,
   };
 }
 
@@ -357,6 +408,9 @@ export function parseProject(text) {
     throw new Error('spreadToPass must be true or false.');
   }
 
+  // A project file from before the flight lights existed keeps the lights on.
+  const landingLights = readFlightLights('the show', 'landingLights', data.landingLights);
+
   // A project file from before the vertical spacing existed has one spacing in all directions.
   const fleet = { minVerticalSpacing: data.fleet.minSpacing, ...data.fleet };
   return {
@@ -365,7 +419,24 @@ export function parseProject(text) {
     formations: data.formations.map(readFormation),
     landAtEnd: data.landAtEnd === true,
     spreadToPass: data.spreadToPass !== false,
+    landingLights,
+    landingDarkLevel: readFields('the show', data, LANDING_FIELDS).landingDarkLevel,
   };
+}
+
+/**
+ * Reads the flight light effect of a formation or of the landing.
+ * @param {string} name name of the owner, for error messages
+ * @param {string} key property name in the project file
+ * @param {unknown} value
+ * @returns {keyof typeof FLIGHT_LIGHTS}
+ */
+function readFlightLights(name, key, value) {
+  const effect = value ?? 'blend';
+  if (typeof effect !== 'string' || !Object.hasOwn(FLIGHT_LIGHTS, effect)) {
+    throw new Error(`${name}: ${key} must be one of ${Object.keys(FLIGHT_LIGHTS).join(', ')}.`);
+  }
+  return /** @type {keyof typeof FLIGHT_LIGHTS} */ (effect);
 }
 
 /**
@@ -390,6 +461,8 @@ function readFormation(saved, index) {
   if (!Object.hasOwn(CHASE_PATTERNS, chase)) {
     throw new Error(`${name}: chase must be one of ${Object.keys(CHASE_PATTERNS).join(', ')}.`);
   }
+  // A project file from before the flight lights existed keeps the lights on.
+  const flightLights = readFlightLights(name, 'flightLights', saved.flightLights);
   const source = readSource(name, saved.source);
   // Only an SVG drawing has colors of its own.
   if (colorPattern === 'drawing' && source.type !== 'svg') colorPattern = 'solid';
@@ -397,11 +470,13 @@ function readFormation(saved, index) {
     ...readFields(name, saved, FORMATION_FIELDS),
     ...readFields(name, saved, MOTION_FIELDS),
     ...readFields(name, saved, CHASE_FIELDS),
+    ...readFields(name, saved, FLIGHT_LIGHT_FIELDS),
     source,
     color: saved.color,
     colorPattern,
     secondColor,
     chase,
+    flightLights,
     seed: saved.seed,
   });
 }

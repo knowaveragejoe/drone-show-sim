@@ -184,6 +184,10 @@ input[type="color"]::-moz-color-swatch {
   margin-top: 12px;
 }
 
+.check + .fields {
+  margin-top: 8px;
+}
+
 /* A slim slider. The script sets --fill to the share of the track left of the thumb. */
 
 input.slider {
@@ -723,6 +727,16 @@ body.paused .paused-label {
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--from) 20%, transparent),
+    color-mix(in srgb, var(--to) 20%, transparent)
+  );
+}
+
+/* A flight with dark lights: the colors of the two stops at the ends, dark between them. */
+.block.flight[data-lights="dark"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--from) 20%, transparent),
+    transparent 30% 70%,
     color-mix(in srgb, var(--to) 20%, transparent)
   );
 }

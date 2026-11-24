@@ -158,6 +158,13 @@
         </header>
         <ol id="formation-list"></ol>
         <label class="check"><input id="land-at-end" type="checkbox"> Land at the end</label>
+        <div class="fields" id="landing-lights-group">
+          <div class="field choice">
+            <label for="landing-lights">Landing lights</label>
+            <select id="landing-lights" title="What the lights do in the flight back to the takeoff grid"></select>
+          </div>
+          <div class="fields" id="landing-fields" hidden></div>
+        </div>
       </section>
 
       <section class="group">
@@ -194,6 +201,11 @@
             <label for="second-color">Second color</label>
             <input id="second-color" type="color" title="The color at the other end of the gradient">
           </div>
+          <div class="field choice">
+            <label for="flight-lights">Flight lights</label>
+            <select id="flight-lights" title="What the lights do in the flight to this formation"></select>
+          </div>
+          <div class="fields" id="flight-light-fields" hidden></div>
           <div class="field choice">
             <label for="chase">Light chase</label>
             <select id="chase" title="Bright bands that travel across the formation in its hold"></select>

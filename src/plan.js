@@ -5,7 +5,9 @@
 // when the show ends with a landing. A formation can lean (tilt), and in its hold it can
 // turn, sway, rock, and roll, all at the same time, as one rigid body about its center.
 // A light chase can run across it. Each drone has its own light color at each stop: one
-// color for the whole formation, a gradient, or the colors of an SVG drawing.
+// color for the whole formation, a gradient, or the colors of an SVG drawing. In a
+// transition the lights blend from the old colors to the new ones, or they show an effect:
+// see `lightsAt`.
 //
 // A transition is a list of legs. In each leg every drone flies a straight line, and all
 // drones start and stop together. Most transitions have one leg. When the drones would
@@ -54,6 +56,7 @@ import { svgCloud } from './svg.js';
  *   the formation center, xyz; null for the landing
  * @property {number} centerHeight height of the formation center, meters
  * @property {Chase | null} chase the light chase of the formation in the hold, if any
+ * @property {FlightLights} lights what the lights do in the transition
  * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
  * @property {Float32Array} colors light color of each drone at the stop, red, green, blue, each 0 to 1;
  *   the landing keeps the colors of the last formation
@@ -117,6 +120,14 @@ import { svgCloud } from './svg.js';
  * @property {Float32Array} u place of each drone along the path of the bands, 0 to 1; one lap is 0 to 1
  * @property {number} bands number of bright bands on the path at one time
  * @property {number} speed laps per second; a negative speed moves the bands the other way
+ */
+
+/**
+ * What the drone lights do in a transition. See `lightsAt`.
+ * @typedef {object} FlightLights
+ * @property {keyof typeof import('./state.js').FLIGHT_LIGHTS} effect
+ * @property {number} level brightness of the lights in the flight, for an effect that turns
+ *   them down, 0 to 1
  */
 
 /**
@@ -193,6 +204,9 @@ export const CHASE_DIM = 0.12;
 const CHASE_FADE = 1;
 // How fast the tail of a band fades. A larger number gives a shorter tail.
 const CHASE_TAIL = 3;
+// A flight light effect comes in over this time at the start of the flight, and goes out
+// over this time at its end, seconds. A short flight uses a quarter of its time for each.
+export const LIGHTS_FADE = 1;
 
 // The planner keeps this many results of its slow stages. Recent results stay, so undo,
 // redo, and a value that goes back and forth need no new work.
@@ -637,6 +651,10 @@ export function createPlanner() {
         body: stop.body && gather(stop.body, slots),
         centerHeight: stop.centerHeight,
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
+        lights:
+          stop.formation >= 0
+            ? flightLights(state.formations[stop.formation])
+            : { effect: state.landingLights, level: state.landingDarkLevel / 100 },
         end: touchdown ? arrival : end,
         colors,
         closestApproach: approach,
@@ -826,6 +844,15 @@ function gather(points, indices) {
  */
 function gatherValues(values, indices) {
   return Float32Array.from(indices, (index) => values[index]);
+}
+
+/**
+ * The lights of the transition to a formation.
+ * @param {import('./state.js').Formation} formation
+ * @returns {FlightLights}
+ */
+function flightLights(formation) {
+  return { effect: formation.flightLights, level: formation.darkLevel / 100 };
 }
 
 /**
@@ -1568,36 +1595,6 @@ export function speedAt(plan, drone, time) {
 }
 
 /**
- * Writes the brightness of every drone light at one time: 1 for full, down to `CHASE_DIM`.
- * Outside a hold with a light chase, every light is at full brightness.
- *
- * Each band has a bright head and a tail that fades behind it. The head leads in the
- * direction that the band moves.
- * @param {Plan} plan
- * @param {number} time seconds from the start of the timeline
- * @param {Float32Array} out one value per drone; length at least `plan.count`
- */
-export function brightnessAt(plan, time, out) {
-  const step = plan.steps[stepAt(plan, time)];
-  const held = time - step.start - step.duration;
-  const { chase } = step;
-  if (!chase || held < 0 || held >= step.hold) {
-    out.fill(1, 0, plan.count);
-    return;
-  }
-  const fade = Math.min(1, held / CHASE_FADE, (step.hold - held) / CHASE_FADE);
-  const shift = chase.speed * held;
-  for (let drone = 0; drone < plan.count; drone++) {
-    // 0 just ahead of a head, rising to 1 at the head.
-    let phase = (chase.u[drone] - shift) * chase.bands;
-    phase -= Math.floor(phase);
-    const glow = (chase.speed >= 0 ? phase : 1 - phase) ** CHASE_TAIL;
-    const level = CHASE_DIM + (1 - CHASE_DIM) * glow;
-    out[drone] = 1 - fade * (1 - level);
-  }
-}
-
-/**
  * The route of one drone through the show: for each step, the points that it passes.
  * The first points are the ends of the legs of the flight, so the last of them is the target.
  * More points follow when the formation moves in the hold; they trace the path of the drone.
@@ -1643,26 +1640,96 @@ export function lightColorAt(plan, colors, time) {
 }
 
 /**
- * Writes the light color of every drone at one time. In a transition each drone blends from
- * its color at the old stop to its color at the new stop, in the leg that crosses. Takeoff
- * uses the colors of the first formation, and the landing keeps the colors of the last one.
+ * Writes the light color and the brightness of every drone at one time.
+ *
+ * The colors: in a transition each drone blends from its color at the old stop to its color
+ * at the new stop, in the leg that crosses. Takeoff uses the colors of the first formation,
+ * and the landing keeps the colors of the last one.
+ *
+ * The brightness: in a hold with a light chase, bands travel across the formation (see
+ * `chaseBrightness`). In a transition, the effect of the step changes the lights: it comes in
+ * at the start of the flight and goes out at its end (see `effectShare`). Otherwise every
+ * light is at full brightness.
  * @param {Plan} plan
  * @param {number} time seconds from the start of the timeline
- * @param {Float32Array} out red, green, blue per drone; length at least `plan.count × 3`
+ * @param {Float32Array} colors out: red, green, blue per drone, each 0 to 1; length at least
+ *   `plan.count × 3`
+ * @param {Float32Array} brightness out: one value per drone, 0 to 1; length at least `plan.count`
  */
-export function lightColorsAt(plan, time, out) {
+export function lightsAt(plan, time, colors, brightness) {
+  const { count } = plan;
   const index = stepAt(plan, time);
   const step = plan.steps[index];
+  const offset = time - step.start;
+
   const before = index === 0 ? step.colors : plan.steps[index - 1].colors;
   const after = step.colors;
   const leg = step.legs[step.cross];
-  const progress = progressAt(leg.timing, time - step.start - leg.start);
+  const progress = progressAt(leg.timing, offset - leg.start);
   if (before === after || progress >= 1) {
-    out.set(after);
+    colors.set(after.subarray(0, count * 3));
+  } else {
+    for (let i = 0; i < count * 3; i++) colors[i] = before[i] + progress * (after[i] - before[i]);
+  }
+
+  const held = offset - step.duration;
+  if (held >= 0) {
+    chaseBrightness(step, held, count, brightness);
     return;
   }
-  for (let i = 0; i < plan.count * 3; i++) {
-    out[i] = before[i] + progress * (after[i] - before[i]);
+  const share = effectShare(step.duration, offset);
+  const { effect, level } = step.lights;
+  if (effect === 'blend' || share <= 0) {
+    brightness.fill(1, 0, count);
+    return;
+  }
+  // Dark: the lights go down to the dark level for the flight.
+  brightness.fill(1 - share * (1 - level), 0, count);
+}
+
+/**
+ * How far the effect of a transition is in, at one time of the transition. The effect comes
+ * in over `LIGHTS_FADE` seconds at the start of the flight and goes out over the same time at
+ * its end, so the lights show the old stop when the fleet leaves it and the new stop when the
+ * fleet arrives. A short flight uses a quarter of its time for each fade.
+ * @param {number} duration length of the transition, seconds
+ * @param {number} offset seconds from the start of the transition
+ * @returns {number} 0 when the effect is out, up to 1 when it is fully in
+ */
+export function effectShare(duration, offset) {
+  const fade = Math.min(LIGHTS_FADE, duration / 4);
+  if (!(fade > 0)) return 0;
+  const share = Math.max(0, Math.min(1, offset / fade, (duration - offset) / fade));
+  // Smooth at both ends of each fade.
+  return share * share * (3 - 2 * share);
+}
+
+/**
+ * Writes the brightness of every drone light at one time of a hold: 1 for full, down to
+ * `CHASE_DIM` in a light chase. A hold with no light chase has every light at full brightness.
+ *
+ * Each band has a bright head and a tail that fades behind it. The head leads in the
+ * direction that the band moves.
+ * @param {Step} step
+ * @param {number} held seconds from the start of the hold
+ * @param {number} count number of drones
+ * @param {Float32Array} out one value per drone
+ */
+function chaseBrightness(step, held, count, out) {
+  const { chase } = step;
+  if (!chase || held >= step.hold) {
+    out.fill(1, 0, count);
+    return;
+  }
+  const fade = Math.min(1, held / CHASE_FADE, (step.hold - held) / CHASE_FADE);
+  const shift = chase.speed * held;
+  for (let drone = 0; drone < count; drone++) {
+    // 0 just ahead of a head, rising to 1 at the head.
+    let phase = (chase.u[drone] - shift) * chase.bands;
+    phase -= Math.floor(phase);
+    const glow = (chase.speed >= 0 ? phase : 1 - phase) ** CHASE_TAIL;
+    const level = CHASE_DIM + (1 - CHASE_DIM) * glow;
+    out[drone] = 1 - fade * (1 - level);
   }
 }
 
