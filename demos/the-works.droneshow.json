@@ -36,6 +36,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 8,
       "source": {
         "type": "builtin",
         "shape": "disc"
@@ -44,6 +45,7 @@
       "colorPattern": "outward",
       "secondColor": "#ff4a14",
       "chase": "off",
+      "flightLights": "glimmer",
       "seed": 1
     },
     {
@@ -62,6 +64,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "sphere"
@@ -70,6 +73,7 @@
       "colorPattern": "across",
       "secondColor": "#ff3df0",
       "chase": "off",
+      "flightLights": "blend",
       "seed": 1
     },
     {
@@ -88,6 +92,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "obj",
         "fileName": "saturn.obj",
@@ -98,6 +103,7 @@
       "colorPattern": "outward",
       "secondColor": "#a47bff",
       "chase": "off",
+      "flightLights": "wave",
       "seed": 1
     },
     {
@@ -116,6 +122,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "helix"
@@ -124,6 +131,7 @@
       "colorPattern": "rising",
       "secondColor": "#ff4fa0",
       "chase": "off",
+      "flightLights": "dark",
       "seed": 1
     },
     {
@@ -142,6 +150,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "obj",
         "fileName": "wire-cube.obj",
@@ -152,6 +161,7 @@
       "colorPattern": "outward",
       "secondColor": "#ffffff",
       "chase": "off",
+      "flightLights": "starburst",
       "seed": 1
     },
     {
@@ -170,6 +180,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "svg",
         "fileName": "quadcopter.svg",
@@ -179,6 +190,7 @@
       "colorPattern": "drawing",
       "secondColor": "#ffffff",
       "chase": "off",
+      "flightLights": "blend",
       "seed": 1
     },
     {
@@ -197,6 +209,7 @@
       "rollSeconds": 12,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 5,
       "source": {
         "type": "builtin",
         "shape": "torus"
@@ -205,6 +218,7 @@
       "colorPattern": "outward",
       "secondColor": "#2fa8ff",
       "chase": "off",
+      "flightLights": "dark",
       "seed": 1
     },
     {
@@ -223,6 +237,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "svg",
         "fileName": "wow.svg",
@@ -232,6 +247,7 @@
       "colorPattern": "drawing",
       "secondColor": "#ffffff",
       "chase": "off",
+      "flightLights": "starburst",
       "seed": 1
     },
     {
@@ -250,6 +266,7 @@
       "rollSeconds": 8,
       "chaseBands": 5,
       "chaseSpeed": 0.2,
+      "darkLevel": 0,
       "source": {
         "type": "svg",
         "fileName": "hearts.svg",
@@ -259,9 +276,12 @@
       "colorPattern": "drawing",
       "secondColor": "#ffffff",
       "chase": "around",
+      "flightLights": "wave",
       "seed": 1
     }
   ],
   "landAtEnd": true,
-  "spreadToPass": true
+  "spreadToPass": true,
+  "landingLights": "glimmer",
+  "landingDarkLevel": 10
 }

@@ -92,15 +92,20 @@ export const CHASE_FIELDS = [
 
 /**
  * What the drone lights do in the transition to a formation, and in the landing. Blend keeps
- * the lights on and blends the colors. Dark turns the lights down for the flight.
+ * the lights on and blends the colors. Dark turns the lights down for the flight. Glimmer
+ * makes random twinkles. Starburst sends a white flash out from the middle of the fleet, and
+ * the lights fade like the embers of a firework. Color wave sends rainbow bands across the fleet.
  */
 export const FLIGHT_LIGHTS = {
   blend: 'Blend',
   dark: 'Dark',
+  glimmer: 'Glimmer',
+  starburst: 'Starburst',
+  wave: 'Color wave',
 };
 
 /** The flight light effects that use the dark level. */
-export const DARK_LEVEL_EFFECTS = ['dark'];
+export const DARK_LEVEL_EFFECTS = ['dark', 'glimmer', 'starburst'];
 
 const DARK_LEVEL_FIELD = {
   label: 'Dark level',
@@ -110,7 +115,7 @@ const DARK_LEVEL_FIELD = {
   step: 1,
   slider: true,
   fallback: 0,
-  title: 'The brightness of the lights in the flight, as a share of full brightness. 0 turns them off.',
+  title: 'The brightness of the lights in the flight, as a share of full brightness: in a dark flight, between the twinkles of a glimmer, and after the embers of a starburst. 0 turns them off.',
 };
 
 /**

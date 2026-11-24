@@ -741,6 +741,44 @@ body.paused .paused-label {
   );
 }
 
+/* A glimmer: dark, with small sparks. */
+.block.flight[data-lights="glimmer"] {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.5) 0 0.8px, transparent 1.3px) 1px 2px / 7px 6px,
+    radial-gradient(circle, rgba(255, 255, 255, 0.35) 0 0.7px, transparent 1.2px) 4px 5px / 9px 8px,
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--from) 20%, transparent),
+      transparent 30% 70%,
+      color-mix(in srgb, var(--to) 20%, transparent)
+    );
+}
+
+/* A starburst: a white flash at the start that fades out. */
+.block.flight[data-lights="starburst"] {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.55),
+    color-mix(in srgb, var(--from) 30%, transparent) 12%,
+    transparent 40% 70%,
+    color-mix(in srgb, var(--to) 20%, transparent)
+  );
+}
+
+/* A color wave: rainbow bands between the colors of the two stops. */
+.block.flight[data-lights="wave"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--from) 20%, transparent),
+    rgba(255, 80, 80, 0.3) 20%,
+    rgba(255, 210, 80, 0.3),
+    rgba(90, 255, 130, 0.3),
+    rgba(80, 160, 255, 0.3),
+    rgba(200, 100, 255, 0.3) 80%,
+    color-mix(in srgb, var(--to) 20%, transparent)
+  );
+}
+
 .block.hold {
   display: flex;
   align-items: center;

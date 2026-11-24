@@ -319,7 +319,7 @@ test('export then import keeps the flight lights', () => {
 });
 
 test('import rejects bad flight lights', () => {
-  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].flightLights = 'disco'))), /formation 2: flightLights must be one of blend, dark/);
+  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].flightLights = 'disco'))), /formation 2: flightLights must be one of blend, dark, glimmer, starburst, wave/);
   assert.throws(() => parseProject(fileWith((data) => (data.formations[0].darkLevel = 60))), /formation 1: darkLevel must be a number from 0 to 50/);
   assert.throws(() => parseProject(fileWith((data) => (data.landingLights = 3))), /the show: landingLights must be one of/);
   assert.throws(() => parseProject(fileWith((data) => (data.landingDarkLevel = -1))), /the show: landingDarkLevel must be a number from 0 to 50/);

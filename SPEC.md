@@ -43,8 +43,8 @@ Each marcher carries a lantern. The flight lights say what the lanterns do on th
 | Rock | A swing toward the audience and back, like a nod. |
 | Roll | A swing to the left and to the right as the audience sees it. |
 | Light chase | Bright bands that travel across a formation during its hold, like the bulbs of a theater marquee. The drones do not move; only their brightness changes. |
-| Flight lights | What the drone lights do in the flight to a formation: they blend to the new colors, or they show an effect, such as Dark. The landing has flight lights of its own, the landing lights. |
-| Dark level | The brightness of the lights in a flight whose effect turns them down, as a share of full brightness. 0 turns them off. |
+| Flight lights | What the drone lights do in the flight to a formation: they blend to the new colors, or they show an effect: Dark, Glimmer, Starburst, or Color wave. The landing has flight lights of its own, the landing lights. |
+| Dark level | The brightness of the lights in a flight whose effect turns them down, as a share of full brightness: in a dark flight, between the twinkles of a glimmer, and after the embers of a starburst. 0 turns them off. |
 | Audience seat | The place in the crowd where the Audience view and Showtime put the camera: at eye height, 10 m behind the front row of the crowd. |
 | Showtime | A mode that hides the panels and plays the whole show full screen, from the audience seat. |
 | Color pattern | How the drones of a formation get their light colors: one solid color, a gradient, or the drawing colors of an SVG drawing. |
@@ -73,7 +73,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Color | Each drone has its own light color. A formation has a color pattern: one solid color, a gradient of two colors (Rising, Across, or Outward), or, for an SVG drawing, the colors of the drawing. In a transition each drone blends from its old color to its new color. |
 | Hold motion | Each formation can have a fixed tilt, forward and sideways. In its hold it can turn, sway, rock, and roll, all at the same time. The turn lets the audience see the depth of the shape. Each swing ends where it started. |
 | Light chase | Each formation can run a light chase in its hold: Around, Rising, or Across, with a number of bands and a speed. |
-| Flight lights | Each formation sets what the lights do in the flight to it: Blend or Dark. The landing has its own setting. An effect changes only the lights, never the flights or the checks. |
+| Flight lights | Each formation sets what the lights do in the flight to it: Blend, Dark, Glimmer, Starburst, or Color wave. The landing has its own setting. An effect changes only the lights, never the flights or the checks. |
 | Scenery | A night sky with stars, a field, hills on the horizon, and a crowd at the audience line. They show the place and the scale of the show. The editor shows them too, with a faint grid on the field. |
 | Showtime | A Showtime button plays the whole show full screen from the audience seat. The camera follows the show. |
 | Drone list | A list with live data, in its own sidebar tab. Select a drone to highlight it and its route. |
@@ -500,6 +500,9 @@ The flight lights of a formation say what the lights do in the transition to it.
 |---|---|
 | Blend | The lights stay at full brightness, and the colors blend from the old stop to the new one (stage 9a). |
 | Dark | The lights go down to the dark level, and come back as the fleet arrives. The audience sees the old picture go out and the new picture come on, like a slide change. |
+| Glimmer | The lights go down to the dark level, and random twinkles flash across the fleet, like glitter. |
+| Starburst | A white flash travels out from the middle of the old picture. Each drone flashes when the flash reaches it, then cools to its own color and fades like the ember of a firework, with a flicker, down to the dark level. |
+| Color wave | Bands of rainbow colors roll across the fleet. They rise to the right as the audience sees them. |
 
 An effect comes in over the first `fade` seconds of the transition and goes out over its last `fade` seconds. So the fleet leaves the old stop with its lights on, and arrives at the new stop with its lights on:
 
@@ -511,7 +514,29 @@ in    = share² × (3 − 2 × share)
 
 `t` is the time since the start of the transition, and `T` is the length of the transition. `in` is 0 when the effect is out and 1 when it is fully in.
 
+Each effect gives a color and a brightness per drone. The light of a drone is the blend of the plain light (its blended color at full brightness) and the light of the effect, by `in`.
+
 Dark: `brightness = 1 − in × (1 − dark level)`. The dark level is 0 to 50 percent.
+
+Glimmer cuts the time into slots of 0.3 s. Each drone starts its slots at its own random time. In 40 percent of its slots, the drone twinkles: its light rises and falls once, as `peak × sin⁴(π × place in the slot)`, with a random peak from 0.4 to 1. A twinkle turns the light toward white, by up to 70 percent at its peak. Between twinkles the light is at the dark level.
+
+Starburst starts at once: it has no fade at the start, because the flash is its start. It goes out over the last `fade` seconds, as the other effects do.
+
+```
+reach  = min(0.6 s, T ÷ 4)              time for the flash to reach the farthest drone
+age    = t − ripple × reach             time since the flash reached the drone
+heat   = e^(−age ÷ 0.3 s)               white when hot, the drone color when cool
+glow   = e^(−age ÷ min(1 s, T ÷ 6))     the ember fades
+flicker = 0.4 + 0.6 × random            a new random number 15 times per second
+brightness = dark level + (peak − dark level) × glow × (flicker + heat × (1 − flicker))
+peak   = 1 + 0.6 × heat
+```
+
+`ripple` is the distance of the drone from the middle of the fleet when the flight starts, as a share of the largest distance. It uses the side and the height only, not the depth, so the flash spreads over the picture that the audience sees: on a sphere it starts in the middle of the disk. Before the flash reaches a drone (`age` below 0), the drone keeps its plain light. At its peak the flash is 1.6 times as bright as a light at full brightness.
+
+Color wave: `hue = (x × cos 30° + z × sin 30°) ÷ wavelength − 0.5 × t`, from the position of the drone at that time. The wavelength is 0.75 times the size of the larger formation of the flight. The color is the bright rainbow color of the hue, at full brightness. As the drones fly, they move through the bands, and the bands move too.
+
+The random numbers come from a hash of the step, the drone, and the slot or the flicker time. They are not from a generator with a state, so any time of the show gives the same lights, also after a seek, and the show looks the same each time it plays.
 
 Under every effect, the colors blend as in stage 9a. With a dark level above 0, the faint lights change color in the flight.
 The lights of a hold (stage 9) do not change.
@@ -643,8 +668,8 @@ The Demos list in the Project menu shows the name of each demo and a line about 
 
 | Demo | Drones | What it shows |
 |---|---|---|
-| First light | 120 | A short show for a first look, in solid colors and with the default spacings: a sphere and a helix that turn, a ring with a light chase, and a heart that rocks with a light chase. Then the fleet lands. The ring and the heart stand upright, so the vertical spacing makes them larger, and the fleet spreads out to pass in three transitions and in the landing. |
-| The works | 400 | Most features in one show. A disc with an Outward gradient, like a sunrise. A turning sphere with an Across gradient. Saturn, an OBJ model with a forward and a sideways tilt. A turning helix with a Rising gradient. A wireframe cube: an OBJ model of thin tubes along the 12 edges, so the drones sit on the edges. It tilts and turns, and an Outward gradient lights its corners. A quadcopter drawing in its drawing colors that sways, rocks, and rolls: a drone made of drones. A torus that turns and rolls. The word WOW! as a drawing. Three hearts inside each other, with a light chase. The minimum spacing is 1.5 m and the vertical spacing 2.25 m. The fleet spreads out to pass in six transitions and in the landing. |
+| First light | 120 | A short show for a first look, in solid colors and with the default spacings: a sphere and a helix that turn, a ring with a light chase, and a heart that rocks with a light chase. The flight to the heart is dark, so the heart appears like a slide. Then the fleet lands. The ring and the heart stand upright, so the vertical spacing makes them larger, and the fleet spreads out to pass in three transitions and in the landing. |
+| The works | 400 | Most features in one show. A disc with an Outward gradient, like a sunrise. A turning sphere with an Across gradient. Saturn, an OBJ model with a forward and a sideways tilt. A turning helix with a Rising gradient. A wireframe cube: an OBJ model of thin tubes along the 12 edges, so the drones sit on the edges. It tilts and turns, and an Outward gradient lights its corners. A quadcopter drawing in its drawing colors that sways, rocks, and rolls: a drone made of drones. A torus that turns and rolls. The word WOW! as a drawing. Three hearts inside each other, with a light chase. Every flight light effect: the fleet glimmers as it takes off, a color wave rolls across the fleet on its way to Saturn and to the hearts, the flights to the helix and to the torus are dark, the helix and the torus burst like fireworks before the cube and WOW!, and the fleet glimmers as it lands. The minimum spacing is 1.5 m and the vertical spacing 2.25 m. The fleet spreads out to pass in six transitions and in the landing. |
 
 A click on a demo fetches its file with a relative URL.
 The demo then opens like an imported project file: with the same checks, as one undo step, on its first formation, with the camera on the show.
@@ -710,7 +735,7 @@ The timeline strip shows the whole show.
 Each transition and each hold is one block, and the width of a block shows how long it takes.
 A hold block has the number and the color of its formation.
 The tooltip of a transition block gives its time, names its flight light effect when it is not Blend, says when the drones spread out to pass, and lists its problems.
-A transition block blends from the color of the old formation to the color of the new one. A dark flight is dark in the middle of its block.
+A transition block blends from the color of the old formation to the color of the new one. The block of a flight with an effect shows the effect: a dark flight is dark in the middle, a glimmer has small sparks, a starburst starts with a white flash, and a color wave has rainbow bands.
 A red line under a block marks a problem.
 
 The playhead is a white line with a knob. A drag on the playhead moves the timeline.
@@ -733,7 +758,7 @@ The view draws these parts in this order:
 
 - Ground grid: a line grid on `z = 0`. The editor shows it; Showtime does not.
 - Flight volume: one `gl.LINES` draw call for the edges of the cube.
-- Brightness: a second buffer holds the brightness of each light, from stages 9 and 9b. The page writes it each frame. The selected drone stays at full brightness.
+- Brightness: a second buffer holds the brightness of each light, from stages 9 and 9b. The page writes it each frame. 1 is full brightness; the flash of a starburst goes above 1, so its glare grows. The selected drone stays at full brightness.
 - Light color: a third buffer holds the color of each light, from stages 9a and 9b. The page writes it each frame. The selected drone is white.
 - Paths: one buffer holds one line per drone per leg. The view draws the lines of the current step at low opacity, in the formation color. In a transition between two formations, the path color blends from one formation color to the other, in the cross leg. In a hold, the current step is the one that led to the hold.
 - Route: for the selected drone, the view draws its whole route: each leg of each step, and its path in each hold as short straight lines; the pose changes by at most 10° from one line to the next. The part of the current step is brightest.
@@ -818,7 +843,7 @@ A file with no `landAtEnd` gets no landing, a file with no `volume` gets the def
 A file with no `spreadToPass` gets the spread. This changes only a transition that is not safe without it.
 A file with no `minVerticalSpacing` gets the minimum spacing as its vertical spacing: one spacing in all directions, as before.
 A file with no `hoverHeight` gets 0: the fleet flies straight from the takeoff grid and back, as before. A file with no `rowDelay` gets 0.5 s.
-`flightLights` and `landingLights` are one of `blend` and `dark`. `darkLevel` and `landingDarkLevel` are percent, 0 to 50. A file with no flight lights gets `blend` with a dark level of 0, so its lights stay on, as before.
+`flightLights` and `landingLights` are one of `blend`, `dark`, `glimmer`, `starburst`, and `wave`. `darkLevel` and `landingDarkLevel` are percent, 0 to 50. A file with no flight lights gets `blend` with a dark level of 0, so its lights stay on, as before.
 
 Import checks the `app` name, the `version`, and every value.
 It shows a message and changes nothing when a check fails.
@@ -894,7 +919,7 @@ No `npm install` is necessary.
 | `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no vertical spacing has one spacing, and a file with no hover height flies straight from the grid. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. A file with no flight lights keeps the lights on, and import rejects a bad effect or dark level. |
-| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Flight lights: the fade in and out of an effect and its share in a short flight, a dark flight that leaves and arrives lit, the dark level, the colors that still blend, the landing lights. Hover layer and rows: a straight lift-off in rows with the row delays, the first row higher halfway, a drone that waits at rest, a touchdown in rows onto the grid, the grid spacing in both legs (checked over time), a takeoff to a large formation that fits only with the hover layer, a hover layer outside the flight volume. Spread: the even factor between two formations, the bisection of a takeoff and a landing, no candidate that fails a check, a crossing within 3% of the minimum spacing, the room of a stop in the flight volume, spreads that fit their room, a spread that fits winning over a faster one that leaves the volume, the spread factors of the bound for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
+| `plan.js` | One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Flight lights: the fade in and out of an effect and its share in a short flight, a dark flight that leaves and arrives lit, the dark level, the colors that still blend, the landing lights. The hash: it repeats, and it spreads evenly. The six colors of the rainbow. A twinkle in its slot, and the share of slots that twinkle. A glimmer over the dark level, whiter at a twinkle, the same at the same time. A starburst: the ripple from the middle as the audience sees it, the ring of the flash halfway out, the outer drones not yet reached, the peak, the embers that go dark, the arrival. A color wave: each color against the hue of its position, many hues at once, the old colors at the start and the new ones at the end. Hover layer and rows: a straight lift-off in rows with the row delays, the first row higher halfway, a drone that waits at rest, a touchdown in rows onto the grid, the grid spacing in both legs (checked over time), a takeoff to a large formation that fits only with the hover layer, a hover layer outside the flight volume. Spread: the even factor between two formations, the bisection of a takeoff and a landing, no candidate that fails a check, a crossing within 3% of the minimum spacing, the room of a stop in the flight volume, spreads that fit their room, a spread that fits winning over a faster one that leaves the volume, the spread factors of the bound for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
 
 The smoke test is `npm run smoke`.
 It serves the folder, opens the page in headless Chrome or Chromium, and reads a marker.
@@ -960,6 +985,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 24 | Downwash spacing | A vertical spacing. Every spacing check uses an ellipsoid: the minimum spacing across, the vertical spacing up and down. The demos have one too. | Done |
 | 25 | Rows and hover layer | The rows of the takeoff grid lift off to a hover layer one after another, and land the same way. The hover layer can spread out. | Done |
 | 26 | Flight lights | Each formation sets what the lights do in the flight to it: Blend or Dark, with a dark level. The landing has its own setting. The editor marks dark drones with a gray dot. | Done |
+| 27 | Light effects | Three more flight light effects: Glimmer, Starburst, and Color wave. Both demos use flight lights. | Done |
 
 ## Known limits
 
@@ -992,6 +1018,9 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - A browser can refuse full screen, for example in a frame. Showtime then runs in the window.
 - Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A flight light effect fades in and out over fixed times, at most 1 s each. The whole fleet fades together, also when the rows of the takeoff grid lift off one after another.
+- Each effect has one look. The user sets the dark level only: not the twinkle rate, the speed or the direction of the flash and the wave, or the colors of the embers.
+- The flash of a starburst spreads by the side and the height of each drone. The takeoff grid lies flat on the ground, so a starburst at the takeoff spreads to the left and the right only.
+- The flight lights are lights only. A real starburst in a drone show often flies the drones outward too; here the drones fly their planned paths.
 - A light chase has three patterns, and a fixed dim level and tail length. The Around pattern follows an outline well when the outline goes once around the formation center, as the heart and the ring do. On a helix it is a sweep, not a chase along the curve.
 - The checks of a hold look at the motion many times, not at every moment. Between two looks a drone can leave its path by up to 0.015% of its distance from the center. A very long hold with a fast motion reaches the limit of 4,096 looks; its checks are then coarser.
 - A swing time snaps to fit a whole number of swings in the hold, so a swing can be faster or slower than the time that the user sets.

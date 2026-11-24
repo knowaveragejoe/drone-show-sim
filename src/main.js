@@ -506,7 +506,7 @@ function start() {
     lastFrameTime = now;
 
     positionsAt(plan, view.time, positions);
-    lightsAt(plan, view.time, lightColors, brightness);
+    lightsAt(plan, view.time, positions, lightColors, brightness);
     followShow(Math.min(MAX_CAMERA_STEP, elapsed));
     viewProjection(camera, aspect(), viewProj);
     renderer.draw({

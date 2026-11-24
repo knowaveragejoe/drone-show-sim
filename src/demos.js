@@ -16,7 +16,7 @@ export const DEMOS = [
   },
   {
     name: 'The works',
-    summary: '400 drones: tilts, swings, gradients, drawings, and models',
+    summary: '400 drones: tilts, swings, gradients, drawings, models, and light effects',
     file: 'demos/the-works.droneshow.json',
   },
 ];

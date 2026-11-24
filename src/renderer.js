@@ -366,7 +366,8 @@ const OTHER_STEP_BRIGHTNESS = 0.3;
  * @property {number} pixelsPerMeter screen pixels that 1 m covers at a distance of 1 m
  * @property {number} time seconds; the stars twinkle with it
  * @property {Float32Array} positions xyz per drone
- * @property {Float32Array} brightness brightness of each drone light, 0 to 1
+ * @property {Float32Array} brightness brightness of each drone light: 1 is full brightness, and
+ *   the flash of a starburst goes above 1
  * @property {Float32Array} colors light color of each drone, red, green, blue, each 0 to 1
  * @property {number} count number of drones
  * @property {number[]} pathColor color of the flight paths, each channel 0 to 1

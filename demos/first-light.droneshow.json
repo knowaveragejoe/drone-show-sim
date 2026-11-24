@@ -36,6 +36,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "sphere"
@@ -44,6 +45,7 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "off",
+      "flightLights": "blend",
       "seed": 1
     },
     {
@@ -62,6 +64,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "helix"
@@ -70,6 +73,7 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "off",
+      "flightLights": "blend",
       "seed": 1
     },
     {
@@ -88,6 +92,7 @@
       "rollSeconds": 8,
       "chaseBands": 3,
       "chaseSpeed": 0.3,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "ring"
@@ -96,6 +101,7 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "around",
+      "flightLights": "blend",
       "seed": 1
     },
     {
@@ -114,6 +120,7 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.25,
+      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "heart"
@@ -122,9 +129,12 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "around",
+      "flightLights": "dark",
       "seed": 1
     }
   ],
   "landAtEnd": true,
-  "spreadToPass": true
+  "spreadToPass": true,
+  "landingLights": "blend",
+  "landingDarkLevel": 0
 }
