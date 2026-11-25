@@ -3,12 +3,13 @@ import { test } from 'node:test';
 
 import { closestApproach, placeBody, poseRotation, takeoffGrid } from '../src/motion.js';
 import {
-  CHASE_DIM,
-  FLIGHT_MARGIN,
   BURST_FLASH,
   BURST_REACH,
+  CHASE_DIM,
+  FLIGHT_MARGIN,
   GLIMMER_SHARE,
   GLIMMER_SLOT,
+  JUMP_SLACK,
   LIGHTS_FADE,
   MAX_SPREAD,
   WAVE_SPEED,
@@ -22,6 +23,7 @@ import {
   isBelowGround,
   effectShare,
   isTooClose,
+  jumpTarget,
   lightColorAt,
   lightsAt,
   positionsAt,
@@ -1557,6 +1559,33 @@ test('the colors stay with the drones through a spread', () => {
   for (let i = 0; i < out.length; i++) near(out[i], (before[i] + step.colors[i]) / 2, 1e-6);
   lightColorsAt(plan, step.start + closeUp.start + closeUp.timing.duration / 2, out);
   assert.deepEqual(out, step.colors);
+});
+
+// Previous and next.
+
+test('previous and next jump between the holds and the ends of the show', () => {
+  const plan = createPlanner()(defaultState());
+  const holds = [0, 1, 2].map((formation) => holdStart(plan, formation));
+  // From the start, next goes to each hold in turn and then to the end.
+  let time = 0;
+  for (const [formation, hold] of holds.entries()) {
+    const target = jumpTarget(plan, time, 1);
+    assert.deepEqual(target, { time: hold, formation });
+    time = target.time;
+  }
+  assert.deepEqual(jumpTarget(plan, time, 1), { time: plan.total, formation: -1 });
+  assert.deepEqual(jumpTarget(plan, plan.total, 1), { time: plan.total, formation: -1 });
+  // From the middle of a hold, previous goes back to the start of that hold.
+  assert.deepEqual(jumpTarget(plan, holds[1] + 5, -1), { time: holds[1], formation: 1 });
+  // Just after the start of a hold, previous goes on to the formation before it.
+  assert.deepEqual(jumpTarget(plan, holds[1] + JUMP_SLACK / 2, -1), { time: holds[0], formation: 0 });
+  assert.deepEqual(jumpTarget(plan, holds[0], -1), { time: 0, formation: -1 });
+  assert.deepEqual(jumpTarget(plan, 0, -1), { time: 0, formation: -1 });
+  // From the end, previous goes to the last hold.
+  assert.deepEqual(jumpTarget(plan, plan.total, -1), { time: holds[2], formation: 2 });
+  // In a transition, next goes to the formation that the fleet flies to.
+  const flight = plan.steps[2];
+  assert.deepEqual(jumpTarget(plan, flight.start + 1, 1), { time: holds[2], formation: 2 });
 });
 
 // Flight lights.

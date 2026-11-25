@@ -30,14 +30,15 @@ Open `http://localhost:8000/`. The browser must support WebGL2.
 | Click a storyboard row or a timeline block | Select that formation |
 | Click empty space, or Escape | Clear the selection |
 | Space | Play or pause |
+| Left and right arrow keys | Jump to the previous or the next formation |
 | Ctrl+Z, or ⌘Z on a Mac | Undo |
 | Ctrl+Shift+Z, Ctrl+Y, or ⇧⌘Z | Redo |
 
-The sidebar has three tabs.
+The sidebar has three tabs. A click on the title of a section folds it; the page remembers the folded sections.
 
 | Tab | What it does |
 |---|---|
-| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, tilt, hold time, colors, and light chase of the selected formation. The Motion in the hold section makes the formation turn, sway (turn back and forth), rock (lean toward the audience and back), and roll (lean left and right), all at the same time if you like. Each swing ends where it started. The color pattern gives the formation one color, a gradient of two colors (rising, across, or outward from the center), or the colors of an SVG drawing. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Flight lights set what the lights do in the flight to the formation: Blend keeps them on and blends the colors, Dark turns them down to the dark level so the new picture appears like a slide, Glimmer twinkles like glitter, Starburst sends a white flash out from the middle and lets the lights fade like firework embers, and Color wave rolls rainbow bands across the fleet. Landing lights, under Land at the end, do the same for the landing. In the editor, a dark drone shows as a dull gray dot; Showtime hides it, as a real audience would not see it. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
+| Show | The storyboard lists the formations of the show in order. Its buttons add, move, and remove formations. Below it, you set the shape, size, height, rotation, tilt, and hold time of the selected formation, and in Colors and lights, its colors, flight lights, and light chase. The Motion in the hold section makes the formation turn, sway (turn back and forth), rock (lean toward the audience and back), and roll (lean left and right), all at the same time if you like. Each swing ends where it started. The color pattern gives the formation one color, a gradient of two colors (rising, across, or outward from the center), or the colors of an SVG drawing. A light chase sends bright bands across the formation in its hold, like the bulbs of a theater marquee. Flight lights set what the lights do in the flight to the formation: Blend keeps them on and blends the colors, Dark turns them down to the dark level so the new picture appears like a slide, Glimmer twinkles like glitter, Starburst sends a white flash out from the middle and lets the lights fade like firework embers, and Color wave rolls rainbow bands across the fleet. Landing lights, under Land at the end, do the same for the landing. In the editor, a dark drone shows as a dull gray dot; Showtime hides it, as a real audience would not see it. Fit sets the smallest size that keeps the minimum spacing, also in flight. |
 | Fleet | Sets the drone count, the takeoff grid, the hover height and row delay of the takeoff, the speed and acceleration limits, the minimum spacing, the vertical spacing, and the flight volume: the cube that the drones must stay inside. The vertical spacing is the room that a drone needs straight above another: a drone pushes air down, so the drone under it needs more room than a drone beside it. "Spread out to pass safely" lets the fleet open out before a crossing that would bring drones too close (on by default). |
 | Drones | Lists each drone with its position and speed at the current time. |
 
@@ -51,7 +52,7 @@ The 3D view shows the show at night over a field, with stars, hills on the horiz
 **Showtime** plays the whole show full screen, as a person in the crowd sees it. The camera stands in the crowd and follows the show. Space pauses and plays, and Escape goes back to the editor.
 The Checks panel at the top right shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. It lists each problem in words. A click on its status line folds it.
 
-The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show.
+The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show. The buttons next to Play jump to the previous or the next formation, and the list at the right end sets the playback speed: 0.5×, 1×, 2×, or 4×.
 
 A shape is one of seven built-in shapes, an OBJ model, or an SVG drawing. The button next to the Shape list imports a file.
 

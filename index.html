@@ -77,7 +77,7 @@
       <p id="view-busy" class="hud" role="status" hidden></p>
 
       <div id="showtime-hud">
-        <p id="showtime-hint"><strong class="paused-label">Paused · </strong>Space to pause or play · Esc to leave</p>
+        <p id="showtime-hint"><strong class="paused-label">Paused · </strong><span id="showtime-speed"></span>Space to pause or play · Esc to leave</p>
         <div id="showtime-end" hidden>
           <p>That's the show!</p>
           <div class="showtime-actions">
@@ -91,16 +91,30 @@
     </div>
 
     <footer id="transport">
-      <button id="play" type="button" title="Play or pause (Space)">
-        <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
-        <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
-        <span id="play-label" class="visually-hidden">Play</span>
-      </button>
+      <div id="transport-buttons">
+        <button id="previous-formation" type="button" class="icon" title="Previous formation (←)" aria-label="Previous formation">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3v10"/><path d="M12.5 3.2v9.6L5.5 8z" fill="currentColor"/></svg>
+        </button>
+        <button id="play" type="button" title="Play or pause (Space)">
+          <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
+          <span id="play-label" class="visually-hidden">Play</span>
+        </button>
+        <button id="next-formation" type="button" class="icon" title="Next formation (→)" aria-label="Next formation">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.5 3v10"/><path d="M3.5 3.2v9.6L10.5 8z" fill="currentColor"/></svg>
+        </button>
+      </div>
       <div id="track">
         <div id="timeline-blocks"></div>
         <input id="scrub" type="range" min="0" max="1" step="any" aria-label="Timeline">
       </div>
       <output id="time"></output>
+      <select id="speed" title="Playback speed" aria-label="Playback speed">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
     </footer>
   </main>
 
@@ -138,9 +152,9 @@
     </div>
 
     <div id="panel-show" class="panel" role="tabpanel" aria-labelledby="tab-show">
-      <section class="group">
+      <section class="group" data-fold="storyboard">
         <header class="group-header">
-          <h2>Storyboard</h2>
+          <h2><button type="button" class="fold" aria-expanded="true">Storyboard</button></h2>
           <div class="icon-buttons">
             <button id="add-formation" type="button" class="icon" title="Add a formation after the selected one" aria-label="Add formation">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
@@ -167,9 +181,9 @@
         </div>
       </section>
 
-      <section class="group">
+      <section class="group" data-fold="formation">
         <header class="group-header">
-          <h2 id="formation-title">Formation</h2>
+          <h2><button type="button" class="fold" aria-expanded="true"><span id="formation-title">Formation</span></button></h2>
         </header>
         <div class="fields">
           <div class="field wide">
@@ -189,6 +203,19 @@
             </select>
           </div>
           <div class="fields" id="formation-fields"></div>
+          <div class="field readout" title="The smallest distance between two targets of this formation. A height difference counts as less when the vertical spacing is larger than the minimum spacing, so this distance compares with the minimum spacing.">
+            <span class="label">Closest spacing</span>
+            <output id="spacing"></output>
+            <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing, also in flight">Fit</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="group" data-fold="lights">
+        <header class="group-header">
+          <h2 title="The light colors of the formation, what the lights do in the flight to it, and the light chase in its hold."><button type="button" class="fold" aria-expanded="true">Colors and lights</button></h2>
+        </header>
+        <div class="fields">
           <div class="field">
             <label for="color">Color</label>
             <input id="color" type="color">
@@ -211,34 +238,29 @@
             <select id="chase" title="Bright bands that travel across the formation in its hold"></select>
           </div>
           <div class="fields" id="chase-fields" hidden></div>
-          <div class="field readout" title="The smallest distance between two targets of this formation. A height difference counts as less when the vertical spacing is larger than the minimum spacing, so this distance compares with the minimum spacing.">
-            <span class="label">Closest spacing</span>
-            <output id="spacing"></output>
-            <button id="fit" type="button" title="Set the smallest size that keeps the minimum spacing, also in flight">Fit</button>
-          </div>
         </div>
       </section>
 
-      <section class="group">
+      <section class="group" data-fold="motion">
         <header class="group-header">
-          <h2 title="The formation turns, sways, rocks, and rolls about its center while it holds. All of them can run at the same time.">Motion in the hold</h2>
+          <h2 title="The formation turns, sways, rocks, and rolls about its center while it holds. All of them can run at the same time."><button type="button" class="fold" aria-expanded="true">Motion in the hold</button></h2>
         </header>
         <div class="fields" id="motion-fields"></div>
       </section>
     </div>
 
     <div id="panel-fleet" class="panel" role="tabpanel" aria-labelledby="tab-fleet" hidden>
-      <section class="group">
-        <header class="group-header"><h2>Fleet</h2></header>
+      <section class="group" data-fold="fleet">
+        <header class="group-header"><h2><button type="button" class="fold" aria-expanded="true">Fleet</button></h2></header>
         <div class="fields" id="fleet-fields"></div>
       </section>
-      <section class="group">
-        <header class="group-header"><h2>Limits</h2></header>
+      <section class="group" data-fold="limits">
+        <header class="group-header"><h2><button type="button" class="fold" aria-expanded="true">Limits</button></h2></header>
         <div class="fields" id="limit-fields"></div>
         <label class="check" title="When a direct flight brings drones too close, the formations grow before the drones cross, and shrink again after"><input id="spread-to-pass" type="checkbox"> Spread out to pass safely</label>
       </section>
-      <section class="group">
-        <header class="group-header"><h2>Flight volume</h2></header>
+      <section class="group" data-fold="volume">
+        <header class="group-header"><h2><button type="button" class="fold" aria-expanded="true">Flight volume</button></h2></header>
         <div class="fields" id="volume-fields"></div>
       </section>
     </div>

@@ -1575,6 +1575,29 @@ export function stepAt(plan, time) {
   return index;
 }
 
+// Previous, from a time this close after a mark, goes on to the mark before it, as in a music
+// player: one press goes back to the start of the current formation, two presses go further.
+export const JUMP_SLACK = 1;
+
+/**
+ * Where the Previous and Next buttons move the timeline: to the start of the hold of a
+ * formation, or to the start or the end of the show.
+ * @param {Plan} plan
+ * @param {number} time seconds from the start of the timeline
+ * @param {-1 | 1} direction -1 for the previous mark, 1 for the next one
+ * @returns {{time: number, formation: number}} the time of the mark; the index of the formation
+ *   whose hold starts there, or -1 for the start and the end of the show
+ */
+export function jumpTarget(plan, time, direction) {
+  const marks = [{ time: 0, formation: -1 }];
+  for (const step of plan.steps) {
+    if (step.formation >= 0) marks.push({ time: step.start + step.duration, formation: step.formation });
+  }
+  marks.push({ time: plan.total, formation: -1 });
+  if (direction < 0) return marks.findLast((mark) => mark.time < time - JUMP_SLACK) ?? marks[0];
+  return marks.find((mark) => mark.time > time + 1e-6) ?? marks[marks.length - 1];
+}
+
 /**
  * Time when the fleet arrives at a formation and the hold starts.
  * @param {Plan} plan

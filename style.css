@@ -660,6 +660,13 @@ body.paused .paused-label {
   background: var(--panel);
 }
 
+#transport-buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
 #play {
   display: grid;
   flex: none;
@@ -860,6 +867,12 @@ body.paused .paused-label {
   min-width: 112px;
   color: var(--muted);
   text-align: right;
+}
+
+#speed {
+  flex: none;
+  width: 64px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sidebar: a header, a tab bar, and one panel per tab. Only one panel shows at a time. */
@@ -1081,6 +1094,53 @@ body.paused .paused-label {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* The title of a group is a button that folds the group. A chevron shows the state. */
+button.fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: auto;
+  min-height: var(--control-height);
+  margin-left: -4px;
+  padding: 0 6px 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+button.fold:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+button.fold::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.15s;
+  content: "";
+}
+
+.group.folded button.fold::before {
+  transform: rotate(-45deg);
+}
+
+/* A folded group shows its title only. */
+.group.folded > :not(.group-header),
+.group.folded .icon-buttons {
+  display: none;
+}
+
+.group.folded .group-header {
+  margin-bottom: 0;
 }
 
 .icon-buttons {

@@ -58,6 +58,8 @@ import {
  * @property {() => void} stopShowtime goes back to the editor
  * @property {() => void} togglePlay
  * @property {(time: number) => void} seek
+ * @property {(direction: -1 | 1) => void} jump moves the timeline to the previous or the next formation
+ * @property {(speed: number) => void} setSpeed sets the playback speed: 1 is real time
  * @property {(drone: number) => void} select index of the drone to select, or -1 to clear the selection
  */
 
@@ -66,6 +68,7 @@ import {
  * @typedef {object} View
  * @property {number} time position on the timeline, seconds
  * @property {boolean} playing
+ * @property {number} speed playback speed; 1 is real time
  * @property {number} selected index of the selected drone, or -1
  * @property {number} formation index of the formation that the sidebar edits
  * @property {boolean} showPaths
@@ -90,6 +93,10 @@ const PLANNING_NOTE = 'Planning the show…';
 
 // In Showtime, the pointer and the key hint hide after this many milliseconds with no input.
 const SHOWTIME_IDLE_MS = 2500;
+
+// The browser storage key of the groups that the user folded. A fold is a convenience of one
+// viewer, so it is not part of the project.
+const FOLDS_KEY = 'drone-show-sim:folded';
 
 /**
  * @param {Actions} actions
@@ -238,6 +245,14 @@ export function createUi(actions) {
   const scrub = /** @type {HTMLInputElement} */ (byId('scrub'));
   const time = byId('time');
   play.addEventListener('click', actions.togglePlay);
+  byId('previous-formation').addEventListener('click', () => actions.jump(-1));
+  byId('next-formation').addEventListener('click', () => actions.jump(1));
+  const speed = /** @type {HTMLSelectElement} */ (byId('speed'));
+  speed.addEventListener('change', () => {
+    actions.setSpeed(Number(speed.value));
+    showtime.showSpeed(Number(speed.value));
+  });
+  wireFolds();
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
   const timeline = buildTimeline(byId('timeline-blocks'), actions);
 
@@ -271,6 +286,15 @@ export function createUi(actions) {
       event.preventDefault();
       if (key === 'y' || event.shiftKey) actions.redo();
       else actions.undo();
+      return;
+    }
+
+    // The arrow keys jump to the previous or the next formation, but not in a control that
+    // uses them: a box, a slider, a list, or the tabs.
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (target.closest('input, select, textarea, [role="tab"]')) return;
+      event.preventDefault();
+      actions.jump(event.key === 'ArrowLeft' ? -1 : 1);
       return;
     }
 
@@ -437,6 +461,7 @@ function wireShowtime(actions) {
   byId('showtime-leave').addEventListener('click', actions.stopShowtime);
 
   const isOn = () => body.classList.contains('showtime');
+  const speedLabel = byId('showtime-speed');
 
   /** Shows the pointer and the hint, and hides them again after a time with no input. */
   function wake() {
@@ -489,7 +514,49 @@ function wireShowtime(actions) {
     if (ended) wake();
   }
 
-  return { isOn, wake, show, state };
+  /**
+   * Shows the playback speed in the hint when it is not real time.
+   * @param {number} speed
+   */
+  function showSpeed(speed) {
+    speedLabel.textContent = speed === 1 ? '' : `${speed}× · `;
+  }
+
+  return { isOn, wake, show, state, showSpeed };
+}
+
+/**
+ * Makes the title of each group with a `data-fold` key a button that folds the group. The
+ * browser storage keeps the folded groups, so they stay folded after a reload.
+ */
+function wireFolds() {
+  /** @type {Set<string>} */
+  let folded = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOLDS_KEY) ?? '[]');
+    if (Array.isArray(saved)) folded = new Set(saved.filter((key) => typeof key === 'string'));
+  } catch {
+    // No storage, or text that is not valid: every group starts open.
+  }
+  for (const group of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.group[data-fold]'))) {
+    const key = /** @type {string} */ (group.dataset.fold);
+    const button = /** @type {HTMLElement} */ (group.querySelector('button.fold'));
+    const show = () => {
+      group.classList.toggle('folded', folded.has(key));
+      button.setAttribute('aria-expanded', String(!folded.has(key)));
+    };
+    show();
+    button.addEventListener('click', () => {
+      if (folded.has(key)) folded.delete(key);
+      else folded.add(key);
+      show();
+      try {
+        localStorage.setItem(FOLDS_KEY, JSON.stringify([...folded]));
+      } catch {
+        // The folds then last until the page closes.
+      }
+    });
+  }
 }
 
 /**

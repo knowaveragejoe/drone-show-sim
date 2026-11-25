@@ -23,6 +23,7 @@ import {
   fitSize,
   hexToRgb,
   holdStart,
+  jumpTarget,
   lightColorAt,
   lightsAt,
   positionsAt,
@@ -141,6 +142,7 @@ function start() {
   const view = {
     time: holdStart(plan, 0),
     playing: false,
+    speed: 1,
     selected: -1,
     formation: 0,
     showPaths: true,
@@ -256,10 +258,6 @@ function start() {
   }
 
   /**
-   * @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits
-   * @param {string | null} [field] the changed field, so that quick changes of it make one undo step
-   */
-  /**
    * The color pattern of the edited formation, for a shape that is not an SVG drawing.
    * @returns {import('./state.js').Formation['colorPattern']}
    */
@@ -268,6 +266,10 @@ function start() {
     return colorPattern === 'drawing' ? 'solid' : colorPattern;
   }
 
+  /**
+   * @param {Partial<import('./state.js').Formation>} changes changes to the formation that the sidebar edits
+   * @param {string | null} [field] the changed field, so that quick changes of it make one undo step
+   */
   function changeFormation(changes, field = null) {
     const formation = { ...state.formations[view.formation], ...changes };
     const key = field === null ? null : `formation.${view.formation}.${field}`;
@@ -412,6 +414,19 @@ function start() {
       view.time = time >= plan.total - END_SLACK ? plan.total : Math.max(0, time);
       requestFrame();
     },
+    jump(direction) {
+      const target = jumpTarget(plan, view.time, direction);
+      view.time = target.time;
+      // The sidebar follows the timeline to the formation that starts its hold there.
+      if (target.formation >= 0 && target.formation !== view.formation) {
+        view.formation = target.formation;
+        ui.refresh(state, plan, view);
+      }
+      requestFrame();
+    },
+    setSpeed(speed) {
+      view.speed = speed;
+    },
     select(drone) {
       view.selected = drone;
       showRoute();
@@ -495,7 +510,7 @@ function start() {
     frameRequested = false;
     const elapsed = Math.max(0, (now - lastFrameTime) / 1000);
     if (view.playing) {
-      view.time += Math.min(MAX_FRAME_STEP, elapsed);
+      view.time += Math.min(MAX_FRAME_STEP, elapsed) * view.speed;
       if (view.time >= plan.total) {
         view.time = plan.total;
         view.playing = false;
