@@ -17,6 +17,8 @@ import { BUILTIN_SHAPES } from './shapes.js';
  *   because the file is older than the field
  * @property {string} [dependsOn] the sidebar shows the field only when this other field is not 0
  * @property {string} [title] a longer explanation, for the tooltip
+ * @property {string[]} [effects] for a setting of the flight lights: the effects that use it;
+ *   the sidebar shows the field only for them
  */
 
 /** @type {NumberField[]} */
@@ -91,12 +93,12 @@ export const CHASE_FIELDS = [
 ];
 
 /**
- * What the drone lights do in the transition to a formation, and in the landing. Blend keeps
- * the lights on and blends the colors. Dark turns the lights down for the flight. Glimmer
- * makes random twinkles. Starburst sends a white flash out from the middle of the fleet, and
- * the lights fade like the embers of a firework. Color wave sends rainbow bands across the fleet.
+ * What the drone lights do in the flight to a formation, and in the landing. Blend keeps the
+ * lights on and blends the colors. Dark turns the lights down for the flight. Glimmer makes
+ * random twinkles. Starburst sends a flash across the fleet, and the lights fade like the
+ * embers of a firework. Color wave sends rainbow bands across the fleet.
  */
-export const FLIGHT_LIGHTS = {
+export const FLIGHT_EFFECTS = {
   blend: 'Blend',
   dark: 'Dark',
   glimmer: 'Glimmer',
@@ -104,32 +106,187 @@ export const FLIGHT_LIGHTS = {
   wave: 'Color wave',
 };
 
-/** The flight light effects that use the dark level. */
-export const DARK_LEVEL_EFFECTS = ['dark', 'glimmer', 'starburst'];
+/** The ways that the flash of a starburst travels, as the audience sees the fleet. */
+export const BURST_DIRECTIONS = {
+  out: 'Outward',
+  in: 'Inward',
+};
 
-const DARK_LEVEL_FIELD = {
-  label: 'Dark level',
-  unit: '%',
-  min: 0,
-  max: 50,
-  step: 1,
-  slider: true,
-  fallback: 0,
-  title: 'The brightness of the lights in the flight, as a share of full brightness: in a dark flight, between the twinkles of a glimmer, and after the embers of a starburst. 0 turns them off.',
+/** The ways that bands travel across the fleet, as the audience sees it. */
+export const BAND_DIRECTIONS = {
+  right: 'Left to right',
+  left: 'Right to left',
+  up: 'Rising',
+  down: 'Falling',
+  out: 'Outward',
+  in: 'Inward',
+  spin: 'Spin',
+  together: 'All together',
 };
 
 /**
- * Fields of the flight lights of a formation. The sidebar shows them only for an effect
- * that uses them.
- * @type {NumberField[]}
+ * A setting of the flight lights that is a choice from a list, or a color.
+ * @typedef {object} LightChoice
+ * @property {string} key property name in the flight lights
+ * @property {string} label
+ * @property {Record<string, string> | null} options the values and their names; null for a color
+ * @property {string} fallback value for a project file that does not have the setting
+ * @property {string[]} effects the effects that use the setting
+ * @property {string} title a longer explanation, for the tooltip
  */
-export const FLIGHT_LIGHT_FIELDS = [{ key: 'darkLevel', ...DARK_LEVEL_FIELD }];
 
 /**
- * Fields of the lights in the landing. The sidebar shows them only for an effect that uses them.
+ * The settings of the flight lights that are a choice or a color. The sidebar shows each one
+ * only for the effects that use it.
+ * @type {LightChoice[]}
+ */
+export const FLIGHT_LIGHT_CHOICES = [
+  {
+    key: 'burstDirection',
+    label: 'Direction',
+    options: BURST_DIRECTIONS,
+    fallback: 'out',
+    effects: ['starburst'],
+    title: 'Outward: the flash starts in the middle of the fleet and travels to its edge. Inward: it starts at the edge and closes in on the middle.',
+  },
+  {
+    key: 'bandDirection',
+    label: 'Direction',
+    options: BAND_DIRECTIONS,
+    fallback: 'right',
+    effects: ['wave'],
+    title: 'The way that the bands travel, as the audience sees the fleet. Outward and inward make rings, spin makes spokes, and all together changes the whole fleet at once.',
+  },
+  {
+    key: 'sparkColor',
+    label: 'Spark color',
+    options: null,
+    fallback: '#ffffff',
+    effects: ['glimmer', 'starburst'],
+    title: 'The color of the twinkles of a glimmer and of the flash of a starburst.',
+  },
+];
+
+/**
+ * The settings of the flight lights that are numbers. The sidebar shows each one only for
+ * the effects that use it.
  * @type {NumberField[]}
  */
-export const LANDING_FIELDS = [{ key: 'landingDarkLevel', ...DARK_LEVEL_FIELD }];
+export const FLIGHT_LIGHT_FIELDS = [
+  {
+    key: 'darkLevel',
+    label: 'Dark level',
+    unit: '%',
+    min: 0,
+    max: 50,
+    step: 1,
+    slider: true,
+    fallback: 0,
+    effects: ['dark', 'glimmer', 'starburst'],
+    title: 'The brightness of the lights in the flight, as a share of full brightness: in a dark flight, between the twinkles of a glimmer, and after the embers of a starburst. 0 turns them off.',
+  },
+  {
+    key: 'twinkleRate',
+    label: 'Twinkle rate',
+    unit: '/s',
+    min: 0.1,
+    max: 6,
+    step: 0.1,
+    slider: true,
+    fallback: 1.3,
+    effects: ['glimmer'],
+    title: 'How often each drone twinkles, per second. A slow rate with a warm spark color looks like fireflies.',
+  },
+  {
+    key: 'flashTime',
+    label: 'Flash time',
+    unit: 's',
+    min: 0.1,
+    max: 3,
+    step: 0.05,
+    slider: true,
+    fallback: 0.6,
+    effects: ['starburst'],
+    title: 'The time that the flash takes to cross the fleet.',
+  },
+  {
+    key: 'emberTime',
+    label: 'Ember time',
+    unit: 's',
+    min: 0.2,
+    max: 5,
+    step: 0.1,
+    slider: true,
+    fallback: 1,
+    effects: ['starburst'],
+    title: 'How long the embers glow after the flash. After about three times this time, they are dark.',
+  },
+  {
+    key: 'bandCount',
+    label: 'Bands',
+    unit: '',
+    min: 0.5,
+    max: 8,
+    step: 0.5,
+    slider: true,
+    fallback: 1.5,
+    effects: ['wave'],
+    title: 'The number of bands across the fleet. Spin rounds it to a whole number of spokes.',
+  },
+  {
+    key: 'bandSpeed',
+    label: 'Band speed',
+    unit: '/s',
+    min: 0.05,
+    max: 4,
+    step: 0.05,
+    slider: true,
+    fallback: 0.5,
+    effects: ['wave'],
+    title: 'The number of bands that pass one drone each second.',
+  },
+  {
+    key: 'fadeTime',
+    label: 'Fade time',
+    unit: 's',
+    min: 0.1,
+    max: 5,
+    step: 0.1,
+    slider: true,
+    fallback: 1,
+    effects: ['dark', 'glimmer', 'starburst', 'wave'],
+    title: 'How long the effect takes to come in at the start of the flight and to go out at its end. A short flight uses at most a quarter of its time for each.',
+  },
+];
+
+/**
+ * The flight lights of a formation or of the landing: the effect and all its settings. A
+ * setting that the effect does not use keeps its value, so a change back to an effect finds
+ * its settings again.
+ * @typedef {object} FlightLights
+ * @property {keyof typeof FLIGHT_EFFECTS} effect
+ * @property {keyof typeof BURST_DIRECTIONS} burstDirection
+ * @property {keyof typeof BAND_DIRECTIONS} bandDirection
+ * @property {string} sparkColor the color of twinkles and flashes, `#rrggbb`
+ * @property {number} darkLevel brightness of the lights in the flight, percent of full brightness
+ * @property {number} twinkleRate twinkles of each drone per second
+ * @property {number} flashTime time for the flash of a starburst to cross the fleet, seconds
+ * @property {number} emberTime time constant of the embers of a starburst, seconds
+ * @property {number} bandCount number of bands across the fleet
+ * @property {number} bandSpeed bands that pass one drone per second
+ * @property {number} fadeTime time for the effect to come in and to go out, seconds
+ */
+
+/**
+ * The flight lights that a new project, and a project file from before the flight lights, get:
+ * Blend, with every setting at its fallback.
+ * @returns {FlightLights}
+ */
+export function defaultFlightLights() {
+  const lights = { effect: 'blend' };
+  for (const { key, fallback } of [...FLIGHT_LIGHT_CHOICES, ...FLIGHT_LIGHT_FIELDS]) lights[key] = fallback;
+  return /** @type {FlightLights} */ (lights);
+}
 
 /** @type {NumberField[]} */
 export const VOLUME_FIELDS = [
@@ -211,10 +368,7 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {keyof typeof CHASE_PATTERNS} chase the pattern of the light chase in the hold
  * @property {number} chaseBands number of bright bands of the light chase
  * @property {number} chaseSpeed laps per second of the light chase; negative runs the other way
- * @property {keyof typeof FLIGHT_LIGHTS} flightLights what the lights do in the flight
- *   to this formation
- * @property {number} darkLevel brightness of the lights in the flight to this formation, percent
- *   of full brightness, for an effect that turns the lights down
+ * @property {FlightLights} flightLights what the lights do in the flight to this formation
  * @property {number} seed seed of the random sampler
  */
 
@@ -226,9 +380,7 @@ export const PROJECT_FILE_NAME = 'show.droneshow.json';
  * @property {boolean} landAtEnd true when the show ends with a flight back to the takeoff grid
  * @property {boolean} spreadToPass true when the fleet spreads out before it crosses, in a
  *   transition where a direct flight brings drones too close
- * @property {keyof typeof FLIGHT_LIGHTS} landingLights what the lights do in the landing
- * @property {number} landingDarkLevel brightness of the lights in the landing, percent of full
- *   brightness, for an effect that turns the lights down
+ * @property {FlightLights} landingLights what the lights do in the landing
  */
 
 // A formation with no tilt and no motion in its hold.
@@ -280,8 +432,7 @@ export function defaultState() {
         chase: 'off',
         chaseBands: 4,
         chaseSpeed: 0.5,
-        flightLights: 'blend',
-        darkLevel: 0,
+        flightLights: defaultFlightLights(),
         seed: 1,
       },
       {
@@ -298,8 +449,7 @@ export function defaultState() {
         chase: 'around',
         chaseBands: 5,
         chaseSpeed: 0.25,
-        flightLights: 'blend',
-        darkLevel: 0,
+        flightLights: defaultFlightLights(),
         seed: 1,
       },
       {
@@ -317,15 +467,13 @@ export function defaultState() {
         chase: 'off',
         chaseBands: 4,
         chaseSpeed: 0.5,
-        flightLights: 'blend',
-        darkLevel: 0,
+        flightLights: defaultFlightLights(),
         seed: 1,
       },
     ],
     landAtEnd: true,
     spreadToPass: true,
-    landingLights: 'blend',
-    landingDarkLevel: 0,
+    landingLights: defaultFlightLights(),
   };
 }
 
@@ -414,7 +562,7 @@ export function parseProject(text) {
   }
 
   // A project file from before the flight lights existed keeps the lights on.
-  const landingLights = readFlightLights('the show', 'landingLights', data.landingLights);
+  const landingLights = readFlightLights('the show', 'landingLights', data.landingLights, data.landingDarkLevel);
 
   // A project file from before the vertical spacing existed has one spacing in all directions.
   const fleet = { minVerticalSpacing: data.fleet.minSpacing, ...data.fleet };
@@ -425,23 +573,41 @@ export function parseProject(text) {
     landAtEnd: data.landAtEnd === true,
     spreadToPass: data.spreadToPass !== false,
     landingLights,
-    landingDarkLevel: readFields('the show', data, LANDING_FIELDS).landingDarkLevel,
   };
 }
 
 /**
- * Reads the flight light effect of a formation or of the landing.
+ * Reads the flight lights of a formation or of the landing. A setting that is not in the file
+ * gets its fallback. A project file from milestones 26 to 29 has only the name of the effect,
+ * with the dark level in a property beside it.
  * @param {string} name name of the owner, for error messages
  * @param {string} key property name in the project file
  * @param {unknown} value
- * @returns {keyof typeof FLIGHT_LIGHTS}
+ * @param {unknown} oldDarkLevel the dark level beside the name of the effect, in an older file
+ * @returns {FlightLights}
  */
-function readFlightLights(name, key, value) {
-  const effect = value ?? 'blend';
-  if (typeof effect !== 'string' || !Object.hasOwn(FLIGHT_LIGHTS, effect)) {
-    throw new Error(`${name}: ${key} must be one of ${Object.keys(FLIGHT_LIGHTS).join(', ')}.`);
+function readFlightLights(name, key, value, oldDarkLevel) {
+  const saved = value === undefined || typeof value === 'string' ? { effect: value, darkLevel: oldDarkLevel } : value;
+  const where = `${name}, ${key}`;
+  if (!isObject(saved)) throw new Error(`${name}: ${key} is not valid.`);
+  const effect = saved.effect ?? 'blend';
+  if (typeof effect !== 'string' || !Object.hasOwn(FLIGHT_EFFECTS, effect)) {
+    throw new Error(`${where}: effect must be one of ${Object.keys(FLIGHT_EFFECTS).join(', ')}.`);
   }
-  return /** @type {keyof typeof FLIGHT_LIGHTS} */ (effect);
+  /** @type {Record<string, string>} */
+  const choices = {};
+  for (const { key: setting, options, fallback } of FLIGHT_LIGHT_CHOICES) {
+    const choice = saved[setting] ?? fallback;
+    if (options === null) {
+      if (!isHexColor(choice)) throw new Error(`${where}: ${setting} must be a color such as #66ccff.`);
+    } else if (typeof choice !== 'string' || !Object.hasOwn(options, choice)) {
+      throw new Error(`${where}: ${setting} must be one of ${Object.keys(options).join(', ')}.`);
+    }
+    choices[setting] = choice;
+  }
+  // An older file can hold null for a dark level that it did not have.
+  const numbers = { ...saved, darkLevel: saved.darkLevel ?? undefined };
+  return /** @type {FlightLights} */ ({ effect, ...choices, ...readFields(where, numbers, FLIGHT_LIGHT_FIELDS) });
 }
 
 /**
@@ -467,7 +633,7 @@ function readFormation(saved, index) {
     throw new Error(`${name}: chase must be one of ${Object.keys(CHASE_PATTERNS).join(', ')}.`);
   }
   // A project file from before the flight lights existed keeps the lights on.
-  const flightLights = readFlightLights(name, 'flightLights', saved.flightLights);
+  const flightLights = readFlightLights(name, 'flightLights', saved.flightLights, saved.darkLevel);
   const source = readSource(name, saved.source);
   // Only an SVG drawing has colors of its own.
   if (colorPattern === 'drawing' && source.type !== 'svg') colorPattern = 'solid';
@@ -475,7 +641,6 @@ function readFormation(saved, index) {
     ...readFields(name, saved, FORMATION_FIELDS),
     ...readFields(name, saved, MOTION_FIELDS),
     ...readFields(name, saved, CHASE_FIELDS),
-    ...readFields(name, saved, FLIGHT_LIGHT_FIELDS),
     source,
     color: saved.color,
     colorPattern,

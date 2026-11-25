@@ -320,8 +320,12 @@ function start() {
     setSpreadToPass(spreadToPass) {
       change({ ...state, spreadToPass }, null);
     },
-    setLanding(key, value) {
-      change({ ...state, [key]: value }, key);
+    setFlightLights(key, value) {
+      const { flightLights } = state.formations[view.formation];
+      changeFormation({ flightLights: { ...flightLights, [key]: value } }, `flightLights.${key}`);
+    },
+    setLandingLights(key, value) {
+      change({ ...state, landingLights: { ...state.landingLights, [key]: value } }, `landingLights.${key}`);
     },
     setFormation(key, value) {
       changeFormation({ [key]: value }, key);

@@ -16,15 +16,14 @@ import {
   CHASE_FIELDS,
   CHASE_PATTERNS,
   COLOR_PATTERNS,
-  DARK_LEVEL_EFFECTS,
   FLEET_FIELDS,
   FORMATION_FIELDS,
-  LANDING_FIELDS,
   MAX_FORMATIONS,
   MOTION_FIELDS,
   PROJECT_FILE_NAME,
+  FLIGHT_EFFECTS,
+  FLIGHT_LIGHT_CHOICES,
   FLIGHT_LIGHT_FIELDS,
-  FLIGHT_LIGHTS,
   VOLUME_FIELDS,
   clampToField,
 } from './state.js';
@@ -38,7 +37,10 @@ import {
  * @property {() => void} removeFormation
  * @property {(step: number) => void} moveFormation -1 moves the formation earlier, 1 later
  * @property {(land: boolean) => void} setLandAtEnd
- * @property {(key: string, value: number | string) => void} setLanding sets the lights of the landing
+ * @property {(key: string, value: number | string) => void} setFlightLights sets one setting of the
+ *   flight lights of the formation that the sidebar edits
+ * @property {(key: string, value: number | string) => void} setLandingLights sets one setting of
+ *   the lights of the landing
  * @property {(spread: boolean) => void} setSpreadToPass
  * @property {(key: string, value: number | string) => void} setFormation
  * @property {(shape: string) => void} setShape
@@ -181,11 +183,7 @@ export function createUi(actions) {
   const landAtEnd = /** @type {HTMLInputElement} */ (byId('land-at-end'));
   landAtEnd.addEventListener('change', () => actions.setLandAtEnd(landAtEnd.checked));
   const landingLightsGroup = byId('landing-lights-group');
-  const landingLights = wireLightsChoice(byId('landing-lights'), (effect) =>
-    actions.setLanding('landingLights', effect),
-  );
-  const landingBox = byId('landing-fields');
-  const landingFields = buildFields(landingBox, LANDING_FIELDS, actions.setLanding, () => true);
+  const landingLights = buildFlightLights(byId('landing-lights'), byId('landing-fields'), actions.setLandingLights);
 
   const formationTitle = byId('formation-title');
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
@@ -217,12 +215,7 @@ export function createUi(actions) {
   const secondColor = /** @type {HTMLInputElement} */ (byId('second-color'));
   secondColor.addEventListener('input', () => actions.setFormation('secondColor', secondColor.value));
 
-  const flightLights = wireLightsChoice(byId('flight-lights'), (effect) =>
-    actions.setFormation('flightLights', effect),
-  );
-  const flightLightBox = byId('flight-light-fields');
-  // Flight lights need no new assignment, so their sliders are live for every fleet size.
-  const flightLightFields = buildFields(flightLightBox, FLIGHT_LIGHT_FIELDS, actions.setFormation, () => true);
+  const flightLights = buildFlightLights(byId('flight-lights'), byId('flight-light-fields'), actions.setFlightLights);
 
   const chase = /** @type {HTMLSelectElement} */ (byId('chase'));
   for (const [key, label] of Object.entries(CHASE_PATTERNS)) chase.add(new Option(label, key));
@@ -352,9 +345,7 @@ export function createUi(actions) {
     moveLater.disabled = view.formation === formations.length - 1;
     landAtEnd.checked = state.landAtEnd;
     landingLightsGroup.hidden = !state.landAtEnd;
-    landingLights.value = state.landingLights;
-    landingBox.hidden = !DARK_LEVEL_EFFECTS.includes(state.landingLights);
-    landingFields.show(state);
+    landingLights.show(state.landingLights);
 
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
@@ -365,9 +356,7 @@ export function createUi(actions) {
     colorPattern.value = formation.colorPattern;
     secondColorRow.hidden = !isGradient(formation);
     secondColor.value = formation.secondColor;
-    flightLights.value = formation.flightLights;
-    flightLightBox.hidden = !DARK_LEVEL_EFFECTS.includes(formation.flightLights);
-    flightLightFields.show(formation);
+    flightLights.show(formation.flightLights);
     chase.value = formation.chase;
     chaseBox.hidden = formation.chase === 'off';
     chaseFields.show(formation);
@@ -752,7 +741,8 @@ function buildStoryboard(list, onSelect) {
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
       const swings = ['sway', 'rock', 'roll'].filter((swing) => formation[`${swing}Angle`] !== 0);
       const motion = swings.length === 0 ? '' : ` · ${swings.join('/')}`;
-      const effect = formation.flightLights === 'blend' ? '' : ` · ${FLIGHT_LIGHTS[formation.flightLights].toLowerCase()}`;
+      const { effect: lightEffect } = formation.flightLights;
+      const effect = lightEffect === 'blend' ? '' : ` · ${FLIGHT_EFFECTS[lightEffect].toLowerCase()}`;
       const lights = formation.chase === 'off' ? '' : ' · chase';
       meta.textContent = `${formation.holdSeconds} s${turn}${motion}${effect}${lights}`;
       problem.textContent = problems.length > 0 ? '!' : '';
@@ -764,16 +754,65 @@ function buildStoryboard(list, onSelect) {
 }
 
 /**
- * Fills a list with the flight light effects and reports a choice.
- * @param {HTMLElement} list a select element
- * @param {(effect: string) => void} onChange
- * @returns {HTMLSelectElement}
+ * Builds the controls of a set of flight lights: the list of effects, and under it the settings
+ * of the effect that is chosen. Each setting shows only for the effects that use it. The
+ * settings need no new assignment, so their sliders are live for every fleet size.
+ * @param {HTMLElement} list the select element of the effect
+ * @param {HTMLElement} box the container of the settings
+ * @param {(key: string, value: number | string) => void} onChange
+ * @returns {{show: (lights: import('./state.js').FlightLights) => void}}
  */
-function wireLightsChoice(list, onChange) {
+function buildFlightLights(list, box, onChange) {
   const select = /** @type {HTMLSelectElement} */ (list);
-  for (const [key, label] of Object.entries(FLIGHT_LIGHTS)) select.add(new Option(label, key));
-  select.addEventListener('change', () => onChange(select.value));
-  return select;
+  for (const [key, label] of Object.entries(FLIGHT_EFFECTS)) select.add(new Option(label, key));
+  select.addEventListener('change', () => onChange('effect', select.value));
+
+  /** Each row of a setting, with the effects that use it, and a way to show its value. */
+  const rows = [];
+  for (const choice of FLIGHT_LIGHT_CHOICES) {
+    const row = element('div', choice.options ? 'field choice' : 'field');
+    row.title = choice.title;
+    const id = `${box.id}-${choice.key}`;
+    const label = element('label');
+    label.htmlFor = id;
+    label.textContent = choice.label;
+    /** @type {HTMLSelectElement | HTMLInputElement} */
+    let input;
+    if (choice.options) {
+      input = /** @type {HTMLSelectElement} */ (element('select'));
+      for (const [key, name] of Object.entries(choice.options)) input.add(new Option(name, key));
+      input.addEventListener('change', () => onChange(choice.key, input.value));
+    } else {
+      input = /** @type {HTMLInputElement} */ (element('input'));
+      input.type = 'color';
+      input.addEventListener('input', () => onChange(choice.key, input.value));
+    }
+    input.id = id;
+    row.append(label, input);
+    box.append(row);
+    rows.push({ row, effects: choice.effects, show: (/** @type {any} */ lights) => (input.value = lights[choice.key]) });
+  }
+  for (const field of FLIGHT_LIGHT_FIELDS) {
+    const row = element('div', 'fields');
+    // The id of the row starts the ids of its inputs, so the inputs of the formation and of
+    // the landing differ.
+    row.id = `${box.id}-${field.key}`;
+    box.append(row);
+    const fields = buildFields(row, [field], onChange, () => true);
+    rows.push({ row, effects: field.effects ?? [], show: fields.show });
+  }
+
+  /** @param {import('./state.js').FlightLights} lights */
+  function show(lights) {
+    select.value = lights.effect;
+    box.hidden = !rows.some(({ effects }) => effects.includes(lights.effect));
+    for (const { row, effects, show: showValue } of rows) {
+      row.hidden = !effects.includes(lights.effect);
+      showValue(lights);
+    }
+  }
+
+  return { show };
 }
 
 /**
@@ -820,7 +859,7 @@ function buildTimeline(strip, actions) {
       flight.title = [landing ? 'Landing' : `Flight to formation ${step.formation + 1}`]
         .concat(
           `${step.duration.toFixed(1)} s`,
-          step.lights.effect === 'blend' ? [] : `Lights: ${FLIGHT_LIGHTS[step.lights.effect]}`,
+          step.lights.effect === 'blend' ? [] : `Lights: ${FLIGHT_EFFECTS[step.lights.effect]}`,
           step.legs.length > 1 ? 'The drones spread out to pass' : [],
           problems,
         )

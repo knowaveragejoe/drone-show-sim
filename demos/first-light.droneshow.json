@@ -36,7 +36,6 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
-      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "sphere"
@@ -45,7 +44,19 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "off",
-      "flightLights": "blend",
+      "flightLights": {
+        "effect": "blend",
+        "burstDirection": "out",
+        "bandDirection": "right",
+        "sparkColor": "#ffffff",
+        "darkLevel": 0,
+        "twinkleRate": 1.3,
+        "flashTime": 0.6,
+        "emberTime": 1,
+        "bandCount": 1.5,
+        "bandSpeed": 0.5,
+        "fadeTime": 1
+      },
       "seed": 1
     },
     {
@@ -64,7 +75,6 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.5,
-      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "helix"
@@ -73,7 +83,19 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "off",
-      "flightLights": "blend",
+      "flightLights": {
+        "effect": "blend",
+        "burstDirection": "out",
+        "bandDirection": "right",
+        "sparkColor": "#ffffff",
+        "darkLevel": 0,
+        "twinkleRate": 1.3,
+        "flashTime": 0.6,
+        "emberTime": 1,
+        "bandCount": 1.5,
+        "bandSpeed": 0.5,
+        "fadeTime": 1
+      },
       "seed": 1
     },
     {
@@ -92,7 +114,6 @@
       "rollSeconds": 8,
       "chaseBands": 3,
       "chaseSpeed": 0.3,
-      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "ring"
@@ -101,7 +122,19 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "around",
-      "flightLights": "blend",
+      "flightLights": {
+        "effect": "blend",
+        "burstDirection": "out",
+        "bandDirection": "right",
+        "sparkColor": "#ffffff",
+        "darkLevel": 0,
+        "twinkleRate": 1.3,
+        "flashTime": 0.6,
+        "emberTime": 1,
+        "bandCount": 1.5,
+        "bandSpeed": 0.5,
+        "fadeTime": 1
+      },
       "seed": 1
     },
     {
@@ -120,7 +153,6 @@
       "rollSeconds": 8,
       "chaseBands": 4,
       "chaseSpeed": 0.25,
-      "darkLevel": 0,
       "source": {
         "type": "builtin",
         "shape": "heart"
@@ -129,12 +161,35 @@
       "colorPattern": "solid",
       "secondColor": "#ffffff",
       "chase": "around",
-      "flightLights": "dark",
+      "flightLights": {
+        "effect": "dark",
+        "burstDirection": "out",
+        "bandDirection": "right",
+        "sparkColor": "#ffffff",
+        "darkLevel": 0,
+        "twinkleRate": 1.3,
+        "flashTime": 0.6,
+        "emberTime": 1,
+        "bandCount": 1.5,
+        "bandSpeed": 0.5,
+        "fadeTime": 1
+      },
       "seed": 1
     }
   ],
   "landAtEnd": true,
   "spreadToPass": true,
-  "landingLights": "blend",
-  "landingDarkLevel": 0
+  "landingLights": {
+    "effect": "blend",
+    "burstDirection": "out",
+    "bandDirection": "right",
+    "sparkColor": "#ffffff",
+    "darkLevel": 0,
+    "twinkleRate": 1.3,
+    "flashTime": 0.6,
+    "emberTime": 1,
+    "bandCount": 1.5,
+    "bandSpeed": 0.5,
+    "fadeTime": 1
+  }
 }

@@ -4,15 +4,12 @@ import { test } from 'node:test';
 import { closestApproach, placeBody, poseRotation, takeoffGrid } from '../src/motion.js';
 import {
   BURST_FLASH,
-  BURST_REACH,
   CHASE_DIM,
   FLIGHT_MARGIN,
-  GLIMMER_SHARE,
   GLIMMER_SLOT,
   JUMP_SLACK,
-  LIGHTS_FADE,
   MAX_SPREAD,
-  WAVE_SPEED,
+  bandPlaces,
   countOutside,
   createPlanner,
   fitSize,
@@ -40,7 +37,7 @@ import {
   twinkleAt,
   volumeBounds,
 } from '../src/plan.js';
-import { defaultState as projectDefault } from '../src/state.js';
+import { defaultFlightLights, defaultState as projectDefault } from '../src/state.js';
 
 /**
  * The default show with one spacing in all directions and a takeoff straight from the grid.
@@ -1590,25 +1587,32 @@ test('previous and next jump between the holds and the ends of the show', () => 
 
 // Flight lights.
 
-test('an effect comes in at the start of a flight and goes out at its end', () => {
-  assert.equal(effectShare(20, 0), 0);
-  near(effectShare(20, LIGHTS_FADE / 2), 0.5, 1e-9);
-  assert.equal(effectShare(20, LIGHTS_FADE), 1);
-  assert.equal(effectShare(20, 10), 1);
-  near(effectShare(20, 20 - LIGHTS_FADE / 2), 0.5, 1e-9);
-  assert.equal(effectShare(20, 20), 0);
+/** Flight lights: Blend with every setting at its fallback, and the given changes. */
+function flightLights(changes) {
+  return { ...defaultFlightLights(), ...changes };
+}
+
+test('an effect comes in at the start of a flight and goes out at its end, over the fade time', () => {
+  assert.equal(effectShare(20, 0, 1), 0);
+  near(effectShare(20, 0.5, 1), 0.5, 1e-9);
+  assert.equal(effectShare(20, 1, 1), 1);
+  assert.equal(effectShare(20, 10, 1), 1);
+  near(effectShare(20, 19.5, 1), 0.5, 1e-9);
+  assert.equal(effectShare(20, 20, 1), 0);
   // The share grows smoothly: slow at the ends of a fade, fast in its middle.
-  assert.ok(effectShare(20, LIGHTS_FADE / 10) < 0.1);
-  // A short flight uses a quarter of its time for each fade.
-  near(effectShare(2, 0.25), 0.5, 1e-9);
-  assert.equal(effectShare(2, 1), 1);
-  assert.equal(effectShare(0, 0), 0);
+  assert.ok(effectShare(20, 0.1, 1) < 0.1);
+  // A longer fade time takes longer.
+  near(effectShare(20, 1.5, 3), 0.5, 1e-9);
+  // A short flight uses at most a quarter of its time for each fade.
+  near(effectShare(2, 0.25, 1), 0.5, 1e-9);
+  assert.equal(effectShare(2, 1, 1), 1);
+  assert.equal(effectShare(0, 0, 1), 0);
 });
 
 test('dark flight lights go down for the flight and come back at the new formation', () => {
   const state = defaultState();
-  state.formations[1] = { ...state.formations[1], flightLights: 'dark', darkLevel: 0 };
-  state.formations[2] = { ...state.formations[2], flightLights: 'dark', darkLevel: 20 };
+  state.formations[1] = { ...state.formations[1], flightLights: flightLights({ effect: 'dark' }) };
+  state.formations[2] = { ...state.formations[2], flightLights: flightLights({ effect: 'dark', darkLevel: 20, fadeTime: 3 }) };
   const plan = createPlanner()(state);
   const light = new Float32Array(plan.count);
   const [takeoff, second, third] = plan.steps;
@@ -1623,13 +1627,16 @@ test('dark flight lights go down for the flight and come back at the new formati
   brightnessAt(plan, second.start + second.duration / 2, light);
   assert.ok(all(0));
   // The lights come back as the fleet arrives, and stay on in the hold.
-  brightnessAt(plan, second.start + second.duration - LIGHTS_FADE / 2, light);
+  brightnessAt(plan, second.start + second.duration - 0.5, light);
   assert.ok(all(0.5), `arriving ${light[0]}`);
   brightnessAt(plan, holdStart(plan, 1) + 0.01, light);
   assert.ok(light.every((level) => level > CHASE_DIM - 1e-6));
-  // A dark level keeps the lights faint in the flight.
+  // A dark level keeps the lights faint in the flight, and a fade time of 3 s is half done
+  // after 1.5 s.
   brightnessAt(plan, third.start + third.duration / 2, light);
   assert.ok(all(0.2));
+  brightnessAt(plan, third.start + 1.5, light);
+  assert.ok(all(0.6), `fading ${light[0]}`);
   // The colors still blend as before.
   const colors = new Float32Array(plan.count * 3);
   lightColorsAt(plan, second.start + second.duration / 2, colors);
@@ -1638,8 +1645,7 @@ test('dark flight lights go down for the flight and come back at the new formati
 
 test('the landing has flight lights of its own', () => {
   const state = defaultState();
-  state.landingLights = 'dark';
-  state.landingDarkLevel = 10;
+  state.landingLights = flightLights({ effect: 'dark', darkLevel: 10 });
   const plan = createPlanner()(state);
   const landing = plan.steps[plan.steps.length - 1];
   assert.equal(landing.lights.effect, 'dark');
@@ -1651,16 +1657,21 @@ test('the landing has flight lights of its own', () => {
   assert.ok(plan.steps.slice(0, -1).every((step) => step.lights.effect === 'blend'));
 });
 
-/** The default show with one flight light effect in the flight to the heart, formation 2. */
-function effectPlan(effect, darkLevel = 0) {
+/** The default show with flight lights in the flight to the heart, formation 2. */
+function effectPlan(changes) {
   const state = defaultState();
-  state.formations[1] = { ...state.formations[1], flightLights: effect, darkLevel };
+  state.formations[1] = { ...state.formations[1], flightLights: flightLights(changes) };
   return createPlanner()(state);
 }
 
 /** True when two lists of numbers are equal within a tolerance. */
 function sameList(actual, expected, tolerance = 1e-6) {
   return actual.length === expected.length && actual.every((value, i) => Math.abs(value - expected[i]) <= tolerance);
+}
+
+/** The mean of a list of numbers. */
+function mean(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 test('the random numbers of the effects repeat, and spread evenly from 0 to 1', () => {
@@ -1670,8 +1681,7 @@ test('the random numbers of the effects repeat, and spread evenly from 0 to 1', 
     for (let slot = -1; slot < 100; slot++) values.push(hash01(2, drone, slot));
   }
   assert.ok(values.every((value) => value >= 0 && value < 1));
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  near(mean, 0.5, 0.01);
+  near(mean(values), 0.5, 0.01);
   // Each tenth of the range gets about a tenth of the numbers.
   for (let tenth = 0; tenth < 10; tenth++) {
     const share = values.filter((value) => Math.floor(value * 10) === tenth).length / values.length;
@@ -1701,31 +1711,35 @@ test('the rainbow runs through the six bright colors and back to red', () => {
   }
 });
 
-test('a glimmer twinkle rises and falls in its slot, and a share of the slots twinkle', () => {
-  let twinkling = 0;
-  let slots = 0;
-  for (let drone = 0; drone < 200; drone++) {
-    // The start of the slots of this drone.
-    const first = (1 - hash01(4, drone, -1)) * GLIMMER_SLOT;
-    for (let slot = 0; slot < 20; slot++) {
-      const start = first + slot * GLIMMER_SLOT;
-      assert.ok(twinkleAt(4, drone, start + 1e-6) < 1e-6, 'a twinkle starts dark');
-      const peak = twinkleAt(4, drone, start + GLIMMER_SLOT / 2);
-      assert.ok(peak >= 0 && peak <= 1);
-      assert.ok(twinkleAt(4, drone, start + GLIMMER_SLOT / 4) <= peak + 1e-9);
-      slots++;
-      if (peak > 0) {
-        twinkling++;
-        assert.ok(peak >= 0.4 - 1e-9, `peak ${peak}`);
+test('a glimmer twinkle rises and falls in its slot, at the twinkle rate', () => {
+  for (const rate of [0.5, 1.3, 5]) {
+    // A slow rate keeps the slot; a fast rate makes it shorter.
+    const slot = Math.min(GLIMMER_SLOT, 0.8 / rate);
+    let twinkles = 0;
+    const slots = 40;
+    for (let drone = 0; drone < 200; drone++) {
+      // The start of the slots of this drone.
+      const first = (1 - hash01(4, drone, -1)) * slot;
+      for (let k = 0; k < slots; k++) {
+        const start = first + k * slot;
+        assert.ok(twinkleAt(4, drone, start + 1e-6, rate) < 1e-6, 'a twinkle starts dark');
+        const peak = twinkleAt(4, drone, start + slot / 2, rate);
+        assert.ok(peak >= 0 && peak <= 1);
+        assert.ok(twinkleAt(4, drone, start + slot / 4, rate) <= peak + 1e-9);
+        if (peak > 0) {
+          twinkles++;
+          assert.ok(peak >= 0.4 - 1e-9, `peak ${peak}`);
+        }
       }
     }
+    // Twinkles per drone per second.
+    near(twinkles / (200 * slots * slot), rate, rate * 0.1);
   }
-  near(twinkling / slots, GLIMMER_SHARE, 0.04);
-  assert.equal(twinkleAt(4, 7, 1.234), twinkleAt(4, 7, 1.234));
+  assert.equal(twinkleAt(4, 7, 1.234, 1.3), twinkleAt(4, 7, 1.234, 1.3));
 });
 
-test('a glimmer flight twinkles over the dark level and arrives with steady lights', () => {
-  const plan = effectPlan('glimmer', 10);
+test('a glimmer flight twinkles over the dark level in the spark color, and arrives steady', () => {
+  const plan = effectPlan({ effect: 'glimmer', darkLevel: 10 });
   const step = plan.steps[1];
   const middle = step.start + step.duration / 2;
   const { brightness, colors } = lightsOf(plan, middle);
@@ -1733,15 +1747,26 @@ test('a glimmer flight twinkles over the dark level and arrives with steady ligh
   const dark = brightness.filter((level) => level < 0.1 + 1e-6).length;
   const bright = brightness.filter((level) => level > 0.5).length;
   assert.ok(dark > plan.count * 0.3 && bright > 3, `dark ${dark}, bright ${bright}`);
-  // A bright twinkle is whiter than the color of its drone.
+  // A bright twinkle is whiter than the color of its drone: the spark color is white.
   const blended = new Float32Array(plan.count * 3);
-  lightColorsAt(effectPlan('blend'), middle, blended);
+  lightColorsAt(effectPlan({ effect: 'blend' }), middle, blended);
   const drone = brightness.indexOf(Math.max(...brightness));
   const o = drone * 3;
   assert.ok(Math.min(...colors.subarray(o, o + 3)) > Math.min(...blended.subarray(o, o + 3)) + 0.2);
+  // With a red spark color, the same twinkle turns red.
+  const red = lightsOf(effectPlan({ effect: 'glimmer', darkLevel: 10, sparkColor: '#ff0000' }), middle);
+  assert.ok(red.colors[o] > blended[o] - 1e-6 && red.colors[o + 2] < blended[o + 2] - 0.2, 'red twinkle');
   // The same time gives the same lights, and another time gives others.
   assert.deepEqual(lightsOf(plan, middle).brightness, brightness);
   assert.ok(!sameList(lightsOf(plan, middle + 0.1).brightness, brightness));
+  // A faster twinkle rate lights more drones at a time.
+  const lit = (rate) => {
+    const fast = effectPlan({ effect: 'glimmer', twinkleRate: rate });
+    let sum = 0;
+    for (let k = 0; k < 20; k++) sum += mean(Array.from(lightsOf(fast, middle + k * 0.07).brightness));
+    return sum / 20;
+  };
+  assert.ok(lit(4) > lit(0.5) * 2, `fast ${lit(4)}, slow ${lit(0.5)}`);
   // The fleet leaves and arrives with its lights on.
   assert.ok(lightsOf(plan, step.start).brightness.every((level) => level === 1));
   const arriving = lightsOf(plan, step.start + step.duration - 1e-3);
@@ -1749,9 +1774,9 @@ test('a glimmer flight twinkles over the dark level and arrives with steady ligh
 });
 
 test('a starburst flashes from the middle of the fleet out, then fades like embers', () => {
-  const plan = effectPlan('starburst', 0);
+  const plan = effectPlan({ effect: 'starburst' });
   const step = plan.steps[1];
-  const { ripple } = step.lights;
+  const { ripple, settings } = step.lights;
   assert.ok(ripple.every((value) => value >= 0 && value <= 1));
   near(Math.max(...ripple), 1, 1e-6);
   // The ripple is the distance from the middle of the sphere when the flight starts, as the
@@ -1766,7 +1791,7 @@ test('a starburst flashes from the middle of the fleet out, then fades like embe
 
   // Half way out, the flash has reached the inner drones but not the outer ones. It is a
   // ring: the drones that it reached first have started to cool.
-  const half = lightsOf(plan, step.start + BURST_REACH / 2);
+  const half = lightsOf(plan, step.start + settings.flashTime / 2);
   const old = plan.steps[0].colors;
   for (let drone = 0; drone < plan.count; drone++) {
     const o = drone * 3;
@@ -1794,30 +1819,77 @@ test('a starburst flashes from the middle of the fleet out, then fades like embe
   assert.deepEqual(lightsOf(plan, ember).brightness, lightsOf(plan, ember).brightness);
 });
 
-test('a color wave paints rainbow bands across the fleet as it flies', () => {
-  const plan = effectPlan('wave');
-  const state = defaultState();
+test('an inward starburst closes in from the edge, in the spark color, and its embers last the ember time', () => {
+  const outward = effectPlan({ effect: 'starburst' }).steps[1].lights.ripple;
+  const plan = effectPlan({ effect: 'starburst', burstDirection: 'in', sparkColor: '#00ff00', flashTime: 1 });
   const step = plan.steps[1];
-  // The larger formation of the flight is the heart.
-  near(step.lights.wavelength, 0.75 * state.formations[1].size, 1e-9);
-  const offset = step.duration / 2;
-  const { positions, colors, brightness } = lightsOf(plan, step.start + offset);
-  assert.ok(brightness.every((level) => level === 1));
-  const angle = (30 * Math.PI) / 180;
+  const { ripple } = step.lights;
+  for (let drone = 0; drone < plan.count; drone++) near(ripple[drone], 1 - outward[drone], 1e-6);
+  // A quarter of the way in, only the outer drones have flashed, and they are green hot.
+  const quarter = lightsOf(plan, step.start + 0.25);
   for (let drone = 0; drone < plan.count; drone++) {
     const o = drone * 3;
-    const along = positions[o] * Math.cos(angle) + positions[o + 2] * Math.sin(angle);
-    let hue = along / step.lights.wavelength - WAVE_SPEED * offset;
-    hue -= Math.floor(hue);
-    assert.ok(sameList(colors.subarray(o, o + 3), rainbow(hue), 1e-4), `drone ${drone}`);
+    if (ripple[drone] < 0.15) assert.ok(quarter.colors[o + 1] > quarter.colors[o] + 0.3, `drone ${drone} is green`);
+    if (ripple[drone] > 0.35) near(quarter.brightness[drone], 1, 1e-6);
   }
-  // Many hues show at once.
-  const reds = new Set();
-  for (let drone = 0; drone < plan.count; drone++) reds.add(Math.round(colors[drone * 3] * 4));
-  assert.ok(reds.size >= 4);
-  // The fleet leaves with the old colors and arrives with the new ones.
-  assert.ok(sameList(lightsOf(plan, step.start).colors, plan.steps[0].colors, 1e-6));
-  assert.ok(sameList(lightsOf(plan, step.start + step.duration - 1e-4).colors, step.colors, 1e-3));
+  // Longer embers glow longer.
+  const glowAt = (emberTime) => mean(Array.from(lightsOf(effectPlan({ effect: 'starburst', emberTime }), step.start + 2.5).brightness));
+  assert.ok(glowAt(2) > glowAt(0.5) * 3, `long ${glowAt(2)}, short ${glowAt(0.5)}`);
+});
+
+test('the places of the bands follow the direction, about the middle of the fleet', () => {
+  // Four drones about a middle at x = 0, z = 50.
+  const positions = Float32Array.from([-10, 0, 50, 10, 5, 50, 0, 0, 60, 0, 0, 40]);
+  const size = 40;
+  const places = (direction) => Array.from(bandPlaces(direction, positions, 4, size));
+  assert.ok(sameList(places('right'), [-0.25, 0.25, 0, 0]));
+  assert.ok(sameList(places('left'), [0.25, -0.25, 0, 0]));
+  assert.ok(sameList(places('up'), [0, 0, 0.25, -0.25]));
+  assert.ok(sameList(places('down'), [0, 0, -0.25, 0.25]));
+  // Rings: the distance from the middle over half the size, so the edge of a fleet is near 1.
+  assert.ok(sameList(places('out'), [0.5, 0.5, 0.5, 0.5]));
+  assert.ok(sameList(places('in'), [-0.5, -0.5, -0.5, -0.5]));
+  // Spin: a quarter turn clockwise from the top is a quarter of a lap, as the audience sees it.
+  assert.ok(sameList(places('spin'), [-0.25, 0.25, 0, 0.5]), `${places('spin')}`);
+  assert.ok(sameList(places('together'), [0, 0, 0, 0]));
+});
+
+test('a color wave paints rainbow bands that travel in its direction as the fleet flies', () => {
+  for (const bandDirection of ['right', 'up', 'out', 'spin']) {
+    const plan = effectPlan({ effect: 'wave', bandDirection, bandCount: 2.5, bandSpeed: 0.8 });
+    const step = plan.steps[1];
+    // The larger formation of the flight is the heart.
+    assert.equal(step.lights.size, defaultState().formations[1].size);
+    const offset = step.duration / 2;
+    const { positions, colors, brightness } = lightsOf(plan, step.start + offset);
+    assert.ok(brightness.every((level) => level === 1));
+    const places = bandPlaces(bandDirection, positions, plan.count, step.lights.size);
+    // Spin makes a whole number of spokes.
+    const bands = bandDirection === 'spin' ? 3 : 2.5;
+    for (let drone = 0; drone < plan.count; drone++) {
+      let hue = places[drone] * bands - 0.8 * offset;
+      hue -= Math.floor(hue);
+      assert.ok(sameList(colors.subarray(drone * 3, drone * 3 + 3), rainbow(hue), 1e-4), `${bandDirection}, drone ${drone}`);
+    }
+    // Many hues show at once.
+    const reds = new Set();
+    for (let drone = 0; drone < plan.count; drone++) reds.add(Math.round(colors[drone * 3] * 4));
+    assert.ok(reds.size >= 4, bandDirection);
+    // The fleet leaves with the old colors and arrives with the new ones.
+    assert.ok(sameList(lightsOf(plan, step.start).colors, plan.steps[0].colors, 1e-6));
+    assert.ok(sameList(lightsOf(plan, step.start + step.duration - 1e-4).colors, step.colors, 1e-3));
+  }
+});
+
+test('a color wave all together gives the whole fleet one hue, which cycles at the band speed', () => {
+  const plan = effectPlan({ effect: 'wave', bandDirection: 'together', bandSpeed: 0.5 });
+  const step = plan.steps[1];
+  const time = step.start + step.duration / 2;
+  const { colors } = lightsOf(plan, time);
+  for (let drone = 1; drone < plan.count; drone++) assert.ok(sameList(colors.subarray(drone * 3, drone * 3 + 3), colors.subarray(0, 3)));
+  // One cycle takes 2 s.
+  assert.ok(sameList(lightsOf(plan, time + 2).colors.subarray(0, 3), colors.subarray(0, 3), 1e-4));
+  assert.ok(!sameList(lightsOf(plan, time + 1).colors.subarray(0, 3), colors.subarray(0, 3), 1e-2));
 });
 
 // Tilt, sway, rock, and roll.

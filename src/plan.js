@@ -56,7 +56,7 @@ import { svgCloud } from './svg.js';
  *   the formation center, xyz; null for the landing
  * @property {number} centerHeight height of the formation center, meters
  * @property {Chase | null} chase the light chase of the formation in the hold, if any
- * @property {FlightLights} lights what the lights do in the transition
+ * @property {StepLights} lights what the lights do in the transition
  * @property {Float32Array} end position of each drone when the hold ends, xyz; `to` when the formation does not turn
  * @property {Float32Array} colors light color of each drone at the stop, red, green, blue, each 0 to 1;
  *   the landing keeps the colors of the last formation
@@ -123,15 +123,18 @@ import { svgCloud } from './svg.js';
  */
 
 /**
- * What the drone lights do in a transition. See `lightsAt`.
- * @typedef {object} FlightLights
- * @property {keyof typeof import('./state.js').FLIGHT_LIGHTS} effect
+ * What the drone lights do in a transition: the flight lights of the project, and the values
+ * that the planner finds for them. See `lightsAt`.
+ * @typedef {object} StepLights
+ * @property {keyof typeof import('./state.js').FLIGHT_EFFECTS} effect
+ * @property {import('./state.js').FlightLights} settings the flight lights as the user sets them
  * @property {number} level brightness of the lights in the flight, for an effect that turns
  *   them down, 0 to 1
- * @property {Float32Array | null} ripple for a starburst: the distance of each drone from the
- *   middle of the fleet when the flight starts, as the audience sees it, as a share of the
- *   largest distance, 0 to 1; null for the other effects
- * @property {number} wavelength for a color wave: the distance from one red band to the next, meters
+ * @property {number[]} spark the spark color, red, green, blue, each 0 to 1
+ * @property {Float32Array | null} ripple for a starburst: the place of each drone on the way of
+ *   the flash, 0 where the flash starts and 1 where it ends; null for the other effects
+ * @property {number} size the size of the larger formation of the flight, meters; the bands
+ *   of a color wave span it
  */
 
 /**
@@ -208,32 +211,26 @@ export const CHASE_DIM = 0.12;
 const CHASE_FADE = 1;
 // How fast the tail of a band fades. A larger number gives a shorter tail.
 const CHASE_TAIL = 3;
-// A flight light effect comes in over this time at the start of the flight, and goes out
-// over this time at its end, seconds. A short flight uses a quarter of its time for each.
-export const LIGHTS_FADE = 1;
-// Glimmer: each drone gets a chance to twinkle in each slot of this length, seconds.
+// A flight light effect uses at most this share of the transition to come in, and the same
+// share to go out.
+const FADE_SHARE = 1 / 4;
+// Glimmer: a twinkle lasts at most this long, seconds. At a fast rate a twinkle is shorter,
+// so that at most `GLIMMER_BUSY` of the time of a drone has a twinkle.
 export const GLIMMER_SLOT = 0.3;
-// The share of the slots that have a twinkle.
-export const GLIMMER_SHARE = 0.4;
-// How white the light gets at the peak of a twinkle: 0 keeps the color, 1 is white.
-const GLIMMER_WHITE = 0.7;
-// Starburst: the flash travels out from the middle of the fleet and reaches the farthest drone
-// after this time, seconds. A short flight uses a quarter of its time.
-export const BURST_REACH = 0.6;
-// The flash cools from white to the color of the drone with this time constant, seconds.
+const GLIMMER_BUSY = 0.8;
+// How far the light moves to the spark color at the peak of a twinkle: 0 keeps the color,
+// 1 is the spark color.
+const GLIMMER_SPARK = 0.7;
+// Starburst: the flash uses at most this share of the transition to cross the fleet, and the
+// embers fade with a time constant of at most `BURST_EMBER_SHARE` of it.
+const BURST_REACH_SHARE = 1 / 4;
+const BURST_EMBER_SHARE = 1 / 6;
+// The flash cools from the spark color to the color of the drone with this time constant, seconds.
 const BURST_HEAT = 0.3;
-// The embers fade with this time constant, seconds. A short flight uses a sixth of its time.
-const BURST_EMBER = 1;
 // At its peak the flash is this much brighter than a light at full brightness.
 export const BURST_FLASH = 1.6;
 // The embers flicker to a new level this many times per second.
 const BURST_FLICKER = 15;
-// Color wave: the wavelength as a share of the size of the larger formation of the flight.
-const WAVE_SHARE = 0.75;
-// The number of bands that pass one place each second.
-export const WAVE_SPEED = 0.5;
-// The bands rise to the right, as the audience sees them, at this angle.
-const WAVE_ANGLE = 30 * DEGREE;
 
 // The planner keeps this many results of its slow stages. Recent results stay, so undo,
 // redo, and a value that goes back and forth need no new work.
@@ -678,7 +675,7 @@ export function createPlanner() {
         body: stop.body && gather(stop.body, slots),
         centerHeight: stop.centerHeight,
         chase: stop.chase && { ...stop.chase, u: gatherValues(stop.chase.u, slots) },
-        lights: flightLights(state, previous.formation, stop.formation, ground, count),
+        lights: stepLights(state, previous.formation, stop.formation, ground, count),
         end: touchdown ? arrival : end,
         colors,
         closestApproach: approach,
@@ -878,18 +875,25 @@ function gatherValues(values, indices) {
  * @param {number} arriving index of the formation that the fleet flies to, or -1 for the landing
  * @param {Float32Array} start position of each drone when the flight starts, xyz
  * @param {number} count number of drones
- * @returns {FlightLights}
+ * @returns {StepLights}
  */
-function flightLights(state, leaving, arriving, start, count) {
-  const formation = arriving >= 0 ? state.formations[arriving] : null;
-  const effect = formation ? formation.flightLights : state.landingLights;
-  const level = (formation ? formation.darkLevel : state.landingDarkLevel) / 100;
+function stepLights(state, leaving, arriving, start, count) {
+  const settings = arriving >= 0 ? state.formations[arriving].flightLights : state.landingLights;
+  const { effect } = settings;
   const sizes = [leaving, arriving].filter((index) => index >= 0).map((index) => state.formations[index].size);
+  let ripple = null;
+  if (effect === 'starburst') {
+    ripple = rippleOf(start, count);
+    // An inward flash starts at the edge and ends in the middle.
+    if (settings.burstDirection === 'in') ripple = ripple.map((place) => 1 - place);
+  }
   return {
     effect,
-    level,
-    ripple: effect === 'starburst' ? rippleOf(start, count) : null,
-    wavelength: WAVE_SHARE * Math.max(...sizes),
+    settings,
+    level: settings.darkLevel / 100,
+    spark: hexToRgb(settings.sparkColor),
+    ripple,
+    size: Math.max(...sizes),
   };
 }
 
@@ -1775,28 +1779,28 @@ export function lightsAt(plan, time, positions, colors, brightness) {
   }
   brightness.fill(1, 0, count);
   const { lights, duration } = step;
-  const { effect, level } = lights;
+  const { effect, level, settings, spark } = lights;
   if (effect === 'starburst') {
     starburstLights(lights, index, offset, duration, count, colors, brightness);
     return;
   }
-  const share = effectShare(duration, offset);
+  const share = effectShare(duration, offset, settings.fadeTime);
   if (effect === 'blend' || share <= 0) return;
   if (effect === 'dark') {
     brightness.fill(1 - share * (1 - level), 0, count);
   } else if (effect === 'glimmer') {
     for (let drone = 0; drone < count; drone++) {
-      const twinkle = twinkleAt(index, drone, offset);
-      const white = GLIMMER_WHITE * twinkle;
-      mixLight(colors, brightness, drone, share, white, white, white, 1 - white, level + (1 - level) * twinkle);
+      const twinkle = twinkleAt(index, drone, offset, settings.twinkleRate);
+      const mix = GLIMMER_SPARK * twinkle;
+      const glow = level + (1 - level) * twinkle;
+      mixLight(colors, brightness, drone, share, spark[0] * mix, spark[1] * mix, spark[2] * mix, 1 - mix, glow);
     }
   } else if (effect === 'wave') {
-    const across = Math.cos(WAVE_ANGLE) / lights.wavelength;
-    const up = Math.sin(WAVE_ANGLE) / lights.wavelength;
-    const shift = WAVE_SPEED * offset;
+    const places = bandPlaces(settings.bandDirection, positions, count, lights.size);
+    const bands = settings.bandDirection === 'spin' ? Math.max(1, Math.round(settings.bandCount)) : settings.bandCount;
+    const shift = settings.bandSpeed * offset;
     for (let drone = 0; drone < count; drone++) {
-      const o = drone * 3;
-      const hue = positions[o] * across + positions[o + 2] * up - shift;
+      const hue = places[drone] * bands - shift;
       const [red, green, blue] = rainbow(hue - Math.floor(hue));
       mixLight(colors, brightness, drone, share, red, green, blue, 0, 1);
     }
@@ -1804,11 +1808,49 @@ export function lightsAt(plan, time, positions, colors, brightness) {
 }
 
 /**
- * The lights of a starburst. A white flash travels out from the middle of the fleet. Each
- * drone flashes when the flash reaches it, then cools to its own color and fades like the
- * ember of a firework, with a flicker, down to the dark level. Before the flash reaches a
- * drone, the drone keeps its light. The lights come back as the fleet arrives.
- * @param {FlightLights} lights
+ * The place of each drone across the fleet, for bands that travel in a direction. A band with
+ * a fixed place value travels the way of the direction. The places use the side and the height
+ * of each drone, as the audience sees the fleet, about the middle of the fleet at this time.
+ * Across the fleet, the places span about 1: from left to right or from bottom to top over the
+ * size, from the middle to the edge over half the size, or once around the middle.
+ * @param {keyof typeof import('./state.js').BAND_DIRECTIONS} direction
+ * @param {Float32Array} positions xyz per drone
+ * @param {number} count number of drones
+ * @param {number} size the size of the fleet, meters
+ * @returns {Float32Array} one place per drone
+ */
+export function bandPlaces(direction, positions, count, size) {
+  const places = new Float32Array(count);
+  if (direction === 'together' || count === 0) return places;
+  let middleX = 0;
+  let middleZ = 0;
+  for (let i = 0; i < count * 3; i += 3) {
+    middleX += positions[i] / count;
+    middleZ += positions[i + 2] / count;
+  }
+  const scale = size > 0 ? size : 1;
+  for (let drone = 0; drone < count; drone++) {
+    const x = positions[drone * 3] - middleX;
+    const z = positions[drone * 3 + 2] - middleZ;
+    if (direction === 'right') places[drone] = x / scale;
+    else if (direction === 'left') places[drone] = -x / scale;
+    else if (direction === 'up') places[drone] = z / scale;
+    else if (direction === 'down') places[drone] = -z / scale;
+    else if (direction === 'out') places[drone] = Math.hypot(x, z) / (scale / 2);
+    else if (direction === 'in') places[drone] = -Math.hypot(x, z) / (scale / 2);
+    // Spin: clockwise, as the audience sees it, from the top.
+    else places[drone] = Math.atan2(x, z) / (2 * Math.PI);
+  }
+  return places;
+}
+
+/**
+ * The lights of a starburst. A flash in the spark color travels across the fleet: outward from
+ * the middle, or inward from the edge. Each drone flashes when the flash reaches it, then cools
+ * to its own color and fades like the ember of a firework, with a flicker, down to the dark
+ * level. Before the flash reaches a drone, the drone keeps its light. The lights come back as
+ * the fleet arrives.
+ * @param {StepLights} lights
  * @param {number} index index of the step, for the flicker
  * @param {number} offset seconds from the start of the transition
  * @param {number} duration length of the transition, seconds
@@ -1817,12 +1859,12 @@ export function lightsAt(plan, time, positions, colors, brightness) {
  * @param {Float32Array} brightness out
  */
 function starburstLights(lights, index, offset, duration, count, colors, brightness) {
-  const { level } = lights;
+  const { level, settings, spark } = lights;
   const ripple = /** @type {Float32Array} */ (lights.ripple);
-  const reach = Math.min(BURST_REACH, duration / 4);
-  const ember = Math.min(BURST_EMBER, duration / 6);
+  const reach = Math.min(settings.flashTime, duration * BURST_REACH_SHARE);
+  const ember = Math.min(settings.emberTime, duration * BURST_EMBER_SHARE);
   // The effect goes out as the fleet arrives, but it starts at once: the flash is its start.
-  const fade = Math.min(LIGHTS_FADE, duration / 4);
+  const fade = Math.min(settings.fadeTime, duration * FADE_SHARE);
   const share = fade > 0 ? smooth(Math.min(1, (duration - offset) / fade)) : 0;
   if (share <= 0) return;
   const tick = Math.floor(offset * BURST_FLICKER);
@@ -1835,7 +1877,8 @@ function starburstLights(lights, index, offset, duration, count, colors, brightn
     const flicker = 0.4 + 0.6 * hash01(index, drone, tick);
     const sparkle = flicker + heat * (1 - flicker);
     const peak = 1 + (BURST_FLASH - 1) * heat;
-    mixLight(colors, brightness, drone, share, heat, heat, heat, 1 - heat, level + (peak - level) * glow * sparkle);
+    const glowLevel = level + (peak - level) * glow * sparkle;
+    mixLight(colors, brightness, drone, share, spark[0] * heat, spark[1] * heat, spark[2] * heat, 1 - heat, glowLevel);
   }
 }
 
@@ -1862,20 +1905,24 @@ function mixLight(colors, brightness, drone, share, red, green, blue, keep, leve
 
 /**
  * The twinkle of one drone in a glimmer: 0 between twinkles, up to 1 at the peak of a strong
- * one. The time is cut into slots of `GLIMMER_SLOT` seconds, and each drone starts its slots
- * at its own time. In `GLIMMER_SHARE` of its slots, a drone twinkles: its light rises and falls
- * smoothly once, to a peak of its own.
+ * one. The time is cut into slots, and each drone starts its slots at its own time. In some of
+ * its slots, a drone twinkles: its light rises and falls smoothly once, to a peak of its own.
+ * A slot lasts `GLIMMER_SLOT`, or less at a fast rate, and the share of slots with a twinkle
+ * gives the rate.
  * @param {number} index index of the step
  * @param {number} drone index
  * @param {number} offset seconds from the start of the transition
+ * @param {number} rate twinkles of each drone per second
  * @returns {number}
  */
-export function twinkleAt(index, drone, offset) {
-  const place = offset / GLIMMER_SLOT + hash01(index, drone, -1);
+export function twinkleAt(index, drone, offset, rate) {
+  const slotTime = Math.min(GLIMMER_SLOT, GLIMMER_BUSY / rate);
+  const chanceShare = rate * slotTime;
+  const place = offset / slotTime + hash01(index, drone, -1);
   const slot = Math.floor(place);
   const chance = hash01(index, drone, slot);
-  if (chance >= GLIMMER_SHARE) return 0;
-  const peak = 0.4 + (0.6 * chance) / GLIMMER_SHARE;
+  if (chance >= chanceShare) return 0;
+  const peak = 0.4 + (0.6 * chance) / chanceShare;
   return peak * Math.sin(Math.PI * (place - slot)) ** 4;
 }
 
@@ -1921,15 +1968,16 @@ function mix32(value) {
 
 /**
  * How far the effect of a transition is in, at one time of the transition. The effect comes
- * in over `LIGHTS_FADE` seconds at the start of the flight and goes out over the same time at
- * its end, so the lights show the old stop when the fleet leaves it and the new stop when the
- * fleet arrives. A short flight uses a quarter of its time for each fade.
+ * in over the fade time at the start of the flight and goes out over the same time at its end,
+ * so the lights show the old stop when the fleet leaves it and the new stop when the fleet
+ * arrives. A short flight uses at most a quarter of its time for each fade.
  * @param {number} duration length of the transition, seconds
  * @param {number} offset seconds from the start of the transition
+ * @param {number} fadeTime seconds
  * @returns {number} 0 when the effect is out, up to 1 when it is fully in
  */
-export function effectShare(duration, offset) {
-  const fade = Math.min(LIGHTS_FADE, duration / 4);
+export function effectShare(duration, offset, fadeTime) {
+  const fade = Math.min(fadeTime, duration * FADE_SHARE);
   if (!(fade > 0)) return 0;
   return smooth(Math.max(0, Math.min(1, offset / fade, (duration - offset) / fade)));
 }

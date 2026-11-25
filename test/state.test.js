@@ -5,14 +5,15 @@ import { createPlanner } from '../src/plan.js';
 import { BUILTIN_SHAPES } from '../src/shapes.js';
 import {
   FLEET_FIELDS,
+  FLIGHT_EFFECTS,
+  FLIGHT_LIGHT_CHOICES,
+  FLIGHT_LIGHT_FIELDS,
   FORMATION_FIELDS,
-  LANDING_FIELDS,
   MAX_FORMATIONS,
   MOTION_FIELDS,
-  FLIGHT_LIGHT_FIELDS,
-  FLIGHT_LIGHTS,
   VOLUME_FIELDS,
   clampToField,
+  defaultFlightLights,
   defaultState,
   nextFormation,
   parseProject,
@@ -32,15 +33,17 @@ test('the default state has a value in range for each field', () => {
     assert.equal(clampToField(field, state.fleet[field.key]), state.fleet[field.key]);
   }
   for (const formation of state.formations) {
-    for (const field of [...FORMATION_FIELDS, ...MOTION_FIELDS, ...FLIGHT_LIGHT_FIELDS]) {
+    for (const field of [...FORMATION_FIELDS, ...MOTION_FIELDS]) {
       assert.equal(clampToField(field, formation[field.key]), formation[field.key], field.key);
     }
-    assert.ok(Object.hasOwn(FLIGHT_LIGHTS, formation.flightLights));
   }
-  for (const field of LANDING_FIELDS) {
-    assert.equal(clampToField(field, state[field.key]), state[field.key]);
+  for (const lights of [...state.formations.map((formation) => formation.flightLights), state.landingLights]) {
+    assert.ok(Object.hasOwn(FLIGHT_EFFECTS, lights.effect));
+    for (const field of FLIGHT_LIGHT_FIELDS) assert.equal(clampToField(field, lights[field.key]), lights[field.key], field.key);
+    for (const { key, options } of FLIGHT_LIGHT_CHOICES) {
+      assert.ok(options ? Object.hasOwn(options, lights[key]) : /^#[0-9a-f]{6}$/i.test(lights[key]), key);
+    }
   }
-  assert.ok(Object.hasOwn(FLIGHT_LIGHTS, state.landingLights));
   for (const field of VOLUME_FIELDS) {
     assert.equal(clampToField(field, state.volume[field.key]), state.volume[field.key]);
   }
@@ -295,34 +298,58 @@ test('import rejects a bad light chase', () => {
 test('a project file from before the flight lights keeps the lights on in every flight', () => {
   const text = fileWith((data) => {
     delete data.landingLights;
-    delete data.landingDarkLevel;
-    data.formations.forEach((formation) => {
-      delete formation.flightLights;
-      delete formation.darkLevel;
-    });
+    data.formations.forEach((formation) => delete formation.flightLights);
   });
   const state = parseProject(text);
-  assert.equal(state.landingLights, 'blend');
-  assert.equal(state.landingDarkLevel, 0);
-  for (const formation of state.formations) {
-    assert.equal(formation.flightLights, 'blend');
-    assert.equal(formation.darkLevel, 0);
-  }
+  assert.deepEqual(state.landingLights, defaultFlightLights());
+  for (const formation of state.formations) assert.deepEqual(formation.flightLights, defaultFlightLights());
+  assert.equal(defaultFlightLights().effect, 'blend');
+});
+
+test('a project file with only the name of the effect and a dark level beside it keeps both', () => {
+  // Milestones 26 to 29 wrote the effect as a name and the dark level beside it.
+  const text = fileWith((data) => {
+    data.formations[1].flightLights = 'glimmer';
+    data.formations[1].darkLevel = 15;
+    data.formations[2].flightLights = 'dark';
+    data.landingLights = 'starburst';
+    data.landingDarkLevel = 30;
+  });
+  const state = parseProject(text);
+  assert.deepEqual(state.formations[1].flightLights, { ...defaultFlightLights(), effect: 'glimmer', darkLevel: 15 });
+  assert.deepEqual(state.formations[2].flightLights, { ...defaultFlightLights(), effect: 'dark' });
+  assert.deepEqual(state.landingLights, { ...defaultFlightLights(), effect: 'starburst', darkLevel: 30 });
+  // The old properties beside the effect do not stay in the state.
+  assert.equal(state.formations[1].darkLevel, undefined);
+  assert.equal(state.landingDarkLevel, undefined);
+});
+
+test('flight lights with some settings get the fallback of each other setting', () => {
+  const state = parseProject(fileWith((data) => (data.formations[0].flightLights = { effect: 'wave', bandDirection: 'spin' })));
+  assert.deepEqual(state.formations[0].flightLights, { ...defaultFlightLights(), effect: 'wave', bandDirection: 'spin' });
 });
 
 test('export then import keeps the flight lights', () => {
   const state = defaultState();
-  state.formations[1] = { ...state.formations[1], flightLights: 'dark', darkLevel: 15 };
-  state.landingLights = 'dark';
-  state.landingDarkLevel = 30;
+  state.formations[1] = {
+    ...state.formations[1],
+    flightLights: { ...defaultFlightLights(), effect: 'starburst', burstDirection: 'in', sparkColor: '#ffd27a', flashTime: 1.2, emberTime: 2.5, darkLevel: 15 },
+  };
+  state.landingLights = { ...defaultFlightLights(), effect: 'wave', bandDirection: 'out', bandCount: 3, bandSpeed: 1.25, fadeTime: 2 };
   assert.deepEqual(parseProject(serializeProject(state)), state);
 });
 
 test('import rejects bad flight lights', () => {
-  assert.throws(() => parseProject(fileWith((data) => (data.formations[1].flightLights = 'disco'))), /formation 2: flightLights must be one of blend, dark, glimmer, starburst, wave/);
-  assert.throws(() => parseProject(fileWith((data) => (data.formations[0].darkLevel = 60))), /formation 1: darkLevel must be a number from 0 to 50/);
-  assert.throws(() => parseProject(fileWith((data) => (data.landingLights = 3))), /the show: landingLights must be one of/);
-  assert.throws(() => parseProject(fileWith((data) => (data.landingDarkLevel = -1))), /the show: landingDarkLevel must be a number from 0 to 50/);
+  const formation = (lights) => fileWith((data) => (data.formations[1].flightLights = lights));
+  assert.throws(() => parseProject(formation('disco')), /formation 2, flightLights: effect must be one of blend, dark, glimmer, starburst, wave/);
+  assert.throws(() => parseProject(formation(7)), /formation 2: flightLights is not valid/);
+  assert.throws(() => parseProject(formation({ effect: 'wave', bandDirection: 'sideways' })), /formation 2, flightLights: bandDirection must be one of right, left, up, down, out, in, spin, together/);
+  assert.throws(() => parseProject(formation({ effect: 'starburst', burstDirection: 'up' })), /burstDirection must be one of out, in/);
+  assert.throws(() => parseProject(formation({ effect: 'glimmer', sparkColor: 'white' })), /formation 2, flightLights: sparkColor must be a color/);
+  assert.throws(() => parseProject(formation({ effect: 'dark', darkLevel: 60 })), /formation 2, flightLights: darkLevel must be a number from 0 to 50/);
+  assert.throws(() => parseProject(formation({ effect: 'glimmer', twinkleRate: 0 })), /twinkleRate must be a number from 0.1 to 6/);
+  assert.throws(() => parseProject(fileWith((data) => (data.landingLights = { effect: 'dark', fadeTime: 9 }))), /the show, landingLights: fadeTime must be a number from 0.1 to 5/);
+  assert.throws(() => parseProject(fileWith((data) => (data.landingLights = 3))), /the show: landingLights is not valid/);
 });
 
 test('export then import keeps an SVG drawing', () => {
