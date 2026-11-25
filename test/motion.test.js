@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   angularSpeedBound,
   closestApproach,
+  closestPair,
   holdAngles,
   isMoving,
   placeBody,
@@ -15,6 +16,7 @@ import {
   rateAt,
   swingAngle,
   takeoffGrid,
+  timeOfProgress,
 } from '../src/motion.js';
 import { createRng } from '../src/rng.js';
 
@@ -318,4 +320,34 @@ test('a forward tilt leans the top toward the audience, a sideways tilt to the r
   // A yaw turns counterclockwise seen from above: x goes to y.
   const turned = placeBody(new Float32Array([2, 0, 0]), poseRotation(Math.PI / 2, 0, 0), 0);
   [0, 2, 0].forEach((value, i) => near(turned[i], value, 1e-6));
+});
+
+test('the closest pair is the pair of the closest approach, at the progress of that moment', () => {
+  const random = createRng(31);
+  const count = 40;
+  const starts = Float32Array.from({ length: count * 3 }, () => random() * 60);
+  const targets = Float32Array.from({ length: count * 3 }, () => random() * 60);
+  const pair = closestPair(starts, targets, count);
+  assert.equal(pair.distance, closestApproach(starts, targets, count));
+  assert.ok(pair.first >= 0 && pair.second > pair.first);
+  // At that progress, the two drones are exactly that far apart.
+  const at = (drone) => [0, 1, 2].map((axis) => starts[drone * 3 + axis] + pair.progress * (targets[drone * 3 + axis] - starts[drone * 3 + axis]));
+  const [a, b] = [at(pair.first), at(pair.second)];
+  assert.ok(Math.abs(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) - pair.distance) < 1e-4);
+  // One drone has no pair.
+  assert.deepEqual(closestPair(starts, targets, 1), { distance: Infinity, first: -1, second: -1, progress: 0 });
+});
+
+test('the time of a progress value is the inverse of the progress at a time', () => {
+  const timing = planTiming(Float32Array.from([0, 0, 0]), Float32Array.from([0, 90, 30]), 1, {
+    maxHorizontalSpeed: 8,
+    maxClimbSpeed: 3,
+    maxDescentSpeed: 3,
+    maxAcceleration: 4,
+  });
+  for (const progress of [0, 0.01, 0.2, 0.5, 0.93, 1]) {
+    const time = timeOfProgress(timing, progress);
+    assert.ok(time >= 0 && time <= timing.duration);
+    assert.ok(Math.abs(progressAt(timing, time) - progress) < 1e-9, `progress ${progress}`);
+  }
 });

@@ -20,6 +20,7 @@ import { assignTargets } from './assign.js';
 import {
   angularSpeedBound,
   closestApproach,
+  closestPair,
   holdAngles,
   isMoving,
   placeBody,
@@ -30,6 +31,7 @@ import {
   progressAt,
   rateAt,
   takeoffGrid,
+  timeOfProgress,
 } from './motion.js';
 import { objCloud } from './obj.js';
 import { closestSpacing, curvePicks, farthestPointSampler, relaxPicks } from './sample.js';
@@ -247,6 +249,10 @@ const DISSOLVE_SPARK_TIME = 0.1;
 const DISSOLVE_SPARK = 0.6;
 // Speed glow: at full speed, the light moves this far to the spark color.
 const SPEED_SPARK = 0.5;
+
+// A preview of a flight starts this long before the flight and ends this long after it, seconds.
+export const PREVIEW_LEAD = 1;
+export const PREVIEW_TAIL = 1.5;
 
 // The planner keeps this many results of its slow stages. Recent results stay, so undo,
 // redo, and a value that goes back and forth need no new work.
@@ -1508,6 +1514,57 @@ export function isBelowGround(height) {
 }
 
 /**
+ * A problem of the show: the words for the user, and the part of the show that it concerns.
+ * @typedef {object} Problem
+ * @property {string} text the problem in words for the user
+ * @property {'takeoff' | 'hover' | 'spacing' | 'below' | 'outside' | 'approach' | 'spread' | 'motion'} kind
+ *   takeoff grid cells or the hover layer outside the flight volume; targets too close, below
+ *   the ground, or outside the flight volume; drones too close in a flight, or outside the
+ *   flight volume in a spread; a motion in the hold that breaks a limit
+ * @property {number} step index of the step that the problem concerns: the flight to the
+ *   formation and its hold, or the landing
+ */
+
+/**
+ * Lists what is wrong with one formation, with the kind of each problem.
+ * @param {Plan} plan
+ * @param {number} formation index of the formation
+ * @param {import('./state.js').Fleet} limits the fleet limits
+ * @returns {{kind: Problem['kind'], text: string}[]} empty when the formation passes every check
+ */
+function formationProblemList(plan, formation, limits) {
+  const checks = plan.formations[formation];
+  const step = plan.steps[formation];
+  /** @type {{kind: Problem['kind'], text: string}[]} */
+  const problems = [];
+  if (isTooClose(checks.spacing, limits.minSpacing)) {
+    problems.push({ kind: 'spacing', text: 'Targets are too close together.' });
+  }
+  if (isBelowGround(checks.lowestTarget)) problems.push({ kind: 'below', text: 'Targets are below the ground.' });
+  if (checks.outsideVolume > 0) problems.push({ kind: 'outside', text: 'Targets are outside the flight volume.' });
+  if (isTooClose(step.closestApproach, limits.minSpacing)) {
+    problems.push({ kind: 'approach', text: 'Drones come too close in the transition to this formation.' });
+  }
+  if (step.spreadOutside > 0) {
+    problems.push({ kind: 'spread', text: 'Drones leave the flight volume when they spread out to pass.' });
+  }
+  const { motion } = checks;
+  if (motion.horizontalSpeed > limits.maxHorizontalSpeed + ROUNDING_SLACK) {
+    problems.push({ kind: 'motion', text: 'The motion in the hold is faster than the maximum horizontal speed.' });
+  }
+  if (
+    motion.climbSpeed > limits.maxClimbSpeed + ROUNDING_SLACK ||
+    motion.descentSpeed > limits.maxDescentSpeed + ROUNDING_SLACK
+  ) {
+    problems.push({ kind: 'motion', text: 'The motion in the hold climbs or descends faster than the limits.' });
+  }
+  if (motion.acceleration > limits.maxAcceleration * (1 + ACCELERATION_SLACK)) {
+    problems.push({ kind: 'motion', text: 'The motion in the hold accelerates more than the maximum acceleration.' });
+  }
+  return problems;
+}
+
+/**
  * Lists what is wrong with one formation, in words for the user.
  * @param {Plan} plan
  * @param {number} formation index of the formation
@@ -1515,34 +1572,7 @@ export function isBelowGround(height) {
  * @returns {string[]} empty when the formation passes every check
  */
 export function formationProblems(plan, formation, limits) {
-  const checks = plan.formations[formation];
-  const step = plan.steps[formation];
-  const problems = [];
-  if (isTooClose(checks.spacing, limits.minSpacing)) {
-    problems.push('Targets are too close together.');
-  }
-  if (isBelowGround(checks.lowestTarget)) problems.push('Targets are below the ground.');
-  if (checks.outsideVolume > 0) problems.push('Targets are outside the flight volume.');
-  if (isTooClose(step.closestApproach, limits.minSpacing)) {
-    problems.push('Drones come too close in the transition to this formation.');
-  }
-  if (step.spreadOutside > 0) {
-    problems.push('Drones leave the flight volume when they spread out to pass.');
-  }
-  const { motion } = checks;
-  if (motion.horizontalSpeed > limits.maxHorizontalSpeed + ROUNDING_SLACK) {
-    problems.push('The motion in the hold is faster than the maximum horizontal speed.');
-  }
-  if (
-    motion.climbSpeed > limits.maxClimbSpeed + ROUNDING_SLACK ||
-    motion.descentSpeed > limits.maxDescentSpeed + ROUNDING_SLACK
-  ) {
-    problems.push('The motion in the hold climbs or descends faster than the limits.');
-  }
-  if (motion.acceleration > limits.maxAcceleration * (1 + ACCELERATION_SLACK)) {
-    problems.push('The motion in the hold accelerates more than the maximum acceleration.');
-  }
-  return problems;
+  return formationProblemList(plan, formation, limits).map(({ text }) => text);
 }
 
 const LANDING_PROBLEM = 'Drones come too close in the landing.';
@@ -1551,23 +1581,40 @@ const TAKEOFF_PROBLEM = 'Takeoff grid cells are outside the flight volume.';
 const HOVER_PROBLEM = 'The hover layer is outside the flight volume.';
 
 /**
+ * Lists every problem of the show, with the part of the show that each one concerns.
+ * @param {import('./state.js').State} state
+ * @param {Plan} plan
+ * @returns {Problem[]}
+ */
+export function findProblems(state, plan) {
+  /** @type {Problem[]} */
+  const problems = [];
+  if (plan.takeoffOutsideVolume > 0) problems.push({ text: TAKEOFF_PROBLEM, kind: 'takeoff', step: 0 });
+  if (plan.hoverOutsideVolume > 0) problems.push({ text: HOVER_PROBLEM, kind: 'hover', step: 0 });
+  state.formations.forEach((formation, index) => {
+    for (const { kind, text } of formationProblemList(plan, index, state.fleet)) {
+      problems.push({ text: `Formation ${index + 1}: ${text}`, kind, step: index });
+    }
+  });
+  const landing = plan.steps.length - 1;
+  const last = plan.steps[landing];
+  if (last.formation < 0) {
+    if (isTooClose(last.closestApproach, state.fleet.minSpacing)) {
+      problems.push({ text: LANDING_PROBLEM, kind: 'approach', step: landing });
+    }
+    if (last.spreadOutside > 0) problems.push({ text: LANDING_SPREAD_PROBLEM, kind: 'spread', step: landing });
+  }
+  return problems;
+}
+
+/**
  * Lists every problem of the show, in words for the user.
  * @param {import('./state.js').State} state
  * @param {Plan} plan
  * @returns {string[]}
  */
 export function showProblems(state, plan) {
-  const problems = [];
-  if (plan.takeoffOutsideVolume > 0) problems.push(TAKEOFF_PROBLEM);
-  if (plan.hoverOutsideVolume > 0) problems.push(HOVER_PROBLEM);
-  state.formations.forEach((formation, index) => {
-    for (const problem of formationProblems(plan, index, state.fleet)) {
-      problems.push(`Formation ${index + 1}: ${problem}`);
-    }
-  });
-  const last = plan.steps.at(-1);
-  if (last.formation < 0) problems.push(...landingProblems(last, state.fleet.minSpacing));
-  return problems;
+  return findProblems(state, plan).map(({ text }) => text);
 }
 
 /**
@@ -1581,6 +1628,135 @@ export function landingProblems(step, minSpacing) {
   if (isTooClose(step.closestApproach, minSpacing)) problems.push(LANDING_PROBLEM);
   if (step.spreadOutside > 0) problems.push(LANDING_SPREAD_PROBLEM);
   return problems;
+}
+
+// A click on a problem looks at the hold at up to this many poses, about one for each step
+// of the route angle.
+const MAX_FOCUS_POSES = 24;
+
+/**
+ * Where a problem shows in the show: the time to look at, and the drones that cause it. A click
+ * on a problem moves the timeline to that time and marks the drones.
+ *
+ * Two drones that come too close: the pair and the moment of their closest approach, from an
+ * exact search of each flight with all drones together, or of the poses of the hold. Drones
+ * outside the flight volume or below the ground: each drone that is, and the pose where the
+ * most drones are, or where the lowest drone is lowest. A motion that breaks a limit: the
+ * start of the hold, with no drones.
+ * @param {Plan} plan
+ * @param {Problem} problem
+ * @param {import('./state.js').Fleet} fleet the minimum spacing and the vertical spacing
+ * @returns {{time: number, drones: number[]}} seconds from the start of the timeline; indices of
+ *   the drones, the closest pair first for a spacing problem
+ */
+export function problemFocus(plan, problem, fleet) {
+  const { count, volume } = plan;
+  const step = plan.steps[problem.step];
+  const heightScale = fleet.minSpacing / fleet.minVerticalSpacing;
+  const holdTime = step.start + step.duration;
+  const outsideOf = (/** @type {Float32Array} */ points) => {
+    const flags = new Uint8Array(count);
+    markOutside(points, count, volume, flags);
+    return flags;
+  };
+  const indices = (/** @type {Uint8Array} */ flags) => {
+    const list = [];
+    for (let drone = 0; drone < count; drone++) if (flags[drone]) list.push(drone);
+    return list;
+  };
+
+  if (problem.kind === 'takeoff') return { time: 0, drones: indices(outsideOf(step.from)) };
+  if (problem.kind === 'hover') {
+    const lift = step.legs[0];
+    return { time: step.start + lift.duration, drones: indices(outsideOf(lift.to)) };
+  }
+
+  if (problem.kind === 'approach') {
+    // The lift-off and the touchdown climb and descend straight, so they keep the grid spacing.
+    let best = null;
+    for (const leg of step.legs) {
+      if (leg.delays) continue;
+      const pair = closestPair(spacingCopy(leg.from, 1, heightScale), spacingCopy(leg.to, 1, heightScale), count);
+      if (!best || pair.distance < best.pair.distance) best = { leg, pair };
+    }
+    if (!best || best.pair.first < 0) return { time: step.start, drones: [] };
+    const { leg, pair } = best;
+    return { time: step.start + leg.start + timeOfProgress(leg.timing, pair.progress), drones: [pair.first, pair.second] };
+  }
+
+  if (problem.kind === 'spread') {
+    // The poses where the fleet has spread out: the ends of the legs before the last one.
+    let best = { time: step.start, flags: new Uint8Array(count), outside: -1 };
+    for (const leg of step.legs.slice(0, -1)) {
+      if (leg.delays) continue;
+      const flags = outsideOf(leg.to);
+      const outside = flags.reduce((sum, flag) => sum + flag, 0);
+      if (outside > best.outside) best = { time: step.start + leg.start + leg.duration, flags, outside };
+    }
+    return { time: best.time, drones: indices(best.flags) };
+  }
+
+  // The rest concern the hold: its poses at sampled times, or its one pose.
+  const { motion } = step;
+  const poses =
+    motion && isMoving(motion)
+      ? holdTimes(motion, ROUTE_STEP, MAX_FOCUS_POSES).map((time) => ({
+          time: holdTime + Math.min(time, step.hold),
+          points: placeBody(step.body, poseRotation(...holdAngles(motion, time)), step.centerHeight),
+        }))
+      : [{ time: holdTime, points: step.to }];
+
+  if (problem.kind === 'spacing') {
+    let best = null;
+    for (const pose of poses) {
+      const copy = spacingCopy(pose.points, 1, heightScale);
+      const pair = closestPair(copy, copy, count);
+      if (!best || pair.distance < best.pair.distance) best = { pose, pair };
+    }
+    const { pose, pair } = /** @type {{pose: {time: number}, pair: {first: number, second: number}}} */ (best);
+    return { time: pose.time, drones: pair.first < 0 ? [] : [pair.first, pair.second] };
+  }
+
+  if (problem.kind === 'below' || problem.kind === 'outside') {
+    const flags = new Uint8Array(count);
+    let time = holdTime;
+    let worst = -Infinity;
+    for (const pose of poses) {
+      let score = 0;
+      for (let drone = 0; drone < count; drone++) {
+        const o = drone * 3;
+        const off =
+          problem.kind === 'below'
+            ? isBelowGround(pose.points[o + 2])
+            : !isInside(pose.points[o], pose.points[o + 1], pose.points[o + 2], volume);
+        if (!off) continue;
+        flags[drone] = 1;
+        // Outside: the pose with the most drones out. Below: the pose with the lowest drone.
+        score = problem.kind === 'below' ? Math.max(score, -pose.points[o + 2]) : score + 1;
+      }
+      if (score > worst) {
+        worst = score;
+        time = pose.time;
+      }
+    }
+    return { time, drones: indices(flags) };
+  }
+
+  return { time: holdTime, drones: [] };
+}
+
+/**
+ * The part of the timeline that a preview of one flight loops over: the flight, with a little
+ * of the hold before it and of the hold after it, so the change of picture shows.
+ * @param {Plan} plan
+ * @param {number} stepIndex index of the step whose flight the preview shows
+ * @returns {number[]} start and end, seconds from the start of the timeline
+ */
+export function previewSpan(plan, stepIndex) {
+  const step = plan.steps[stepIndex];
+  const start = Math.max(0, step.start - PREVIEW_LEAD);
+  const end = Math.min(plan.total, step.start + step.duration + PREVIEW_TAIL);
+  return [start, end];
 }
 
 /**

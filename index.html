@@ -181,6 +181,15 @@
             <label for="landing-lights">Landing lights</label>
             <select id="landing-lights" title="What the lights do in the flight back to the takeoff grid"></select>
           </div>
+          <div class="field wide flight-row">
+            <span class="label">Flight</span>
+            <output id="landing-name"></output>
+            <button id="landing-preview" type="button" class="preview" aria-pressed="false" title="Play the landing again and again, so you see its lights while you change them">
+              <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
+              <svg class="icon-stop" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5h7v7h-7z"/></svg>
+              <span class="preview-label">Preview</span>
+            </button>
+          </div>
           <div class="fields" id="landing-fields" hidden></div>
         </div>
       </section>
@@ -235,6 +244,15 @@
           <div class="field choice">
             <label for="flight-lights">Flight lights</label>
             <select id="flight-lights" title="What the lights do in the flight to this formation"></select>
+          </div>
+          <div class="field wide flight-row">
+            <span class="label">Flight</span>
+            <output id="flight-name"></output>
+            <button id="flight-preview" type="button" class="preview" aria-pressed="false" title="Play this flight again and again, so you see its lights while you change them">
+              <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
+              <svg class="icon-stop" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5h7v7h-7z"/></svg>
+              <span class="preview-label">Preview</span>
+            </button>
           </div>
           <div class="fields" id="flight-light-fields" hidden></div>
           <div class="field choice">

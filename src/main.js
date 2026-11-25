@@ -19,6 +19,7 @@ import { createHistory } from './history.js';
 import { projectToScreen } from './mat4.js';
 import {
   createPlanner,
+  findProblems,
   FLIGHT_MARGIN,
   fitSize,
   hexToRgb,
@@ -27,6 +28,8 @@ import {
   lightColorAt,
   lightsAt,
   positionsAt,
+  previewSpan,
+  problemFocus,
   retime,
   routeOf,
   stepAt,
@@ -145,7 +148,9 @@ function start() {
     time: holdStart(plan, 0),
     playing: false,
     speed: 1,
+    loop: null,
     selected: -1,
+    marked: [],
     formation: 0,
     showPaths: true,
     showVolume: true,
@@ -185,6 +190,9 @@ function start() {
     plan = nextPlan;
     view.formation = Math.min(view.formation, state.formations.length - 1);
     if (view.selected >= plan.count) view.selected = -1;
+    // The marks belong to a problem of the old plan.
+    view.marked = [];
+    if (view.loop && view.loop.step >= plan.steps.length) view.loop = null;
     adjustView?.();
     showPlan();
     return null;
@@ -257,6 +265,7 @@ function start() {
     view.formation = index;
     view.time = holdStart(plan, index);
     view.playing = false;
+    view.loop = null;
   }
 
   /**
@@ -394,6 +403,8 @@ function start() {
     },
     startShowtime() {
       if (showtime) return;
+      view.loop = null;
+      view.marked = [];
       showtime = { camera: { ...camera, target: [...camera.target] }, shot: null };
       view.time = 0;
       view.playing = true;
@@ -412,18 +423,25 @@ function start() {
     },
     togglePlay() {
       if (!view.playing && view.time >= plan.total) view.time = 0;
+      // A preview plays its own part of the timeline.
+      if (view.loop) {
+        const [start, end] = previewSpan(plan, view.loop.step);
+        if (view.time < start || view.time >= end) view.time = start;
+      }
       view.playing = !view.playing;
       lastFrameTime = performance.now();
       requestFrame();
     },
     seek(time) {
       view.playing = false;
+      view.loop = null;
       view.time = time >= plan.total - END_SLACK ? plan.total : Math.max(0, time);
       requestFrame();
     },
     jump(direction) {
       const target = jumpTarget(plan, view.time, direction);
       view.time = target.time;
+      view.loop = null;
       // The sidebar follows the timeline to the formation that starts its hold there.
       if (target.formation >= 0 && target.formation !== view.formation) {
         view.formation = target.formation;
@@ -434,8 +452,43 @@ function start() {
     setSpeed(speed) {
       view.speed = speed;
     },
+    previewFlight(stepIndex) {
+      const step = plan.steps[stepIndex];
+      if (!step) return;
+      if (view.loop?.step === stepIndex) {
+        view.loop = null;
+        view.playing = false;
+      } else {
+        // The sidebar shows the formation that the flight goes to.
+        if (step.formation >= 0) view.formation = step.formation;
+        view.loop = { step: stepIndex };
+        view.time = previewSpan(plan, stepIndex)[0];
+        view.playing = true;
+        lastFrameTime = performance.now();
+      }
+      ui.refresh(state, plan, view);
+      requestFrame();
+    },
+    focusProblem(index) {
+      const problem = findProblems(state, plan)[index];
+      if (!problem) return;
+      const focus = problemFocus(plan, problem, state.fleet);
+      const { formation } = plan.steps[problem.step];
+      if (formation >= 0) view.formation = formation;
+      view.loop = null;
+      view.playing = false;
+      view.time = focus.time;
+      view.marked = focus.drones;
+      // For two drones that come too close, the route of one of them shows how they meet.
+      const pair = problem.kind === 'approach' || problem.kind === 'spacing';
+      view.selected = pair && focus.drones.length > 0 ? focus.drones[0] : -1;
+      ui.refresh(state, plan, view);
+      if (view.selected >= 0) ui.revealDrone(view.selected);
+      showRoute();
+    },
     select(drone) {
       view.selected = drone;
+      if (drone < 0) view.marked = [];
       showRoute();
     },
   };
@@ -487,6 +540,7 @@ function start() {
     }
     view.selected = nearest;
     if (nearest >= 0) ui.revealDrone(nearest);
+    else view.marked = [];
     showRoute();
   }
 
@@ -524,7 +578,12 @@ function start() {
     const elapsed = Math.max(0, (now - lastFrameTime) / 1000);
     if (view.playing) {
       view.time += Math.min(MAX_FRAME_STEP, elapsed) * view.speed;
-      if (view.time >= plan.total) {
+      const span = view.loop ? previewSpan(plan, view.loop.step) : null;
+      if (span) {
+        // A preview starts again from its start when it reaches its end.
+        if (view.time >= span[1] || view.time < span[0]) view.time = span[0];
+        requestFrame();
+      } else if (view.time >= plan.total) {
         view.time = plan.total;
         view.playing = false;
       } else {
@@ -549,6 +608,7 @@ function start() {
       pathColor: lightColorAt(plan, colors, view.time),
       // Showtime shows the show only: no selection, grid, volume, or paths.
       selected: showtime ? -1 : view.selected,
+      marked: showtime ? [] : view.marked,
       pathStep: stepAt(plan, view.time),
       showGrid: !showtime,
       // The editor marks the drones whose lights are off. The audience does not see them.

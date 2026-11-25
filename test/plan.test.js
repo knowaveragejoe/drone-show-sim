@@ -9,10 +9,13 @@ import {
   GLIMMER_SLOT,
   JUMP_SLACK,
   MAX_SPREAD,
+  PREVIEW_LEAD,
+  PREVIEW_TAIL,
   bandPlaces,
   countOutside,
   createPlanner,
   dissolveTime,
+  findProblems,
   fitSize,
   formationProblems,
   hash01,
@@ -25,6 +28,8 @@ import {
   lightColorAt,
   lightsAt,
   positionsAt,
+  previewSpan,
+  problemFocus,
   pulseAt,
   rainbow,
   retime,
@@ -1991,6 +1996,116 @@ test('a speed glow makes each drone as bright as it is fast', () => {
   // The fastest drone burns at full brightness, the slowest is dim.
   near(Math.max(...brightness), 1, 1e-4);
   assert.ok(Math.min(...brightness) < 0.6);
+});
+
+// Problems on the timeline, and the preview of a flight.
+
+/** Positions of every drone at one time. */
+function positionsOf(plan, time) {
+  const out = new Float32Array(plan.count * 3);
+  positionsAt(plan, time, out);
+  return out;
+}
+
+/** Distance between two drones in a list of positions. */
+function apart(points, a, b) {
+  return Math.hypot(points[a * 3] - points[b * 3], points[a * 3 + 1] - points[b * 3 + 1], points[a * 3 + 2] - points[b * 3 + 2]);
+}
+
+/** True when a point is inside the flight volume of a plan. */
+function inVolume(plan, points, drone) {
+  const { low, high } = plan.volume;
+  return [0, 1, 2].every((axis) => points[drone * 3 + axis] >= low[axis] - 1e-3 && points[drone * 3 + axis] <= high[axis] + 1e-3);
+}
+
+test('each problem of the show knows its kind and its step, with the same words as before', () => {
+  const state = defaultState();
+  state.formations[1] = { ...state.formations[1], size: 20, centerHeight: 5 };
+  state.volume = { ...state.volume, x: 80 };
+  const plan = createPlanner()(state);
+  const problems = findProblems(state, plan);
+  assert.deepEqual(problems.map(({ text }) => text), showProblems(state, plan));
+  const kinds = problems.map(({ kind, step }) => `${step}:${kind}`);
+  for (const kind of ['0:outside', '1:spacing', '1:below', '1:outside', '1:approach']) assert.ok(kinds.includes(kind), kind);
+});
+
+test('a click on a problem finds the drones that come too close, and the moment', () => {
+  const state = defaultState();
+  state.formations[1] = { ...state.formations[1], size: 20, centerHeight: 5 };
+  state.volume = { ...state.volume, x: 80 };
+  const plan = createPlanner()(state);
+  const problems = findProblems(state, plan);
+  const find = (kind, step) => problems.find((problem) => problem.kind === kind && problem.step === step);
+
+  // Too close in the flight: the pair is at its closest approach at the time of the focus.
+  const flight = plan.steps[1];
+  const approach = problemFocus(plan, find('approach', 1), state.fleet);
+  assert.equal(approach.drones.length, 2);
+  assert.ok(approach.time >= flight.start && approach.time <= flight.start + flight.duration);
+  near(apart(positionsOf(plan, approach.time), ...approach.drones), flight.closestApproach, 1e-3);
+
+  // Targets too close: the closest pair of the formation.
+  const spacing = problemFocus(plan, find('spacing', 1), state.fleet);
+  assert.equal(spacing.drones.length, 2);
+  near(apart(positionsOf(plan, spacing.time), ...spacing.drones), plan.formations[1].spacing, 1e-3);
+
+  // Below the ground: each marked drone goes below, and at the focus one of them is lowest.
+  const below = problemFocus(plan, find('below', 1), state.fleet);
+  assert.ok(below.drones.length > 0 && below.drones.length < plan.count);
+  const low = positionsOf(plan, below.time);
+  assert.ok(Math.min(...below.drones.map((drone) => low[drone * 3 + 2])) < 0);
+
+  // Outside the flight volume: the whole sphere is outside the moved volume.
+  const outside = problemFocus(plan, find('outside', 0), state.fleet);
+  assert.equal(outside.drones.length, plan.formations[0].outsideVolume);
+  const out = positionsOf(plan, outside.time);
+  assert.ok(outside.drones.every((drone) => !inVolume(plan, out, drone)));
+
+  // A motion that breaks a limit: the start of the hold, with no drones.
+  assert.deepEqual(problemFocus(plan, { text: '', kind: 'motion', step: 1 }, state.fleet), {
+    time: flight.start + flight.duration,
+    drones: [],
+  });
+});
+
+test('a click on a problem of the takeoff, the hover layer, or a spread marks the drones outside', () => {
+  const planner = createPlanner();
+  const floating = singleState();
+  floating.volume = { size: 120, x: 0, y: 0, z: 10 };
+  const takeoffPlan = planner(floating);
+  const takeoff = problemFocus(takeoffPlan, findProblems(floating, takeoffPlan).find(({ kind }) => kind === 'takeoff'), floating.fleet);
+  assert.equal(takeoff.time, 0);
+  assert.equal(takeoff.drones.length, takeoffPlan.takeoffOutsideVolume);
+
+  const hovering = hoverState();
+  hovering.volume = { ...hovering.volume, z: 20 };
+  const hoverPlan = planner(hovering);
+  const hover = problemFocus(hoverPlan, findProblems(hovering, hoverPlan).find(({ kind }) => kind === 'hover'), hovering.fleet);
+  assert.equal(hover.time, hoverPlan.steps[0].legs[0].duration);
+  assert.equal(hover.drones.length, hoverPlan.count);
+
+  const tight = tightState(planner);
+  tight.formations = tight.formations.map((formation) => ({ ...formation, centerHeight: 34 }));
+  tight.volume = { ...tight.volume, size: 66 };
+  const spreadPlan = planner(tight);
+  const problem = findProblems(tight, spreadPlan).find(({ kind }) => kind === 'spread');
+  const spread = problemFocus(spreadPlan, problem, tight.fleet);
+  const step = spreadPlan.steps[problem.step];
+  assert.ok(spread.drones.length > 0 && spread.drones.length <= step.spreadOutside);
+  // At the focus the fleet is spread out, and the marked drones, and only they, are outside.
+  const points = positionsOf(spreadPlan, spread.time);
+  for (let drone = 0; drone < spreadPlan.count; drone++) {
+    assert.equal(!inVolume(spreadPlan, points, drone), spread.drones.includes(drone), `drone ${drone}`);
+  }
+});
+
+test('the preview of a flight loops over the flight, with a little of each hold', () => {
+  const plan = createPlanner()(defaultState());
+  const second = plan.steps[1];
+  assert.deepEqual(previewSpan(plan, 1), [second.start - PREVIEW_LEAD, second.start + second.duration + PREVIEW_TAIL]);
+  // The takeoff starts at the start of the show, and the landing ends at its end.
+  assert.equal(previewSpan(plan, 0)[0], 0);
+  assert.equal(previewSpan(plan, plan.steps.length - 1)[1], plan.total);
 });
 
 // Tilt, sway, rock, and roll.

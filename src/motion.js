@@ -129,8 +129,26 @@ export function rateAt(timing, time) {
  *   a value below it means that some pair comes closer than `stopBelow`.
  */
 export function closestApproach(starts, targets, count, stopBelow = 0) {
+  return closestPair(starts, targets, count, stopBelow).distance;
+}
+
+/**
+ * The two drones that come closest in a transition, and when. The same search as
+ * `closestApproach`, which uses it.
+ * @param {Float32Array} starts xyz per drone
+ * @param {Float32Array} targets xyz per drone
+ * @param {number} count
+ * @param {number} [stopBelow] meters; 0 searches all pairs
+ * @returns {{distance: number, first: number, second: number, progress: number}} the smallest
+ *   distance, meters; the two drones, or -1 when there are fewer than two; the progress value
+ *   of the closest moment, 0 to 1
+ */
+export function closestPair(starts, targets, count, stopBelow = 0) {
   const stop = stopBelow * stopBelow;
   let smallest = Infinity;
+  let first = -1;
+  let second = -1;
+  let closest = 0;
   for (let i = 0; i < count; i++) {
     for (let j = i + 1; j < count; j++) {
       // Offset between the two drones at the start, and how the offset changes.
@@ -151,11 +169,34 @@ export function closestApproach(starts, targets, count, stopBelow = 0) {
       const distance = x * x + y * y + z * z;
       if (distance < smallest) {
         smallest = distance;
-        if (smallest < stop) return Math.sqrt(smallest);
+        first = i;
+        second = j;
+        closest = progress;
+        if (smallest < stop) return { distance: Math.sqrt(smallest), first, second, progress };
       }
     }
   }
-  return Math.sqrt(smallest);
+  return { distance: Math.sqrt(smallest), first, second, progress: closest };
+}
+
+/**
+ * The time at which a flight reaches a progress value: the inverse of `progressAt`.
+ * @param {Timing} timing
+ * @param {number} progress 0 to 1
+ * @returns {number} seconds from the start of the flight
+ */
+export function timeOfProgress(timing, progress) {
+  if (progress <= 0) return 0;
+  if (progress >= 1) return timing.duration;
+  // The progress grows with the time, so halving the interval finds the time.
+  let low = 0;
+  let high = timing.duration;
+  for (let k = 0; k < 50; k++) {
+    const middle = (low + high) / 2;
+    if (progressAt(timing, middle) < progress) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
 }
 
 /**

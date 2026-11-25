@@ -286,6 +286,8 @@ in vec3 vColor;
 in float vLight;
 // The gray of the mark on a drone whose light is off. 0 shows no mark.
 uniform float uUnlit;
+// 1 draws a ring in the color of the point, with no light in it: the mark of a problem.
+uniform float uRing;
 out vec4 outColor;
 void main() {
   // 0 at the center of the point, 1 at its edge.
@@ -296,6 +298,11 @@ void main() {
   float hot = smoothstep(0.55, 0.0, r);
   // A soft glare around the light, as a camera or an eye sees a bright light at night.
   float glare = exp(-d * d * 8.0) * (1.0 - d);
+  if (uRing > 0.5) {
+    float ring = smoothstep(0.62, 0.74, d) * smoothstep(0.98, 0.86, d);
+    outColor = vec4(vColor * ring * vBrightness, 1.0);
+    return;
+  }
   vec3 color = vColor * (light + 0.3 * glare) + vec3(0.55) * hot;
   // A dull gray dot, with no glare, shows where a dark drone is.
   float lit = vBrightness * max(vColor.r, max(vColor.g, vColor.b));
@@ -337,9 +344,14 @@ const VOLUME_BROKEN_COLOR = [0.9, 0.2, 0.2];
 // Diameter of one drone light, meters.
 const LIGHT_SIZE = 1.6;
 const SELECTED_LIGHT_SIZE = 5;
+// A drone that a problem marks: an amber ring around its light, as large as a light of this
+// size would be, and at least `MIN_MARKED_PIXELS` wide.
+const MARKED_LIGHT_SIZE = 4;
+const MARKED_COLOR = [1, 0.78, 0.2];
 // Far drones stay visible: a light never gets smaller than this many CSS pixels.
 const MIN_LIGHT_PIXELS = 4;
 const MIN_SELECTED_PIXELS = 14;
+const MIN_MARKED_PIXELS = 14;
 // Diameter of the glare around a light, CSS pixels.
 const GLARE_PIXELS = 22;
 // The gray of the mark that the editor puts on a drone whose light is off.
@@ -372,6 +384,7 @@ const OTHER_STEP_BRIGHTNESS = 0.3;
  * @property {number} count number of drones
  * @property {number[]} pathColor color of the flight paths, each channel 0 to 1
  * @property {number} selected index of the selected drone, or -1
+ * @property {number[]} marked indices of the drones that a problem marks; each gets an amber ring
  * @property {number} pathStep index of the step whose flight paths the view shows
  * @property {boolean} showGrid
  * @property {boolean} showUnlit true to mark the drones whose lights are off with a dull gray dot
@@ -409,6 +422,7 @@ export function createRenderer(canvas) {
     'uMinPixels',
     'uGlarePixels',
     'uUnlit',
+    'uRing',
   ]);
   const lineUniforms = uniformLocations(gl, lineProgram, ['uViewProj', 'uColor', 'uFade']);
 
@@ -440,7 +454,12 @@ export function createRenderer(canvas) {
   gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
   gl.enableVertexAttribArray(colorLocation);
   gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
+  // The indices of the marked drones. The vertex array keeps this buffer.
+  const markedBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, markedBuffer);
   gl.bindVertexArray(null);
+  /** The marks in the buffer, to upload a new list only when it changes. @type {number[] | null} */
+  let markedShown = null;
 
   gl.depthFunc(gl.LEQUAL);
   gl.blendFunc(gl.ONE, gl.ONE);
@@ -622,6 +641,7 @@ export function createRenderer(canvas) {
     gl.uniform1f(pointUniforms.uPixelsPerMeter, frame.pixelsPerMeter * dpr);
     gl.uniform1f(pointUniforms.uGlarePixels, GLARE_PIXELS * dpr);
     gl.uniform1f(pointUniforms.uUnlit, frame.showUnlit ? UNLIT_GRAY : 0);
+    gl.uniform1f(pointUniforms.uRing, 0);
     gl.bindVertexArray(drones.vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, drones.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, frame.positions, gl.DYNAMIC_DRAW);
@@ -633,6 +653,26 @@ export function createRenderer(canvas) {
     gl.uniform1f(pointUniforms.uSize, LIGHT_SIZE);
     gl.uniform1f(pointUniforms.uMinPixels, MIN_LIGHT_PIXELS * dpr);
     gl.drawArrays(gl.POINTS, 0, frame.count);
+
+    const marked = frame.marked.filter((drone) => drone < frame.count);
+    if (marked.length > 0) {
+      // The drones that a problem marks get a ring, with one draw call for all of them.
+      if (markedShown !== frame.marked) {
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, Uint32Array.from(marked), gl.DYNAMIC_DRAW);
+        markedShown = frame.marked;
+      }
+      gl.disableVertexAttribArray(brightnessLocation);
+      gl.disableVertexAttribArray(colorLocation);
+      gl.vertexAttrib1f(brightnessLocation, 1);
+      gl.vertexAttrib3f(colorLocation, ...MARKED_COLOR);
+      gl.uniform1f(pointUniforms.uSize, MARKED_LIGHT_SIZE);
+      gl.uniform1f(pointUniforms.uMinPixels, MIN_MARKED_PIXELS * dpr);
+      gl.uniform1f(pointUniforms.uRing, 1);
+      gl.drawElements(gl.POINTS, marked.length, gl.UNSIGNED_INT, 0);
+      gl.uniform1f(pointUniforms.uRing, 0);
+      gl.enableVertexAttribArray(brightnessLocation);
+      gl.enableVertexAttribArray(colorLocation);
+    }
 
     if (selected >= 0) {
       // The selected drone is white and at full brightness, also in a light chase.

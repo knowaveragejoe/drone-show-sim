@@ -2,11 +2,11 @@
 // and the transport bar.
 
 import {
+  findProblems,
   formationProblems,
   isBelowGround,
   isTooClose,
   landingProblems,
-  showProblems,
   speedAt,
 } from './plan.js';
 import { DEMOS } from './demos.js';
@@ -60,6 +60,10 @@ import {
  * @property {() => void} stopShowtime goes back to the editor
  * @property {() => void} togglePlay
  * @property {(time: number) => void} seek
+ * @property {(step: number) => void} previewFlight plays the flight of one step again and again,
+ *   or stops the preview of that flight
+ * @property {(index: number) => void} focusProblem moves the timeline to a problem of the show
+ *   and marks its drones; the index is in the list of `findProblems`
  * @property {(direction: -1 | 1) => void} jump moves the timeline to the previous or the next formation
  * @property {(speed: number) => void} setSpeed sets the playback speed: 1 is real time
  * @property {(drone: number) => void} select index of the drone to select, or -1 to clear the selection
@@ -71,6 +75,8 @@ import {
  * @property {number} time position on the timeline, seconds
  * @property {boolean} playing
  * @property {number} speed playback speed; 1 is real time
+ * @property {{step: number} | null} loop the step whose flight a preview plays again and again, or null
+ * @property {number[]} marked the drones that a problem marks
  * @property {number} selected index of the selected drone, or -1
  * @property {number} formation index of the formation that the sidebar edits
  * @property {boolean} showPaths
@@ -184,6 +190,11 @@ export function createUi(actions) {
   landAtEnd.addEventListener('change', () => actions.setLandAtEnd(landAtEnd.checked));
   const landingLightsGroup = byId('landing-lights-group');
   const landingLights = buildFlightLights(byId('landing-lights'), byId('landing-fields'), actions.setLandingLights);
+  const landingName = byId('landing-name');
+  // The steps that the Preview buttons play: the flight to the edited formation, and the landing.
+  let flightStep = 0;
+  let landingStep = -1;
+  const landingPreview = wirePreview(byId('landing-preview'), () => actions.previewFlight(landingStep));
 
   const formationTitle = byId('formation-title');
   const shape = /** @type {HTMLSelectElement} */ (byId('shape'));
@@ -216,6 +227,8 @@ export function createUi(actions) {
   secondColor.addEventListener('input', () => actions.setFormation('secondColor', secondColor.value));
 
   const flightLights = buildFlightLights(byId('flight-lights'), byId('flight-light-fields'), actions.setFlightLights);
+  const flightName = byId('flight-name');
+  const flightPreview = wirePreview(byId('flight-preview'), () => actions.previewFlight(flightStep));
 
   const chase = /** @type {HTMLSelectElement} */ (byId('chase'));
   for (const [key, label] of Object.entries(CHASE_PATTERNS)) chase.add(new Option(label, key));
@@ -346,6 +359,8 @@ export function createUi(actions) {
     landAtEnd.checked = state.landAtEnd;
     landingLightsGroup.hidden = !state.landAtEnd;
     landingLights.show(state.landingLights);
+    landingStep = state.landAtEnd ? plan.steps.length - 1 : -1;
+    landingName.textContent = `${formations.length} ${shapeLabel(formations.at(-1))} → Landing`;
 
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
@@ -357,6 +372,12 @@ export function createUi(actions) {
     secondColorRow.hidden = !isGradient(formation);
     secondColor.value = formation.secondColor;
     flightLights.show(formation.flightLights);
+    // The flight lights of a formation belong to the flight that arrives at it.
+    flightStep = view.formation;
+    flightName.textContent =
+      view.formation === 0
+        ? `Takeoff → 1 ${shapeLabel(formation)}`
+        : `${view.formation} ${shapeLabel(formations[view.formation - 1])} → ${view.formation + 1} ${shapeLabel(formation)}`;
     chase.value = formation.chase;
     chaseBox.hidden = formation.chase === 'off';
     chaseFields.show(formation);
@@ -378,22 +399,29 @@ export function createUi(actions) {
     spacing.classList.toggle('warn', isTooClose(formationSpacing, minSpacing));
     fit.disabled = !Number.isFinite(formationSpacing) || formationSpacing <= 0;
 
-    const problems = showProblems(state, plan);
+    const problems = findProblems(state, plan);
     checksStatus.classList.toggle('warn', problems.length > 0);
     checksSummary.textContent =
       problems.length === 0
         ? 'All checks pass'
         : `${problems.length} ${problems.length === 1 ? 'problem' : 'problems'}`;
-    const listed = problems.slice(0, MAX_LISTED_PROBLEMS);
-    if (problems.length > listed.length) listed.push(`${problems.length - listed.length} more`);
-    checksProblems.replaceChildren(
-      ...listed.map((problem) => {
-        const item = element('li');
-        item.textContent = problem;
-        item.title = problem;
-        return item;
-      }),
-    );
+    // Each problem is a button that shows the problem in the 3D view.
+    const items = problems.slice(0, MAX_LISTED_PROBLEMS).map(({ text }, index) => {
+      const item = element('li');
+      const button = /** @type {HTMLButtonElement} */ (element('button', 'problem-link'));
+      button.type = 'button';
+      button.textContent = text;
+      button.title = `${text} Click to show it.`;
+      button.addEventListener('click', () => actions.focusProblem(index));
+      item.append(button);
+      return item;
+    });
+    if (problems.length > items.length) {
+      const more = element('li');
+      more.textContent = `${problems.length - items.length} more`;
+      items.push(more);
+    }
+    checksProblems.replaceChildren(...items);
     checksProblems.hidden = problems.length === 0;
 
     duration.textContent = clock(plan.total);
@@ -424,6 +452,10 @@ export function createUi(actions) {
     play.dataset.playing = String(view.playing);
     playLabel.textContent = view.playing ? 'Pause' : 'Play';
     droneList.show(plan, view, positions);
+    const looping = view.loop ? view.loop.step : -1;
+    flightPreview.show(looping === flightStep);
+    landingPreview.show(looping >= 0 && looping === landingStep);
+    timeline.showLoop(looping);
   }
 
   /**
@@ -754,6 +786,26 @@ function buildStoryboard(list, onSelect) {
 }
 
 /**
+ * Connects a Preview button. It shows Stop while its preview plays.
+ * @param {HTMLElement} button
+ * @param {() => void} onClick
+ * @returns {{show: (on: boolean) => void}}
+ */
+function wirePreview(button, onClick) {
+  const label = /** @type {HTMLElement} */ (button.querySelector('.preview-label'));
+  button.addEventListener('click', onClick);
+  let shown = false;
+  /** @param {boolean} on */
+  function show(on) {
+    if (on === shown) return;
+    shown = on;
+    button.setAttribute('aria-pressed', String(on));
+    label.textContent = on ? 'Stop' : 'Preview';
+  }
+  return { show };
+}
+
+/**
  * Builds the controls of a set of flight lights: the list of effects, and under it the settings
  * of the effect that is chosen. Each setting shows only for the effects that use it. The
  * settings need no new assignment, so their sliders are live for every fleet size.
@@ -824,6 +876,8 @@ function buildFlightLights(list, box, onChange) {
 function buildTimeline(strip, actions) {
   /** What a click on each block does. @type {(() => void)[]} */
   let clicks = [];
+  /** The flight block of each step. @type {HTMLElement[]} */
+  let flights = [];
   strip.addEventListener('click', (event) => {
     const block = /** @type {HTMLElement} */ (event.target).closest('.block');
     if (block) clicks[Number(/** @type {HTMLElement} */ (block).dataset.block)]();
@@ -839,11 +893,12 @@ function buildTimeline(strip, actions) {
     const { minSpacing } = state.fleet;
     const blocks = [];
     clicks = [];
+    flights = [];
     plan.steps.forEach((step, index) => {
       const landing = step.formation < 0;
-      const select = landing
-        ? () => actions.seek(step.start)
-        : () => actions.selectFormation(step.formation);
+      const select = () => actions.selectFormation(step.formation);
+      // A click on a flight plays that flight again and again.
+      const preview = () => actions.previewFlight(index);
       const colorBefore = formations[index === 0 ? 0 : plan.steps[index - 1].formation].color;
       const colorAfter = landing ? colorBefore : formations[step.formation].color;
       const current = !landing && step.formation === view.formation;
@@ -861,11 +916,13 @@ function buildTimeline(strip, actions) {
           `${step.duration.toFixed(1)} s`,
           step.lights.effect === 'blend' ? [] : `Lights: ${FLIGHT_EFFECTS[step.lights.effect]}`,
           step.legs.length > 1 ? 'The drones spread out to pass' : [],
+          'Click to preview the flight',
           problems,
         )
         .join('. ');
       flight.classList.toggle('problem', problems.length > 0);
-      flight.dataset.block = String(clicks.push(select) - 1);
+      flight.dataset.block = String(clicks.push(preview) - 1);
+      flights.push(flight);
       blocks.push(flight);
 
       if (!landing) {
@@ -883,7 +940,15 @@ function buildTimeline(strip, actions) {
     strip.replaceChildren(...blocks);
   }
 
-  return { show };
+  /**
+   * Marks the flight that a preview plays.
+   * @param {number} step index of the step, or -1 for no preview
+   */
+  function showLoop(step) {
+    flights.forEach((flight, index) => flight.classList.toggle('looping', index === step));
+  }
+
+  return { show, showLoop };
 }
 
 const TAB_NAMES = ['show', 'fleet', 'drones'];
