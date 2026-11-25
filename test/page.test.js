@@ -74,3 +74,12 @@ test('the script and the style sheet use the same width for the phone layout', (
   // The phone layout is a sheet with three heights, and the script sets each of them.
   for (const height of ['half', 'full']) assert.ok(style.includes(`body[data-sheet="${height}"]`), height);
 });
+
+test('a folded group hides every part under its title, also a part that an ID rule shows', () => {
+  const style = readFileSync(join(root, 'style.css'), 'utf8');
+  // An ID rule such as `#formation-list { display: grid }` wins over a rule of classes, so
+  // the fold rule needs !important to hide the storyboard list.
+  const rule = style.match(/\.group\.folded > :not\(\.group-header\),\s*\.group\.folded \.icon-buttons \{([^}]*)\}/);
+  assert.ok(rule, 'style.css has the fold rule');
+  assert.match(rule[1], /display:\s*none\s*!important/);
+});

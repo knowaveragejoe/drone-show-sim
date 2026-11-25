@@ -1185,10 +1185,11 @@ button.fold::before {
   transform: rotate(-45deg);
 }
 
-/* A folded group shows its title only. */
+/* A folded group shows its title only. The rule must win over the display value of any
+   part of the group, also one that an ID rule sets, such as the storyboard list. */
 .group.folded > :not(.group-header),
 .group.folded .icon-buttons {
-  display: none;
+  display: none !important;
 }
 
 .group.folded .group-header {
