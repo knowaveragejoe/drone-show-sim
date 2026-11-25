@@ -341,13 +341,16 @@ test('export then import keeps the flight lights', () => {
 
 test('import rejects bad flight lights', () => {
   const formation = (lights) => fileWith((data) => (data.formations[1].flightLights = lights));
-  assert.throws(() => parseProject(formation('disco')), /formation 2, flightLights: effect must be one of blend, dark, glimmer, starburst, wave/);
+  assert.throws(() => parseProject(formation('disco')), /formation 2, flightLights: effect must be one of blend, dark, glimmer, starburst, wave, bands, pulse, dissolve, speed/);
   assert.throws(() => parseProject(formation(7)), /formation 2: flightLights is not valid/);
   assert.throws(() => parseProject(formation({ effect: 'wave', bandDirection: 'sideways' })), /formation 2, flightLights: bandDirection must be one of right, left, up, down, out, in, spin, together/);
   assert.throws(() => parseProject(formation({ effect: 'starburst', burstDirection: 'up' })), /burstDirection must be one of out, in/);
   assert.throws(() => parseProject(formation({ effect: 'glimmer', sparkColor: 'white' })), /formation 2, flightLights: sparkColor must be a color/);
   assert.throws(() => parseProject(formation({ effect: 'dark', darkLevel: 60 })), /formation 2, flightLights: darkLevel must be a number from 0 to 50/);
   assert.throws(() => parseProject(formation({ effect: 'glimmer', twinkleRate: 0 })), /twinkleRate must be a number from 0.1 to 6/);
+  assert.throws(() => parseProject(formation({ effect: 'pulse', pulseStyle: 'disco' })), /pulseStyle must be one of breathe, heartbeat, strobe/);
+  assert.throws(() => parseProject(formation({ effect: 'pulse', pulseRate: 400 })), /pulseRate must be a number from 10 to 300/);
+  assert.throws(() => parseProject(formation({ effect: 'bands', bandWidth: 2 })), /bandWidth must be a number from 5 to 90/);
   assert.throws(() => parseProject(fileWith((data) => (data.landingLights = { effect: 'dark', fadeTime: 9 }))), /the show, landingLights: fadeTime must be a number from 0.1 to 5/);
   assert.throws(() => parseProject(fileWith((data) => (data.landingLights = 3))), /the show: landingLights is not valid/);
 });

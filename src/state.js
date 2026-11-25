@@ -96,7 +96,10 @@ export const CHASE_FIELDS = [
  * What the drone lights do in the flight to a formation, and in the landing. Blend keeps the
  * lights on and blends the colors. Dark turns the lights down for the flight. Glimmer makes
  * random twinkles. Starburst sends a flash across the fleet, and the lights fade like the
- * embers of a firework. Color wave sends rainbow bands across the fleet.
+ * embers of a firework. Color wave sends rainbow bands across the fleet. Bands sends bright
+ * bands in the drone colors across the fleet. Pulse makes the whole fleet breathe, beat, or
+ * strobe. Dissolve changes each drone to its new color at its own moment, with a spark. Speed
+ * glow makes each drone as bright as it is fast.
  */
 export const FLIGHT_EFFECTS = {
   blend: 'Blend',
@@ -104,6 +107,10 @@ export const FLIGHT_EFFECTS = {
   glimmer: 'Glimmer',
   starburst: 'Starburst',
   wave: 'Color wave',
+  bands: 'Bands',
+  pulse: 'Pulse',
+  dissolve: 'Dissolve',
+  speed: 'Speed glow',
 };
 
 /** The ways that the flash of a starburst travels, as the audience sees the fleet. */
@@ -122,6 +129,13 @@ export const BAND_DIRECTIONS = {
   in: 'Inward',
   spin: 'Spin',
   together: 'All together',
+};
+
+/** The beats of a pulse. */
+export const PULSE_STYLES = {
+  breathe: 'Breathe',
+  heartbeat: 'Heartbeat',
+  strobe: 'Strobe',
 };
 
 /**
@@ -154,16 +168,24 @@ export const FLIGHT_LIGHT_CHOICES = [
     label: 'Direction',
     options: BAND_DIRECTIONS,
     fallback: 'right',
-    effects: ['wave'],
+    effects: ['wave', 'bands'],
     title: 'The way that the bands travel, as the audience sees the fleet. Outward and inward make rings, spin makes spokes, and all together changes the whole fleet at once.',
+  },
+  {
+    key: 'pulseStyle',
+    label: 'Style',
+    options: PULSE_STYLES,
+    fallback: 'breathe',
+    effects: ['pulse'],
+    title: 'Breathe: the lights swell and fade smoothly. Heartbeat: two quick beats and a rest. Strobe: short flashes in the spark color.',
   },
   {
     key: 'sparkColor',
     label: 'Spark color',
     options: null,
     fallback: '#ffffff',
-    effects: ['glimmer', 'starburst'],
-    title: 'The color of the twinkles of a glimmer and of the flash of a starburst.',
+    effects: ['glimmer', 'starburst', 'pulse', 'dissolve', 'speed'],
+    title: 'The color of the twinkles of a glimmer, the flash of a starburst, the flashes of a strobe, the sparks of a dissolve, and the fastest drones of a speed glow.',
   },
 ];
 
@@ -182,8 +204,8 @@ export const FLIGHT_LIGHT_FIELDS = [
     step: 1,
     slider: true,
     fallback: 0,
-    effects: ['dark', 'glimmer', 'starburst'],
-    title: 'The brightness of the lights in the flight, as a share of full brightness: in a dark flight, between the twinkles of a glimmer, and after the embers of a starburst. 0 turns them off.',
+    effects: ['dark', 'glimmer', 'starburst', 'bands', 'pulse', 'speed'],
+    title: 'The brightness of the lights in the flight, as a share of full brightness: in a dark flight, between twinkles, bands, and beats, after the embers of a starburst, and of a drone at rest in a speed glow. 0 turns them off.',
   },
   {
     key: 'twinkleRate',
@@ -230,7 +252,7 @@ export const FLIGHT_LIGHT_FIELDS = [
     step: 0.5,
     slider: true,
     fallback: 1.5,
-    effects: ['wave'],
+    effects: ['wave', 'bands'],
     title: 'The number of bands across the fleet. Spin rounds it to a whole number of spokes.',
   },
   {
@@ -242,8 +264,32 @@ export const FLIGHT_LIGHT_FIELDS = [
     step: 0.05,
     slider: true,
     fallback: 0.5,
-    effects: ['wave'],
+    effects: ['wave', 'bands'],
     title: 'The number of bands that pass one drone each second.',
+  },
+  {
+    key: 'bandWidth',
+    label: 'Band width',
+    unit: '%',
+    min: 5,
+    max: 90,
+    step: 1,
+    slider: true,
+    fallback: 30,
+    effects: ['bands'],
+    title: 'The share of the space from one band to the next that the band lights. Each band has a bright head and a tail that fades behind it.',
+  },
+  {
+    key: 'pulseRate',
+    label: 'Pulse rate',
+    unit: '/min',
+    min: 10,
+    max: 300,
+    step: 1,
+    slider: true,
+    fallback: 60,
+    effects: ['pulse'],
+    title: 'Beats per minute.',
   },
   {
     key: 'fadeTime',
@@ -254,7 +300,7 @@ export const FLIGHT_LIGHT_FIELDS = [
     step: 0.1,
     slider: true,
     fallback: 1,
-    effects: ['dark', 'glimmer', 'starburst', 'wave'],
+    effects: ['dark', 'glimmer', 'starburst', 'wave', 'bands', 'pulse', 'speed'],
     title: 'How long the effect takes to come in at the start of the flight and to go out at its end. A short flight uses at most a quarter of its time for each.',
   },
 ];
@@ -267,13 +313,16 @@ export const FLIGHT_LIGHT_FIELDS = [
  * @property {keyof typeof FLIGHT_EFFECTS} effect
  * @property {keyof typeof BURST_DIRECTIONS} burstDirection
  * @property {keyof typeof BAND_DIRECTIONS} bandDirection
- * @property {string} sparkColor the color of twinkles and flashes, `#rrggbb`
+ * @property {keyof typeof PULSE_STYLES} pulseStyle
+ * @property {string} sparkColor the color of twinkles, flashes, and sparks, `#rrggbb`
  * @property {number} darkLevel brightness of the lights in the flight, percent of full brightness
  * @property {number} twinkleRate twinkles of each drone per second
  * @property {number} flashTime time for the flash of a starburst to cross the fleet, seconds
  * @property {number} emberTime time constant of the embers of a starburst, seconds
  * @property {number} bandCount number of bands across the fleet
  * @property {number} bandSpeed bands that pass one drone per second
+ * @property {number} bandWidth the share of the space between two bands that a band lights, percent
+ * @property {number} pulseRate beats per minute
  * @property {number} fadeTime time for the effect to come in and to go out, seconds
  */
 

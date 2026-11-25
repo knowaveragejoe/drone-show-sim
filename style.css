@@ -814,6 +814,51 @@ body.ended #showtime-close {
   );
 }
 
+/* Bands: bright stripes over a dark flight. */
+.block.flight[data-lights="bands"] {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.32) 0 2px, transparent 2px 8px),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--from) 20%, transparent),
+      transparent 30% 70%,
+      color-mix(in srgb, var(--to) 20%, transparent)
+    );
+}
+
+/* A pulse: a row of beats over a dark flight. */
+.block.flight[data-lights="pulse"] {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.45) 0 2px, transparent 2.5px) 0 50% / 10px 100% repeat-x,
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--from) 20%, transparent),
+      transparent 30% 70%,
+      color-mix(in srgb, var(--to) 20%, transparent)
+    );
+}
+
+/* A dissolve: the old color goes over into the new one through a scatter of sparks. */
+.block.flight[data-lights="dissolve"] {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.4) 0 0.8px, transparent 1.3px) 2px 1px / 6px 5px,
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--from) 30%, transparent) 15%,
+      color-mix(in srgb, var(--to) 30%, transparent) 85%
+    );
+}
+
+/* A speed glow: dim at the ends, where the drones are slow, and bright in the middle. */
+.block.flight[data-lights="speed"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--from) 15%, transparent),
+    rgba(255, 255, 255, 0.28) 50%,
+    color-mix(in srgb, var(--to) 15%, transparent)
+  );
+}
+
 /* A color wave: rainbow bands between the colors of the two stops. */
 .block.flight[data-lights="wave"] {
   background: linear-gradient(

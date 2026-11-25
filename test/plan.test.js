@@ -12,6 +12,7 @@ import {
   bandPlaces,
   countOutside,
   createPlanner,
+  dissolveTime,
   fitSize,
   formationProblems,
   hash01,
@@ -24,6 +25,7 @@ import {
   lightColorAt,
   lightsAt,
   positionsAt,
+  pulseAt,
   rainbow,
   retime,
   routeOf,
@@ -1890,6 +1892,105 @@ test('a color wave all together gives the whole fleet one hue, which cycles at t
   // One cycle takes 2 s.
   assert.ok(sameList(lightsOf(plan, time + 2).colors.subarray(0, 3), colors.subarray(0, 3), 1e-4));
   assert.ok(!sameList(lightsOf(plan, time + 1).colors.subarray(0, 3), colors.subarray(0, 3), 1e-2));
+});
+
+test('bands travel across the fleet in the drone colors, each with a bright head and a tail', () => {
+  const plan = effectPlan({ effect: 'bands', bandDirection: 'right', bandCount: 3, bandSpeed: 0.7, bandWidth: 40, darkLevel: 10 });
+  const step = plan.steps[1];
+  const offset = step.duration / 2;
+  const { positions, colors, brightness } = lightsOf(plan, step.start + offset);
+  const blended = new Float32Array(plan.count * 3);
+  lightColorsAt(effectPlan({ effect: 'blend' }), step.start + offset, blended);
+  // The colors are the drone colors.
+  assert.ok(sameList(colors, blended, 1e-6));
+  const places = bandPlaces('right', positions, plan.count, step.lights.size);
+  let lit = 0;
+  for (let drone = 0; drone < plan.count; drone++) {
+    let phase = places[drone] * 3 - 0.7 * offset;
+    phase -= Math.floor(phase);
+    const glow = phase < 0.4 ? phase / 0.4 : 0;
+    near(brightness[drone], 0.1 + 0.9 * glow, 1e-5);
+    if (phase < 0.4) lit++;
+  }
+  // About the band width of the drones are in a band.
+  assert.ok(lit > plan.count * 0.25 && lit < plan.count * 0.55, `lit ${lit}`);
+  // The head of a band reaches a drone first: a drone just behind the head is brighter than
+  // one at the end of the tail.
+  assert.ok(Math.max(...brightness) > 0.9);
+  // All together: the whole fleet flashes at once.
+  const together = effectPlan({ effect: 'bands', bandDirection: 'together' });
+  const same = lightsOf(together, together.steps[1].start + offset).brightness;
+  assert.ok(same.every((level) => Math.abs(level - same[0]) < 1e-6));
+});
+
+test('a pulse breathes, beats like a heart, or strobes in the spark color', () => {
+  // Breathe: full at the start of each beat, at the dark level in its middle.
+  near(pulseAt('breathe', 0), 1, 1e-9);
+  near(pulseAt('breathe', 2.5), 0, 1e-9);
+  near(pulseAt('breathe', 3.25), 0.5, 1e-9);
+  // Heartbeat: a strong beat, a softer second beat, and a rest.
+  const heart = Array.from({ length: 100 }, (unused, k) => pulseAt('heartbeat', k / 100));
+  const peaks = heart.filter((value, k) => k > 0 && k < 99 && value > heart[k - 1] && value >= heart[k + 1]);
+  assert.equal(peaks.length, 2);
+  near(peaks[0], 1, 0.01);
+  near(peaks[1], 0.75, 0.01);
+  assert.ok(heart.slice(50).every((value) => value < 0.01), 'the rest');
+  // Strobe: a short flash at the start of each beat.
+  assert.equal(pulseAt('strobe', 4.05), 1);
+  assert.equal(pulseAt('strobe', 4.5), 0);
+
+  const plan = effectPlan({ effect: 'pulse', pulseStyle: 'strobe', pulseRate: 120, darkLevel: 5, sparkColor: '#00ff00' });
+  const step = plan.steps[1];
+  // 120 beats per minute: a beat every 0.5 s. The whole fleet flashes together, in green.
+  const flash = lightsOf(plan, step.start + 4 + 0.02);
+  assert.ok(flash.brightness.every((level) => Math.abs(level - 1) < 1e-6));
+  assert.ok(sameList(flash.colors.subarray(0, 3), [0, 1, 0], 1e-6));
+  const rest = lightsOf(plan, step.start + 4.25);
+  assert.ok(rest.brightness.every((level) => Math.abs(level - 0.05) < 1e-6));
+});
+
+test('a dissolve changes each drone to its new color at its own moment, with a spark', () => {
+  const plan = effectPlan({ effect: 'dissolve' });
+  const step = plan.steps[1];
+  const old = plan.steps[0].colors;
+  const moments = Array.from({ length: plan.count }, (unused, drone) => dissolveTime(1, drone, step.duration));
+  // The moments spread over the middle of the transition.
+  assert.ok(moments.every((moment) => moment >= 0.15 * step.duration && moment <= 0.85 * step.duration));
+  assert.ok(Math.max(...moments) - Math.min(...moments) > 0.5 * step.duration);
+  const offset = step.duration / 2;
+  const { colors, brightness } = lightsOf(plan, step.start + offset);
+  let changed = 0;
+  for (let drone = 0; drone < plan.count; drone++) {
+    const o = drone * 3;
+    // Away from its spark, a drone shows its old color or its new one, at full brightness.
+    if (Math.abs(offset - moments[drone]) < 0.4) continue;
+    const target = offset > moments[drone] ? step.colors : old;
+    assert.ok(sameList(colors.subarray(o, o + 3), target.subarray(o, o + 3), 1e-4), `drone ${drone}`);
+    near(brightness[drone], 1, 1e-4);
+    if (offset > moments[drone]) changed++;
+  }
+  assert.ok(changed > plan.count * 0.25 && changed < plan.count * 0.75, `changed ${changed}`);
+  // At its moment, a drone sparks in the spark color, above full brightness.
+  const drone = 7;
+  const spark = lightsOf(plan, step.start + moments[drone]);
+  near(spark.brightness[drone], 1.6, 1e-4);
+  assert.ok(sameList(spark.colors.subarray(drone * 3, drone * 3 + 3), [1, 1, 1], 1e-4));
+  // The fleet leaves with its old colors and arrives with its new ones.
+  assert.ok(sameList(lightsOf(plan, step.start).colors, old, 1e-6));
+  assert.ok(sameList(lightsOf(plan, step.start + step.duration - 1e-3).colors, step.colors, 1e-6));
+});
+
+test('a speed glow makes each drone as bright as it is fast', () => {
+  const plan = effectPlan({ effect: 'speed', darkLevel: 10 });
+  const step = plan.steps[1];
+  const time = step.start + step.duration / 2;
+  const { brightness } = lightsOf(plan, time);
+  const speeds = Array.from({ length: plan.count }, (unused, drone) => speedAt(plan, drone, time));
+  const top = Math.max(...speeds);
+  for (let drone = 0; drone < plan.count; drone++) near(brightness[drone], 0.1 + 0.9 * (speeds[drone] / top), 1e-4);
+  // The fastest drone burns at full brightness, the slowest is dim.
+  near(Math.max(...brightness), 1, 1e-4);
+  assert.ok(Math.min(...brightness) < 0.6);
 });
 
 // Tilt, sway, rock, and roll.

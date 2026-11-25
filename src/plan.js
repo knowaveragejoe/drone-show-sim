@@ -231,6 +231,22 @@ const BURST_HEAT = 0.3;
 export const BURST_FLASH = 1.6;
 // The embers flicker to a new level this many times per second.
 const BURST_FLICKER = 15;
+// Pulse: a strobe flash lasts this share of a beat.
+const STROBE_SHARE = 0.12;
+// The two beats of a heartbeat: their places in the beat, their width, and the height of the
+// second one.
+const HEART_BEATS = [0.08, 0.3];
+const HEART_BEAT_WIDTH = 0.06;
+const HEART_SECOND_BEAT = 0.75;
+// Dissolve: each drone changes its color at a random time in this part of the transition.
+const DISSOLVE_FROM = 0.15;
+const DISSOLVE_TO = 0.85;
+// The spark of a dissolve lasts about this long, seconds, and is this much brighter than a
+// light at full brightness at its peak.
+const DISSOLVE_SPARK_TIME = 0.1;
+const DISSOLVE_SPARK = 0.6;
+// Speed glow: at full speed, the light moves this far to the spark color.
+const SPEED_SPARK = 0.5;
 
 // The planner keeps this many results of its slow stages. Recent results stay, so undo,
 // redo, and a value that goes back and forth need no new work.
@@ -1743,9 +1759,10 @@ export function lightColorAt(plan, colors, time) {
  * `chaseBrightness`). Otherwise every light is at full brightness.
  *
  * In a transition, the flight lights of the step can then change both: Dark, Glimmer,
- * Starburst, and Color wave. An effect comes in at the start of the flight and goes out at
- * its end (see `effectShare`), so the fleet leaves the old stop and arrives at the new one
- * with its lights on. The random parts of an effect come from the drone, the step, and the
+ * Starburst, Color wave, Bands, Pulse, Dissolve, and Speed glow. An effect comes in at the
+ * start of the flight and goes out at its end (see `effectShare`), so the fleet leaves the old
+ * stop and arrives at the new one with its lights on. A dissolve keeps the lights on and needs
+ * no fade. The random parts of an effect come from the drone, the step, and the
  * time only, so the show looks the same each time it plays.
  * @param {Plan} plan
  * @param {number} time seconds from the start of the timeline
@@ -1754,7 +1771,7 @@ export function lightColorAt(plan, colors, time) {
  * @param {Float32Array} colors out: red, green, blue per drone, each 0 to 1; length at least
  *   `plan.count × 3`
  * @param {Float32Array} brightness out: one value per drone; 1 is full brightness, and the flash
- *   of a starburst reaches `BURST_FLASH`; length at least `plan.count`
+ *   of a starburst and the spark of a dissolve go above it; length at least `plan.count`
  */
 export function lightsAt(plan, time, positions, colors, brightness) {
   const { count } = plan;
@@ -1784,6 +1801,10 @@ export function lightsAt(plan, time, positions, colors, brightness) {
     starburstLights(lights, index, offset, duration, count, colors, brightness);
     return;
   }
+  if (effect === 'dissolve') {
+    dissolveLights(spark, index, offset, duration, count, before, after, colors, brightness);
+    return;
+  }
   const share = effectShare(duration, offset, settings.fadeTime);
   if (effect === 'blend' || share <= 0) return;
   if (effect === 'dark') {
@@ -1804,6 +1825,94 @@ export function lightsAt(plan, time, positions, colors, brightness) {
       const [red, green, blue] = rainbow(hue - Math.floor(hue));
       mixLight(colors, brightness, drone, share, red, green, blue, 0, 1);
     }
+  } else if (effect === 'bands') {
+    const places = bandPlaces(settings.bandDirection, positions, count, lights.size);
+    const bands = settings.bandDirection === 'spin' ? Math.max(1, Math.round(settings.bandCount)) : settings.bandCount;
+    const shift = settings.bandSpeed * offset;
+    const width = settings.bandWidth / 100;
+    for (let drone = 0; drone < count; drone++) {
+      let phase = places[drone] * bands - shift;
+      phase -= Math.floor(phase);
+      // A drone sees its phase fall: a band reaches it at the width, with its bright head,
+      // and leaves it at 0, with the end of its tail.
+      const glow = phase < width ? phase / width : 0;
+      mixLight(colors, brightness, drone, share, 0, 0, 0, 1, level + (1 - level) * glow);
+    }
+  } else if (effect === 'pulse') {
+    const beat = pulseAt(settings.pulseStyle, (settings.pulseRate / 60) * offset);
+    const glow = level + (1 - level) * beat;
+    // A strobe flashes in the spark color; a breath and a heartbeat keep the drone colors.
+    const mix = settings.pulseStyle === 'strobe' ? beat : 0;
+    for (let drone = 0; drone < count; drone++) {
+      mixLight(colors, brightness, drone, share, spark[0] * mix, spark[1] * mix, spark[2] * mix, 1 - mix, glow);
+    }
+  } else if (effect === 'speed') {
+    const now = legAt(step, offset);
+    let longest = 0;
+    for (let drone = 0; drone < count; drone++) longest = Math.max(longest, now.pathLengths[drone]);
+    const top = now.timing.peakRate * longest;
+    for (let drone = 0; drone < count; drone++) {
+      const delay = now.delays ? now.delays[drone] : 0;
+      const speed = rateAt(now.timing, offset - now.start - delay) * now.pathLengths[drone];
+      const ratio = top > 0 ? Math.min(1, speed / top) : 0;
+      const mix = SPEED_SPARK * ratio * ratio;
+      const glow = level + (1 - level) * ratio;
+      mixLight(colors, brightness, drone, share, spark[0] * mix, spark[1] * mix, spark[2] * mix, 1 - mix, glow);
+    }
+  }
+}
+
+/**
+ * The beat of a pulse at one time: 0 for the low point, 1 for the peak.
+ * @param {keyof typeof import('./state.js').PULSE_STYLES} style
+ * @param {number} beats the number of beats since the start of the transition
+ * @returns {number}
+ */
+export function pulseAt(style, beats) {
+  const place = beats - Math.floor(beats);
+  // A breath starts at its peak, so the fleet leaves the old picture lit.
+  if (style === 'breathe') return 0.5 + 0.5 * Math.cos(2 * Math.PI * place);
+  if (style === 'strobe') return place < STROBE_SHARE ? 1 : 0;
+  const bump = (/** @type {number} */ middle) => Math.exp(-(((place - middle) / HEART_BEAT_WIDTH) ** 2));
+  return Math.max(bump(HEART_BEATS[0]), HEART_SECOND_BEAT * bump(HEART_BEATS[1]));
+}
+
+/**
+ * The time in a transition when a drone of a dissolve changes its color: a random time in the
+ * middle part of the transition, the same each time the show plays.
+ * @param {number} index index of the step
+ * @param {number} drone index
+ * @param {number} duration length of the transition, seconds
+ * @returns {number} seconds from the start of the transition
+ */
+export function dissolveTime(index, drone, duration) {
+  return duration * (DISSOLVE_FROM + (DISSOLVE_TO - DISSOLVE_FROM) * hash01(index, drone, -2));
+}
+
+/**
+ * The lights of a dissolve. The lights stay on. Each drone keeps its old color until its own
+ * moment, then shows its new color at once, with a short spark. So the old picture dissolves
+ * into the new one, drone by drone.
+ * @param {number[]} spark the spark color, red, green, blue
+ * @param {number} index index of the step
+ * @param {number} offset seconds from the start of the transition
+ * @param {number} duration length of the transition, seconds
+ * @param {number} count number of drones
+ * @param {Float32Array} before the colors at the old stop
+ * @param {Float32Array} after the colors at the new stop
+ * @param {Float32Array} colors out
+ * @param {Float32Array} brightness out
+ */
+function dissolveLights(spark, index, offset, duration, count, before, after, colors, brightness) {
+  for (let drone = 0; drone < count; drone++) {
+    const moment = dissolveTime(index, drone, duration);
+    const o = drone * 3;
+    const color = offset < moment ? before : after;
+    const flash = Math.exp(-(((offset - moment) / DISSOLVE_SPARK_TIME) ** 2));
+    for (let channel = 0; channel < 3; channel++) {
+      colors[o + channel] = color[o + channel] + flash * (spark[channel] - color[o + channel]);
+    }
+    brightness[drone] = 1 + DISSOLVE_SPARK * flash;
   }
 }
 
