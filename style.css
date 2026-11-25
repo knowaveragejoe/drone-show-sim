@@ -18,6 +18,12 @@
   --control-height: 28px;
   --number-width: 92px;
   --label-width: 96px;
+  --tab-height: 36px;
+  --play-size: 36px;
+  /* The script reads this height to place the rows of the drone list. */
+  --drone-row-height: 22px;
+  /* The playhead is as wide as its touch area. The line in its middle stays thin. */
+  --playhead-width: 14px;
   color-scheme: dark;
   font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -49,9 +55,16 @@ body {
 body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 352px;
+  /* The dynamic viewport height follows the toolbars of a phone browser. */
+  height: 100dvh;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+}
+
+/* A text for mouse and keyboard, and a text for touch. The media queries at the end swap them. */
+.touch-only {
+  display: none;
 }
 
 h1,
@@ -616,6 +629,35 @@ body.paused .paused-label {
   gap: 8px;
 }
 
+/* A button back to the editor. It hides with the hint when the user does nothing. */
+#showtime-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(12, 14, 21, 0.55);
+  pointer-events: auto;
+  transition: opacity 0.8s;
+}
+
+body.idle #showtime-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.paused #showtime-close,
+body.ended #showtime-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The handle of the bottom sheet. Only a narrow screen has the sheet. */
+#sheet-handle {
+  display: none;
+}
+
 /* A note while the page plans a show. The page does not draw while it plans. */
 #view-busy {
   top: 12px;
@@ -671,8 +713,8 @@ body.paused .paused-label {
   display: grid;
   flex: none;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: var(--play-size);
+  height: var(--play-size);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -710,7 +752,7 @@ body.paused .paused-label {
 
 #timeline-blocks {
   position: absolute;
-  inset: 5px 7px;
+  inset: 5px calc(var(--playhead-width) / 2);
   display: flex;
   overflow: hidden;
   border-radius: 5px;
@@ -826,11 +868,11 @@ body.paused .paused-label {
 
 /* The playhead: a white line with a knob at the top. */
 #scrub::-webkit-slider-thumb {
-  width: 14px;
+  width: var(--playhead-width);
   height: 32px;
   background:
     radial-gradient(circle at 50% 4px, #fff 3.5px, transparent 4px),
-    linear-gradient(90deg, transparent 6px, #fff 6px 8px, transparent 8px);
+    linear-gradient(90deg, transparent calc(50% - 1px), #fff calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
   appearance: none;
   pointer-events: auto;
@@ -843,13 +885,13 @@ body.paused .paused-label {
 }
 
 #scrub::-moz-range-thumb {
-  width: 14px;
+  width: var(--playhead-width);
   height: 32px;
   border: 0;
   border-radius: 0;
   background:
     radial-gradient(circle at 50% 4px, #fff 3.5px, transparent 4px),
-    linear-gradient(90deg, transparent 6px, #fff 6px 8px, transparent 8px);
+    linear-gradient(90deg, transparent calc(50% - 1px), #fff calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
   pointer-events: auto;
   cursor: ew-resize;
 }
@@ -898,14 +940,22 @@ body.paused .paused-label {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
+/* In a narrow sidebar the title gives way to the buttons. */
+#sidebar h1 span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* A small glowing light, like one drone. */
 #sidebar h1::before {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -916,6 +966,7 @@ body.paused .paused-label {
 
 .header-actions {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 2px;
 }
@@ -1039,7 +1090,8 @@ body.paused .paused-label {
 }
 
 #tabs button {
-  height: 36px;
+  height: var(--tab-height);
+  white-space: nowrap;
   padding: 0 10px;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -1249,7 +1301,7 @@ button.fold::before {
   display: grid;
   grid-template-columns: 40px repeat(4, minmax(0, 1fr));
   align-items: center;
-  height: 22px;
+  height: var(--drone-row-height);
   padding: 0 10px;
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -1279,4 +1331,246 @@ button.fold::before {
   background: var(--panel-raised);
   color: var(--muted);
   font-size: 12px;
+}
+
+/* A tablet or a small window: a smaller sidebar, and a narrow 3D view. */
+@media (max-width: 1000px) {
+  body {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .wide-only {
+    display: none;
+  }
+
+  /* The transport bar: the timeline on its own line, and the buttons under it. */
+  #transport {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 6px 12px 8px;
+  }
+
+  #track {
+    flex: 1 0 100%;
+    order: -1;
+  }
+
+  #time {
+    min-width: 0;
+    margin-left: auto;
+  }
+
+  #view-tools {
+    top: 10px;
+    left: 10px;
+  }
+
+  /* The checks sit under the view buttons, which can take the width of the view. */
+  #checks {
+    top: 58px;
+    right: 10px;
+    width: min(252px, calc(100% - 20px));
+  }
+
+  #view-busy {
+    top: 104px;
+  }
+
+  #view-hint {
+    right: 12px;
+    bottom: 8px;
+    left: 12px;
+  }
+}
+
+/* Touch screens: larger controls, and touch hints instead of mouse hints. */
+@media (hover: none) and (pointer: coarse) {
+  :root {
+    --control-height: 36px;
+    --number-width: 100px;
+    --tab-height: 40px;
+    --play-size: 44px;
+    --drone-row-height: 32px;
+    --playhead-width: 28px;
+  }
+
+  .touch-only {
+    display: inline;
+  }
+
+  .mouse-only {
+    display: none;
+  }
+
+  /* No wait for a double tap. */
+  button,
+  select,
+  summary,
+  label,
+  input {
+    touch-action: manipulation;
+  }
+
+  /* A phone browser zooms into a box with a smaller text when the box takes the focus. */
+  input,
+  select,
+  textarea,
+  .number-box input {
+    font-size: 16px;
+  }
+
+  #view-tools button {
+    height: 34px;
+  }
+
+  .formation-row {
+    height: 40px;
+  }
+
+  .menu-items button {
+    height: 40px;
+  }
+
+  input.slider {
+    height: 28px;
+  }
+
+  input.slider::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+    margin-top: -8px;
+  }
+
+  input.slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+  }
+
+  .check input {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* A phone: the 3D view fills the screen, and the sidebar is a sheet at the bottom. The sheet
+   has three heights. The script sets data-sheet on the body: peek shows the tab bar only. */
+@media (max-width: 720px) {
+  body {
+    --peek: calc(var(--tab-height) + 20px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) var(--peek);
+    transition: grid-template-rows 0.2s ease;
+  }
+
+  body[data-sheet="half"] {
+    grid-template-rows: minmax(0, 1fr) 50%;
+  }
+
+  /* The full sheet leaves the transport bar and a strip of the view. */
+  body[data-sheet="full"] {
+    grid-template-rows: minmax(0, 1fr) calc(100% - 200px);
+  }
+
+  body.showtime,
+  body.showtime[data-sheet] {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* A full sheet leaves a strip of the view, too small for the hint and the checks. */
+  body[data-sheet="full"] #view-hint,
+  body[data-sheet="full"] #checks {
+    display: none;
+  }
+
+  #sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "handle handle"
+      "tabs actions"
+      "project-error project-error"
+      "autosave-error autosave-error"
+      "panel panel";
+    border-top: 1px solid var(--line-strong);
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  #sheet-handle {
+    display: block;
+    grid-area: handle;
+    width: 100%;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 14px 14px 0 0;
+    background: transparent;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+
+  #sheet-handle:hover:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  #sheet-handle::before {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto;
+    border-radius: 2px;
+    background: var(--line-strong);
+    content: "";
+  }
+
+  /* The header gives its parts to the grid of the sheet. The title is left out, to save room. */
+  #sidebar-header {
+    display: contents;
+  }
+
+  #sidebar h1 {
+    display: none;
+  }
+
+  .header-actions {
+    grid-area: actions;
+    padding-right: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  #tabs {
+    grid-area: tabs;
+    padding: 0 8px;
+    touch-action: none;
+  }
+
+  #project-error {
+    grid-area: project-error;
+    margin-top: 8px;
+  }
+
+  #autosave-error {
+    grid-area: autosave-error;
+    margin-top: 8px;
+  }
+
+  .panel {
+    grid-area: panel;
+  }
+
+  /* The Project menu opens as a sheet of its own, over the bottom of the screen. */
+  .menu-items {
+    position: fixed;
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    z-index: 30;
+    width: auto;
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
 }

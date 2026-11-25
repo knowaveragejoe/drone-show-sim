@@ -44,8 +44,10 @@ import {
 } from './state.js';
 import { createUi } from './ui.js';
 
-// A click selects the nearest drone inside this distance, CSS pixels.
+// A click selects the nearest drone inside this distance, CSS pixels. A finger is less exact
+// than a mouse, so a tap reaches farther.
 const PICK_RADIUS = 10;
+const TAP_PICK_RADIUS = 24;
 
 // A range input rounds its value to about 14 digits. A scrubber at its right end then gives
 // a time that is a tiny bit before the end of the show. A seek this close to the end, in
@@ -276,7 +278,8 @@ function start() {
     return change({ ...state, formations: state.formations.with(view.formation, formation) }, key);
   }
 
-  const ui = createUi({
+  /** @type {import('./ui.js').Actions} */
+  const actions = {
     setFleet(key, value) {
       change({ ...state, fleet: { ...state.fleet, [key]: value } }, `fleet.${key}`);
     },
@@ -431,7 +434,8 @@ function start() {
       view.selected = drone;
       showRoute();
     },
-  });
+  };
+  const ui = createUi(actions);
 
   function showPlan() {
     colors = state.formations.map((formation) => hexToRgb(formation.color));
@@ -449,13 +453,18 @@ function start() {
 
   /**
    * Selects the drone under a click in the 3D view. A click on empty space clears the selection.
+   * In Showtime, a click or a tap pauses or plays the show, as in a video player.
    * @param {number} x CSS pixels from the left edge of the canvas
    * @param {number} y CSS pixels from the top edge of the canvas
+   * @param {boolean} touch true for a tap of a finger
    */
-  function pick(x, y) {
-    if (showtime) return;
+  function pick(x, y, touch) {
+    if (showtime) {
+      actions.togglePlay();
+      return;
+    }
     let nearest = -1;
-    let nearestDistance = PICK_RADIUS;
+    let nearestDistance = touch ? TAP_PICK_RADIUS : PICK_RADIUS;
     for (let drone = 0; drone < plan.count; drone++) {
       const point = projectToScreen(
         viewProj,

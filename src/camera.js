@@ -290,57 +290,117 @@ function clampCamera(camera) {
 }
 
 /**
- * Connects mouse input to the camera.
- * Drag orbits. Right-drag or Shift-drag pans. The wheel zooms.
+ * Moves the camera target across the view, as a drag of the view moves it: the scene follows
+ * the pointer. The target stays above the ground.
+ * @param {Camera} camera
+ * @param {number} dx move to the right, CSS pixels
+ * @param {number} dy move down, CSS pixels
+ * @param {number} viewHeight height of the view, CSS pixels
+ */
+export function panCamera(camera, dx, dy, viewHeight) {
+  const eye = cameraEye(camera);
+  // Camera axes in world space: right is horizontal, up completes the frame.
+  const fx = (camera.target[0] - eye[0]) / camera.distance;
+  const fy = (camera.target[1] - eye[1]) / camera.distance;
+  const fz = (camera.target[2] - eye[2]) / camera.distance;
+  const rightLength = Math.hypot(fx, fy);
+  const rx = fy / rightLength;
+  const ry = -fx / rightLength;
+  const ux = ry * fz;
+  const uy = -rx * fz;
+  const uz = rx * fy - ry * fx;
+  const metersPerPixel = camera.distance / pixelsPerMeter(camera, viewHeight);
+  camera.target[0] += (-dx * rx + dy * ux) * metersPerPixel;
+  camera.target[1] += (-dx * ry + dy * uy) * metersPerPixel;
+  camera.target[2] = Math.max(0, camera.target[2] + dy * uz * metersPerPixel);
+}
+
+/**
+ * One step of a two-finger gesture. Fingers that move apart zoom in, and the point between
+ * the fingers pans the view.
+ * @param {{x: number, y: number}[]} before the two fingers before the step, CSS pixels
+ * @param {{x: number, y: number}[]} after the same two fingers after the step
+ * @returns {{scale: number, dx: number, dy: number}} the factor for the camera distance, and the
+ *   move of the point between the fingers, CSS pixels
+ */
+export function pinchStep(before, after) {
+  const span = (/** @type {{x: number, y: number}[]} */ [a, b]) => Math.hypot(b.x - a.x, b.y - a.y);
+  const spanBefore = span(before);
+  const spanAfter = span(after);
+  return {
+    scale: spanBefore > 0 && spanAfter > 0 ? spanBefore / spanAfter : 1,
+    dx: (after[0].x + after[1].x - before[0].x - before[1].x) / 2,
+    dy: (after[0].y + after[1].y - before[0].y - before[1].y) / 2,
+  };
+}
+
+/**
+ * Connects mouse and touch input to the camera.
+ * Mouse: drag orbits, right-drag or Shift-drag pans, and the wheel zooms.
+ * Touch: one finger orbits, and two fingers pinch to zoom and move together to pan.
+ * A press and release with no drag is a click, or a tap.
  * @param {HTMLCanvasElement} canvas
  * @param {Camera} camera
  * @param {() => void} onChange called after each camera change
- * @param {(x: number, y: number) => void} onClick called for a press and release with no drag; CSS pixels in the canvas
+ * @param {(x: number, y: number, touch: boolean) => void} onClick called for a press and release
+ *   with no drag; CSS pixels in the canvas; true for a tap of a finger
  */
 export function attachCameraControls(canvas, camera, onChange, onClick) {
+  // A pointer that moves less than this, CSS pixels, still clicks. A finger moves more than a mouse.
   const CLICK_SLOP = 4;
-  /** @type {{x: number, y: number, startX: number, startY: number, pan: boolean, moved: boolean} | null} */
+  const TAP_SLOP = 10;
+  /** The pointers that are down, by id. @type {Map<number, {x: number, y: number}>} */
+  const pointers = new Map();
+  /**
+   * The drag of one pointer. `moved` stays true for a drag that started as a pinch, so its
+   * end is not a tap.
+   * @type {{startX: number, startY: number, pan: boolean, moved: boolean, slop: number} | null}
+   */
   let drag = null;
 
   canvas.addEventListener('pointerdown', (event) => {
     canvas.setPointerCapture(event.pointerId);
-    drag = {
-      x: event.clientX,
-      y: event.clientY,
-      startX: event.clientX,
-      startY: event.clientY,
-      pan: event.button === 2 || event.shiftKey,
-      moved: false,
-    };
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    drag =
+      pointers.size === 1
+        ? {
+            startX: event.clientX,
+            startY: event.clientY,
+            pan: event.button === 2 || event.shiftKey,
+            moved: false,
+            slop: event.pointerType === 'touch' ? TAP_SLOP : CLICK_SLOP,
+          }
+        : null;
   });
 
   canvas.addEventListener('pointermove', (event) => {
-    if (!drag) return;
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    drag.x = event.clientX;
-    drag.y = event.clientY;
-    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > CLICK_SLOP) {
-      drag.moved = true;
-    }
-    if (!drag.moved) return;
+    const last = pointers.get(event.pointerId);
+    if (!last) return;
+    const point = { x: event.clientX, y: event.clientY };
 
+    if (pointers.size >= 2) {
+      // The first two fingers make the gesture. A third finger does nothing.
+      const ids = [...pointers.keys()].slice(0, 2);
+      const before = ids.map((id) => /** @type {{x: number, y: number}} */ (pointers.get(id)));
+      pointers.set(event.pointerId, point);
+      if (!ids.includes(event.pointerId)) return;
+      const after = ids.map((id) => /** @type {{x: number, y: number}} */ (pointers.get(id)));
+      const { scale, dx, dy } = pinchStep(before, after);
+      camera.distance *= scale;
+      panCamera(camera, dx, dy, canvas.clientHeight);
+      clampCamera(camera);
+      onChange();
+      return;
+    }
+
+    pointers.set(event.pointerId, point);
+    if (!drag) return;
+    if (Math.hypot(point.x - drag.startX, point.y - drag.startY) > drag.slop) drag.moved = true;
+    if (!drag.moved) return;
+    const dx = point.x - last.x;
+    const dy = point.y - last.y;
     if (drag.pan) {
-      const eye = cameraEye(camera);
-      // Camera axes in world space: right is horizontal, up completes the frame.
-      const fx = (camera.target[0] - eye[0]) / camera.distance;
-      const fy = (camera.target[1] - eye[1]) / camera.distance;
-      const fz = (camera.target[2] - eye[2]) / camera.distance;
-      const rightLength = Math.hypot(fx, fy);
-      const rx = fy / rightLength;
-      const ry = -fx / rightLength;
-      const ux = ry * fz;
-      const uy = -rx * fz;
-      const uz = rx * fy - ry * fx;
-      const metersPerPixel = camera.distance / pixelsPerMeter(camera, canvas.clientHeight);
-      camera.target[0] += (-dx * rx + dy * ux) * metersPerPixel;
-      camera.target[1] += (-dx * ry + dy * uy) * metersPerPixel;
-      camera.target[2] = Math.max(0, camera.target[2] + dy * uz * metersPerPixel);
+      panCamera(camera, dx, dy, canvas.clientHeight);
     } else {
       camera.azimuth -= dx * 0.005;
       camera.elevation += dy * 0.005;
@@ -350,12 +410,19 @@ export function attachCameraControls(canvas, camera, onChange, onClick) {
   });
 
   const endDrag = (/** @type {PointerEvent} */ event) => {
-    if (!drag) return;
-    const wasClick = !drag.moved && event.type === 'pointerup' && event.button === 0;
-    drag = null;
+    if (!pointers.has(event.pointerId)) return;
+    const wasClick = drag !== null && !drag.moved && event.type === 'pointerup' && event.button === 0;
+    pointers.delete(event.pointerId);
+    if (pointers.size === 1) {
+      // One finger stays after a pinch: it orbits from where it is, and it is not a tap.
+      const [rest] = pointers.values();
+      drag = { startX: rest.x, startY: rest.y, pan: false, moved: true, slop: TAP_SLOP };
+    } else if (pointers.size === 0) {
+      drag = null;
+    }
     if (wasClick) {
       const rect = canvas.getBoundingClientRect();
-      onClick(event.clientX - rect.left, event.clientY - rect.top);
+      onClick(event.clientX - rect.left, event.clientY - rect.top, event.pointerType === 'touch');
     }
   };
   canvas.addEventListener('pointerup', endDrag);

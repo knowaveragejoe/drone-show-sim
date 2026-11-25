@@ -62,7 +62,7 @@ Formation, transition, and storyboard are the terms that Skybrush uses.
 | Topic | Decision |
 |---|---|
 | Purpose | Visual-first preview with real units. No flyable export yet. |
-| Platform | Desktop browsers with WebGL2. No mobile layout. |
+| Platform | Browsers with WebGL2 on a computer, a tablet, or a phone. On a phone the sidebar is a sheet at the bottom of the screen, and every control works with touch. |
 | Rendering | Raw WebGL2. No 3D library. |
 | Language | Plain JavaScript, native ES modules, JSDoc types. No build step. |
 | Runtime dependencies | None. |
@@ -577,6 +577,33 @@ Each field takes one line: a label, a slider for fields that have one, and a num
 
 The fields are in groups. A click on the title of a group folds the group to its title, and a second click opens it. A chevron shows the state. The browser storage keeps the folded groups, so they stay folded after a reload. The folds are a convenience of one viewer, so they are not part of the project and not undo steps. Every group starts open.
 
+### Layouts
+
+The layout follows the width of the window.
+
+| Window | Layout |
+|---|---|
+| Wider than 1000 px | The 3D view and the transport bar on the left, the sidebar on the right, 352 px wide. |
+| 721 to 1000 px wide | The same, with a sidebar 320 px wide. The transport bar has two lines: the timeline, and under it the buttons, the time, and the speed. The Checks panel sits under the view buttons. The Audience view button says "Audience". When the sidebar title does not fit, it ends with an ellipsis. |
+| 720 px wide or less | A phone: the 3D view and the transport bar fill the screen, and the sidebar is a sheet at the bottom. The transport bar has two lines, as above. |
+
+On a window 1000 px wide or less, or 500 px high or less, the Checks panel starts folded, so it does not cover the 3D view. Its status line still shows when a check fails.
+
+The sheet has three heights. The body element has a `data-sheet` value for each:
+
+| Height | What shows |
+|---|---|
+| `peek` | A handle, the tab bar, Undo, Redo, and the Project menu. The title is left out, to save room. The page opens with this height, so the show is large. |
+| `half` | Half of the screen. The 3D view stays in sight above it. |
+| `full` | All of the screen except 200 px: the transport bar and a strip of the 3D view. The strip is too small for the hint and the Checks panel, so they hide. |
+
+A tap on the handle opens a sheet at `peek` to `half`, and closes it to `peek` from the other heights. A swipe of at least 24 px up or down on the handle or the tab bar makes the sheet one height taller or shorter. A swipe on a tab changes only the height, not the tab. A tap on a tab opens a sheet at `peek` to `half`. A message under the header, for example a failed import, also opens it to `half`, so the message does not hide. The height changes with a short animation.
+The handle and the tab bar act when the finger lifts, not on the click that can follow: a browser can leave out that click, for example when a tap stops the glide of a fast swipe.
+
+On a phone the Project menu opens as a sheet of its own, over the bottom of the screen.
+
+A touch screen (no hover, a coarse pointer) gets larger controls at every width: 36 px controls, 40 px tabs, storyboard rows, and menu items, a 44 px Play button, 32 px rows in the drone list, larger slider knobs, and a playhead 28 px wide with the same thin line. Number boxes and lists use 16 px text, because a phone browser zooms into a box with smaller text when the box takes the focus. The hints on the 3D view and in Showtime name touch gestures instead of the mouse and the keys.
+
 ### Show tab
 
 | Section | Contents |
@@ -695,6 +722,12 @@ A click on empty space or the Escape key clears the selection.
 | Drag | Orbit |
 | Wheel | Zoom |
 | Right-drag or Shift-drag | Pan |
+| Drag with one finger | Orbit |
+| Pinch with two fingers | Zoom: fingers that move apart bring the camera closer, by the change of the distance between them |
+| Drag with two fingers | Pan: the scene follows the point between the fingers. A pinch and a pan can happen in one gesture. |
+| Click or tap | Select the nearest drone. A finger moves more than a mouse, so a tap can move 10 px and a click 4 px. |
+
+When one finger lifts after a pinch, the other finger orbits from where it is, with no jump, and its lift is not a tap. A third finger does nothing.
 
 The Audience view button puts the camera at the audience seat: 160 m in front of the takeoff grid, at eye height, inside the crowd.
 It aims the camera at the selected formation with the shot of the Showtime camera (see Showtime), but it keeps the field of view of the editor.
@@ -704,12 +737,12 @@ After the Audience view, an orbit turns about the middle of the formation.
 
 The Showtime button hides the sidebar, the transport bar, and the overlays, and asks the browser for full screen.
 The show plays from the takeoff grid. The view hides the grid, the flight volume, the paths, and the selection.
-A hint at the bottom says the keys. It and the pointer hide after 2.5 seconds with no input.
+A hint at the bottom says the keys, or on a touch screen, the tap. A round button with a cross at the top right goes back to the editor. The hint, the button, and the pointer hide after 2.5 seconds with no input; a move of the pointer or a touch brings them back. While the show pauses, they stay. At the end of the show, the end card, the button, and the pointer stay.
 
 | Input | Action |
 |---|---|
-| Space | Pause or play. While the show pauses, the hint says "Paused". |
-| Escape, or leaving full screen | Back to the editor |
+| Space, or a click or a tap on the view | Pause or play, as in a video player. While the show pauses, the hint says "Paused". At the end, a tap plays the show again. |
+| Escape, the cross button, or leaving full screen | Back to the editor |
 
 At the end of the show, a card offers "Watch again" and "Back to the editor".
 Back in the editor, the camera is where it was before Showtime. The timeline stays where Showtime stopped.
@@ -771,7 +804,7 @@ The view draws these parts in this order:
 - Route: for the selected drone, the view draws its whole route: each leg of each step, and its path in each hold as short straight lines; the pose changes by at most 10° from one line to the next. The part of the current step is brightest.
 - Long lines are split into short segments. A software WebGL renderer drops a whole line when one end is behind the camera.
 - Camera: a hand-written orbit camera with a perspective projection.
-- Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels.
+- Picking: on a click, the code projects every drone to screen space and takes the nearest one inside 10 pixels. A tap of a finger is less exact, so it takes the nearest one inside 24 pixels.
 - The canvas follows `devicePixelRatio`.
 
 ## Project file
@@ -882,11 +915,11 @@ src/
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn and swing profiles, pose rotation
   mat4.js         matrix helpers for the camera
-  camera.js       orbit camera, the frame of a show, the audience seat shot, and mouse input
+  camera.js       orbit camera, the frame of a show, the audience seat shot, and mouse and touch input
   demos.js        the list of demo shows
   renderer.js     WebGL2 shaders, buffers, and draw calls: scenery, lines, and lights
   scenery.js      the people of the crowd and the stars
-  ui.js           sidebar tabs and controls, storyboard, drone list, transport bar
+  ui.js           sidebar tabs and controls, storyboard, drone list, transport bar, the sheet on a phone
   version.js      the milestone number and date that the Project menu shows
 test/
   *.test.js       unit tests
@@ -896,7 +929,7 @@ tools/
 
 `state.js`, `plan.js`, `rng.js`, `shapes.js`, `obj.js`, `svg.js`, `sample.js`, `assign.js`, `motion.js`, `demos.js`, and `scenery.js` are pure.
 They use no DOM and no WebGL, so Node can run their tests.
-`camera.js` uses the DOM only in its mouse input function, so Node also tests its other functions.
+`camera.js` uses the DOM only in its input function, so Node also tests its other functions, also the math of a pinch and a pan.
 `plan.js` also lists the problems of a show in words, so a test can check the demos.
 
 ## Tests
@@ -920,10 +953,10 @@ No `npm install` is necessary.
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
-| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. The audience seat shot: every point in the view, the horizon in the lower quarter, the narrowest view for a small show, no horizon for a tall show and the middle for a show that does not fit, a turn toward a show to one side. Easing by time and not by frames. The camera eye at the seat, the axes, and the Audience view. |
+| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. The audience seat shot: every point in the view, the horizon in the lower quarter, the narrowest view for a small show, no horizon for a tall show and the middle for a show that does not fit, a turn toward a show to one side. Easing by time and not by frames. The camera eye at the seat, the axes, and the Audience view. A pinch: fingers apart zoom in, together zoom out, a move together pans, two fingers at one point do not zoom. A pan: the scene follows the pointer, a sideways pan keeps the height, and the target stays above the ground. |
 | `scenery.js` | The crowd: its size, its area, the spacing of the people, the clear space at the seat, heights, phones, a denser front. The stars: unit directions above 4°, a few bright ones. Both are the same each time. |
 | `demos.test.js` | Each demo has a name, a line, and a relative URL of a file in `demos/`. The list and the folder match. Each demo loads like an imported project file and passes every check. |
-| `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. |
+| `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. The script and the style sheet use the same width for the phone layout, and the style sheet has each height of the sheet. |
 | `autosave.js` | A saved project loads again, one save for many quick changes, the delay, no storage, saved text that is not valid, a failed save. Pairings go through storage unchanged, and a later planner that starts from them gives the same plan. Pairings that are broken are dropped or repaired. |
 | `state.js` | Export then import gives the same state. Import rejects bad files. Version 1 files load. A file with no spread setting gets the spread. A file with no vertical spacing has one spacing, and a file with no hover height flies straight from the grid. A file with no color pattern gets one solid color. Drawing colors need an SVG drawing. A file with no flight lights keeps the lights on, and import rejects a bad effect or dark level. |
 | `plan.js` | Previous and next: each hold in turn and then the end, the start of the current hold, the hold before from just after a start, the start and the end of the show, a jump from a transition. One formation: targets, even spacing on a curve and on a surface, timeline, checks. Storyboard: one step per formation, no jump between steps, each stop holds every target one time, the closest approach bound, stored results equal fresh results. Hold motion: the end pose of a turn, the turn speed and acceleration, a turn that is too fast, a turn that leaves the flight volume, the route of a drone. Forward and sideways tilt, a sway that ends where it started, a rock below the ground and out of the volume, swings too fast for each limit, patterns that stay on a tilted formation, all motions together. Light chase: the head and the tail of a band, the direction, the repeat time, the fades, the path of each pattern, a path that follows the drones and ignores the yaw. Flight lights: the fade in and out of an effect and its share in a short flight, a dark flight that leaves and arrives lit, the dark level, the colors that still blend, the landing lights. The hash: it repeats, and it spreads evenly. The six colors of the rainbow. A twinkle in its slot, and the share of slots that twinkle. A glimmer over the dark level, whiter at a twinkle, the same at the same time. A starburst: the ripple from the middle as the audience sees it, the ring of the flash halfway out, the outer drones not yet reached, the peak, the embers that go dark, the arrival. A color wave: each color against the hue of its position, many hues at once, the old colors at the start and the new ones at the end. Hover layer and rows: a straight lift-off in rows with the row delays, the first row higher halfway, a drone that waits at rest, a touchdown in rows onto the grid, the grid spacing in both legs (checked over time), a takeoff to a large formation that fits only with the hover layer, a hover layer outside the flight volume. Spread: the even factor between two formations, the bisection of a takeoff and a landing, no candidate that fails a check, a crossing within 3% of the minimum spacing, the room of a stop in the flight volume, spreads that fit their room, a spread that fits winning over a faster one that leaves the volume, the spread factors of the bound for each kind of stop, the largest spread, the spread point and the volume floor and top, one leg for a safe flight, the minimum spacing in every leg (checked against a full search), legs that join, speed limits, the color blend in the cross, the route corners, no spread when it does not make the flight safe, a spread outside the flight volume. Colors: a solid formation, each gradient against its path (with a yaw), an outward gradient on a sphere, drawing colors at full brightness and the formation color for an outline with no color, the blend of each drone in a transition and through a spread, the colors of the landing. |
@@ -994,6 +1027,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 26 | Flight lights | Each formation sets what the lights do in the flight to it: Blend or Dark, with a dark level. The landing has its own setting. The editor marks dark drones with a gray dot. | Done |
 | 27 | Light effects | Three more flight light effects: Glimmer, Starburst, and Color wave. Both demos use flight lights. | Done |
 | 28 | Playback and folds | Previous and Next formation buttons and arrow keys. A playback speed. Sidebar groups that fold, and a Colors and lights group. | Done |
+| 29 | Phones and touch | On a phone the sidebar is a sheet at the bottom with three heights. Touch gestures in the 3D view, larger controls on a touch screen, a smaller sidebar on a tablet, and Showtime by touch. | Done |
 
 ## Known limits
 
@@ -1023,7 +1057,10 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 - The people of the crowd are flat outlines that turn to face the camera. From straight above they are thin lines.
 - The glare is part of each point, not a bloom of the whole picture. A point whose center leaves the view loses its glare at once.
 - The hills are at a fixed distance on a ring, and the scenery has no moon, no clouds, and no shadows.
-- A browser can refuse full screen, for example in a frame. Showtime then runs in the window.
+- A browser can refuse full screen, for example in a frame, or Safari on an iPhone, which gives full screen only to a video. Showtime then runs in the window, with the toolbars of the browser.
+- The tooltips that explain the fields come from `title` attributes, and a touch screen does not show them. On a phone or a tablet, those explanations are only in this file and in the README.
+- The layout follows the width of the window only. A phone turned on its side is wider than 720 px, so it gets the sidebar layout with a short 3D view. A large touch screen gets the touch controls with the layout of its width.
+- In a sheet at `half`, the 3D view is small on a phone: about a third of the screen. A sheet at `full` leaves only a strip of it.
 - Browser storage holds about 5 MB per site. A show with a large OBJ model can be too large for autosave. Export still works.
 - A flight light effect fades in and out over fixed times, at most 1 s each. The whole fleet fades together, also when the rows of the takeoff grid lift off one after another.
 - Each effect has one look. The user sets the dark level only: not the twinkle rate, the speed or the direction of the flash and the wave, or the colors of the embers.
@@ -1046,7 +1083,6 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 
 ## Out of scope
 
-- Mobile layout.
 - Wind, battery, GPS error, and drone failure.
 - Music sync and pyrotechnics.
 - Control of real drones.

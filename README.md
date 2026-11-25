@@ -34,6 +34,17 @@ Open `http://localhost:8000/`. The browser must support WebGL2.
 | Ctrl+Z, or ⌘Z on a Mac | Undo |
 | Ctrl+Shift+Z, Ctrl+Y, or ⇧⌘Z | Redo |
 
+On a phone or a tablet:
+
+| Touch | Action |
+|---|---|
+| Drag with one finger in the 3D view | Orbit |
+| Pinch with two fingers | Zoom |
+| Drag with two fingers | Pan |
+| Tap a drone | Select that drone |
+
+On a phone the sidebar is a sheet at the bottom of the screen. It opens with only its tabs in sight, so the show is large. Tap a tab or the handle to open the sheet to half the screen, and swipe up or down on the handle or the tabs to make it taller or shorter.
+
 The sidebar has three tabs. A click on the title of a section folds it; the page remembers the folded sections.
 
 | Tab | What it does |
@@ -49,7 +60,7 @@ The Project menu also opens two demo shows. First light is a short show of four 
 
 The 3D view shows the show at night over a field, with stars, hills on the horizon, and a crowd where the audience stands. They give a sense of place and scale. Overlays on the 3D view show or hide the flight paths and the flight volume, and move the camera into the crowd.
 
-**Showtime** plays the whole show full screen, as a person in the crowd sees it. The camera stands in the crowd and follows the show. Space pauses and plays, and Escape goes back to the editor.
+**Showtime** plays the whole show full screen, as a person in the crowd sees it. The camera stands in the crowd and follows the show. Space, a click, or a tap pauses and plays. Escape or the cross button at the top right goes back to the editor. On an iPhone, Safari does not allow full screen for a page, so Showtime fills the window.
 The Checks panel at the top right shows the show duration, the drones outside the flight volume, the lowest target, the closest approach in flight, and the peak speed. It lists each problem in words. A click on its status line folds it.
 
 The timeline strip under the 3D view shows the whole show: one block per flight and one per hold. Drag the playhead to move through the show. The buttons next to Play jump to the previous or the next formation, and the list at the right end sets the playback speed: 0.5×, 1×, 2×, or 4×.

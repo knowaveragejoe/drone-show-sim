@@ -49,7 +49,7 @@
       <div id="view-tools" class="hud" role="toolbar" aria-label="View">
         <button id="show-paths" type="button" aria-pressed="true" title="Show the flight paths of the current step">Paths</button>
         <button id="show-volume" type="button" aria-pressed="true" title="Show the flight volume">Volume</button>
-        <button id="audience-view" type="button" title="Move the camera into the crowd and aim it at the selected formation">Audience view</button>
+        <button id="audience-view" type="button" title="Move the camera into the crowd and aim it at the selected formation">Audience<span class="wide-only"> view</span></button>
         <button id="showtime" type="button" title="Watch the whole show full screen, from the crowd">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
           Showtime
@@ -77,7 +77,10 @@
       <p id="view-busy" class="hud" role="status" hidden></p>
 
       <div id="showtime-hud">
-        <p id="showtime-hint"><strong class="paused-label">Paused · </strong><span id="showtime-speed"></span>Space to pause or play · Esc to leave</p>
+        <p id="showtime-hint"><strong class="paused-label">Paused · </strong><span id="showtime-speed"></span><span class="mouse-only">Space to pause or play · Esc to leave</span><span class="touch-only">Tap to pause or play</span></p>
+        <button id="showtime-close" type="button" class="icon" title="Back to the editor (Esc)" aria-label="Back to the editor">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
         <div id="showtime-end" hidden>
           <p>That's the show!</p>
           <div class="showtime-actions">
@@ -86,7 +89,7 @@
           </div>
         </div>
       </div>
-      <p id="view-hint">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a drone to select it</p>
+      <p id="view-hint"><span class="mouse-only">Drag to orbit · Right-drag to pan · Scroll to zoom · Click a drone to select it</span><span class="touch-only">Drag to orbit · Pinch to zoom · Two fingers to pan · Tap a drone to select it</span></p>
       <p id="fatal" role="alert" hidden></p>
     </div>
 
@@ -119,8 +122,9 @@
   </main>
 
   <aside id="sidebar">
+    <button id="sheet-handle" type="button" aria-label="Panel size" title="Tap, or drag up or down, to show more or less of the panel"></button>
     <header id="sidebar-header">
-      <h1>Drone show simulator</h1>
+      <h1><span>Drone show simulator</span></h1>
       <div class="header-actions">
         <button id="undo" type="button" class="icon" aria-label="Undo" disabled>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5l-3 3 3 3M2.5 6.5H10a3.5 3.5 0 0 1 0 7H8"/></svg>

@@ -12,6 +12,9 @@ import {
   createCamera,
   easeShot,
   frameShow,
+  panCamera,
+  pinchStep,
+  pixelsPerMeter,
   setAudienceView,
 } from '../src/camera.js';
 
@@ -155,4 +158,38 @@ test('the Audience view keeps the field of view and orbits about the formation',
   // The orbit target is on the line of sight, as far away as the middle of the formation.
   const middle = Math.hypot(0 - AUDIENCE_SEAT[0], 0 - AUDIENCE_SEAT[1], 60 - AUDIENCE_SEAT[2]);
   assert.ok(Math.abs(camera.distance - middle) < 1e-9);
+});
+
+test('fingers that move apart zoom in, and fingers that move together pan', () => {
+  const before = [{ x: 100, y: 200 }, { x: 200, y: 200 }];
+  // Twice as far apart, about the same middle: the camera comes twice as close.
+  const apart = pinchStep(before, [{ x: 50, y: 200 }, { x: 250, y: 200 }]);
+  assert.equal(apart.scale, 0.5);
+  assert.equal(apart.dx, 0);
+  assert.equal(apart.dy, 0);
+  // Closer together: the camera moves back.
+  assert.equal(pinchStep(before, [{ x: 125, y: 200 }, { x: 175, y: 200 }]).scale, 2);
+  // Both fingers move the same way: a pan with no zoom.
+  const moved = pinchStep(before, [{ x: 110, y: 196 }, { x: 210, y: 196 }]);
+  assert.deepEqual(moved, { scale: 1, dx: 10, dy: -4 });
+  // Two fingers at one point give no zoom.
+  const same = [{ x: 5, y: 5 }, { x: 5, y: 5 }];
+  assert.equal(pinchStep(same, before).scale, 1);
+});
+
+test('a pan moves the target across the view, and the scene follows the pointer', () => {
+  const camera = createCamera();
+  const start = [...camera.target];
+  const height = 800;
+  const metersPerPixel = camera.distance / pixelsPerMeter(camera, height);
+  // A drag to the right moves the target to the left of the view, along the ground.
+  panCamera(camera, 50, 0, height);
+  const { right } = cameraAxes(camera);
+  const move = camera.target.map((value, axis) => value - start[axis]);
+  assert.ok(Math.abs(move[2]) < 1e-9, 'a sideways pan keeps the height');
+  const along = move[0] * right[0] + move[1] * right[1] + move[2] * right[2];
+  assert.ok(Math.abs(along + 50 * metersPerPixel) < 1e-6, `moved ${along}`);
+  // A pan never takes the target below the ground.
+  for (let i = 0; i < 20; i++) panCamera(camera, 0, -400, height);
+  assert.ok(camera.target[2] >= 0);
 });

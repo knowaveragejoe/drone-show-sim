@@ -94,6 +94,15 @@ const PLANNING_NOTE = 'Planning the show…';
 // In Showtime, the pointer and the key hint hide after this many milliseconds with no input.
 const SHOWTIME_IDLE_MS = 2500;
 
+// A screen this narrow shows the sidebar as a sheet at the bottom. style.css has a media query
+// with the same condition; a test checks that the two match.
+export const COMPACT_SCREEN = '(max-width: 720px)';
+// On a screen this small, the Checks panel starts folded, so it does not cover the view.
+const SMALL_VIEW = '(max-width: 1000px), (max-height: 500px)';
+// A vertical swipe on the sheet handle or the tab bar of at least this length, CSS pixels,
+// changes the height of the sheet.
+const SWIPE_LENGTH = 24;
+
 // The browser storage key of the groups that the user folded. A fold is a convenience of one
 // viewer, so it is not part of the project.
 const FOLDS_KEY = 'drone-show-sim:folded';
@@ -258,9 +267,13 @@ export function createUi(actions) {
 
   const droneCountBadge = byId('drone-count');
   const droneList = buildDroneList(byId('drone-list'), actions.select);
+  const sheet = wireSheet();
   buildTabs((name) => {
     if (name === 'drones') droneList.opened();
+    // A tap on a tab of a sheet that shows only its tab bar opens the sheet.
+    sheet.open();
   });
+  if (matchMedia(SMALL_VIEW).matches) /** @type {HTMLDetailsElement} */ (byId('checks')).open = false;
 
   document.addEventListener('keydown', (event) => {
     const target = /** @type {HTMLElement} */ (event.target);
@@ -459,6 +472,7 @@ function wireShowtime(actions) {
   // At the end of the timeline, play starts again from the takeoff grid.
   byId('showtime-again').addEventListener('click', actions.togglePlay);
   byId('showtime-leave').addEventListener('click', actions.stopShowtime);
+  byId('showtime-close').addEventListener('click', actions.stopShowtime);
 
   const isOn = () => body.classList.contains('showtime');
   const speedLabel = byId('showtime-speed');
@@ -470,9 +484,12 @@ function wireShowtime(actions) {
     idleTimer = setTimeout(() => body.classList.add('idle'), SHOWTIME_IDLE_MS);
   }
 
-  document.addEventListener('pointermove', () => {
-    if (isOn()) wake();
-  });
+  // A finger moves no pointer until it touches the screen, so a touch wakes the hint too.
+  for (const type of ['pointermove', 'pointerdown']) {
+    document.addEventListener(type, () => {
+      if (isOn()) wake();
+    });
+  }
   // The browser leaves full screen on the Escape key and does not pass the key to the page.
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && isOn()) actions.stopShowtime();
@@ -523,6 +540,82 @@ function wireShowtime(actions) {
   }
 
   return { isOn, wake, show, state, showSpeed };
+}
+
+/**
+ * Connects the sheet that the sidebar becomes on a narrow screen. The sheet has three heights:
+ * `peek` shows the tab bar only, `half` shares the screen with the 3D view, and `full` leaves a
+ * strip of the view. A tap on the handle opens and closes the sheet. A swipe up or down on the
+ * handle or the tab bar makes it taller or shorter. On a wide screen the sheet is the sidebar,
+ * and its height does nothing.
+ * @returns {{open: () => void}} `open` makes a sheet that shows its tab bar only half high
+ */
+function wireSheet() {
+  const heights = ['peek', 'half', 'full'];
+  const { body } = document;
+  const sidebar = byId('sidebar');
+  const handle = byId('sheet-handle');
+  /** @param {string} height */
+  const set = (height) => {
+    body.dataset.sheet = height;
+  };
+  const step = (/** @type {number} */ by) => {
+    const index = heights.indexOf(body.dataset.sheet ?? 'peek');
+    set(heights[Math.max(0, Math.min(heights.length - 1, index + by))]);
+  };
+  set('peek');
+
+  const toggle = () => set(body.dataset.sheet === 'peek' ? 'half' : 'peek');
+
+  // The handle and the tab bar act when the finger lifts. A click can follow; the sheet takes
+  // it, so a swipe on a tab changes the height only. A browser can also leave the click out,
+  // for example when a tap stops the glide of a fast swipe, so the next press clears the flag.
+  let startY = 0;
+  let handled = false;
+  sidebar.addEventListener(
+    'pointerdown',
+    (event) => {
+      startY = event.clientY;
+      handled = false;
+    },
+    true,
+  );
+  for (const area of [handle, byId('tabs')]) {
+    area.addEventListener('pointerup', (event) => {
+      if (!matchMedia(COMPACT_SCREEN).matches) return;
+      const dy = event.clientY - startY;
+      if (Math.abs(dy) >= SWIPE_LENGTH) step(dy < 0 ? 1 : -1);
+      else if (area === handle) toggle();
+      else return;
+      handled = true;
+    });
+  }
+  sidebar.addEventListener(
+    'click',
+    (event) => {
+      if (!handled) return;
+      handled = false;
+      event.stopPropagation();
+      event.preventDefault();
+    },
+    true,
+  );
+  // The Enter and Space keys click the handle with no pointer.
+  handle.addEventListener('click', (event) => {
+    if (event.detail === 0) toggle();
+  });
+
+  // A message in the sheet must not hide under a sheet that shows its tab bar only.
+  const open = () => {
+    if (body.dataset.sheet === 'peek') set('half');
+  };
+  const messages = new MutationObserver(() => {
+    if (!byId('project-error').hidden || !byId('autosave-error').hidden) open();
+  });
+  for (const id of ['project-error', 'autosave-error']) {
+    messages.observe(byId(id), { attributes: true, attributeFilter: ['hidden'] });
+  }
+  return { open };
 }
 
 /**
@@ -788,6 +881,7 @@ function buildTabs(onShow) {
   });
 }
 
+// The row height of the drone list when the style sheet does not give one, CSS pixels.
 const DRONE_ROW_HEIGHT = 22;
 
 /**
@@ -798,6 +892,8 @@ const DRONE_ROW_HEIGHT = 22;
  */
 function buildDroneList(container, onSelect) {
   const header = /** @type {HTMLElement} */ (container.firstElementChild);
+  // The style sheet sets the row height: a touch screen has taller rows.
+  const rowHeight = parseFloat(getComputedStyle(container).getPropertyValue('--drone-row-height')) || DRONE_ROW_HEIGHT;
   // An empty box as tall as all rows. It gives the scroll bar the right range.
   const body = element('div', 'drone-list-body');
   container.append(body);
@@ -823,12 +919,12 @@ function buildDroneList(container, onSelect) {
   function show(plan, view, positions) {
     redraw = () => show(plan, view, positions);
     selected = view.selected;
-    body.style.height = `${plan.count * DRONE_ROW_HEIGHT}px`;
+    body.style.height = `${plan.count * rowHeight}px`;
 
     // The sticky header covers the top of the box, and the body starts below the header,
     // so the first row in view is at the scroll offset.
-    const first = Math.floor(container.scrollTop / DRONE_ROW_HEIGHT);
-    const visible = Math.ceil(container.clientHeight / DRONE_ROW_HEIGHT) + 1;
+    const first = Math.floor(container.scrollTop / rowHeight);
+    const visible = Math.ceil(container.clientHeight / rowHeight) + 1;
     const last = Math.min(plan.count, first + visible);
     while (rows.length < last - first) {
       const row = element('div', 'drone-row');
@@ -842,7 +938,7 @@ function buildDroneList(container, onSelect) {
       row.hidden = drone >= last;
       if (row.hidden) return;
       row.dataset.drone = String(drone);
-      row.style.transform = `translateY(${drone * DRONE_ROW_HEIGHT}px)`;
+      row.style.transform = `translateY(${drone * rowHeight}px)`;
       row.classList.toggle('selected', drone === view.selected);
       const cells = row.children;
       cells[0].textContent = String(drone + 1);
@@ -860,8 +956,8 @@ function buildDroneList(container, onSelect) {
   function reveal(drone) {
     // A hidden box has no height and cannot scroll. `opened` does the scroll later.
     if (container.clientHeight === 0) return;
-    const top = drone * DRONE_ROW_HEIGHT;
-    const room = container.clientHeight - header.offsetHeight - DRONE_ROW_HEIGHT;
+    const top = drone * rowHeight;
+    const room = container.clientHeight - header.offsetHeight - rowHeight;
     if (top < container.scrollTop) container.scrollTop = top;
     else if (top > container.scrollTop + room) container.scrollTop = top - room;
   }
