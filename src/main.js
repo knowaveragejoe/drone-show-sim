@@ -46,8 +46,10 @@ import {
   MAX_FORMATIONS,
   clampToField,
   defaultState,
+  duplicatedFormations,
   nextFormation,
   parseProject,
+  reorderedFormations,
   serializeProject,
 } from './state.js';
 import { createUi } from './ui.js';
@@ -270,6 +272,17 @@ function start() {
   }
 
   /**
+   * Moves one formation to a new place in the storyboard, and selects it there.
+   * @param {number} from
+   * @param {number} to
+   */
+  function moveFormationTo(from, to) {
+    const { formations } = state;
+    if (from === to || to < 0 || to >= formations.length) return;
+    change({ ...state, formations: reorderedFormations(formations, from, to) }, null, () => showFormation(to));
+  }
+
+  /**
    * Flies the camera to a new view. When the user asks the system for less motion, the camera
    * jumps there.
    * @param {(camera: import('./camera.js').Camera) => void} setView puts a camera at the new view
@@ -345,14 +358,16 @@ function start() {
         showFormation(Math.min(index, formations.length - 2)),
       );
     },
-    moveFormation(step) {
+    duplicateFormation() {
       const { formations } = state;
+      if (formations.length >= MAX_FORMATIONS) return;
       const index = view.formation;
-      const target = index + step;
-      if (target < 0 || target >= formations.length) return;
-      const moved = formations.with(index, formations[target]).with(target, formations[index]);
-      change({ ...state, formations: moved }, null, () => showFormation(target));
+      change({ ...state, formations: duplicatedFormations(formations, index) }, null, () => showFormation(index + 1));
     },
+    moveFormation(step) {
+      moveFormationTo(view.formation, view.formation + step);
+    },
+    moveFormationTo,
     setLandAtEnd(landAtEnd) {
       change({ ...state, landAtEnd }, null);
     },

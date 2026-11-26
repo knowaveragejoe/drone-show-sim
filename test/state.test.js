@@ -15,8 +15,10 @@ import {
   clampToField,
   defaultFlightLights,
   defaultState,
+  duplicatedFormations,
   nextFormation,
   parseProject,
+  reorderedFormations,
   serializeProject,
 } from '../src/state.js';
 
@@ -362,4 +364,25 @@ test('export then import keeps an SVG drawing', () => {
   const loaded = parseProject(serializeProject(state));
   assert.deepEqual(loaded, state);
   assert.deepEqual(createPlanner()(loaded).steps[1].to, createPlanner()(state).steps[1].to);
+});
+
+test('a duplicate is a copy of the formation right after it, and the others stay', () => {
+  const { formations } = defaultState();
+  const copied = duplicatedFormations(formations, 1);
+  assert.equal(copied.length, formations.length + 1);
+  assert.deepEqual(copied[2], formations[1]);
+  assert.notEqual(copied[2], formations[1], 'the copy is a new object');
+  assert.deepEqual(copied.toSpliced(2, 1), formations);
+  // The list of the old state does not change.
+  assert.equal(formations.length, 3);
+});
+
+test('a move puts one formation at its new place, and the others keep their order', () => {
+  const formations = ['a', 'b', 'c', 'd'].map((name) => ({ ...defaultState().formations[0], color: name }));
+  const order = (list) => list.map((formation) => formation.color).join('');
+  assert.equal(order(reorderedFormations(formations, 0, 2)), 'bcad');
+  assert.equal(order(reorderedFormations(formations, 3, 0)), 'dabc');
+  assert.equal(order(reorderedFormations(formations, 1, 2)), 'acbd');
+  assert.equal(order(reorderedFormations(formations, 2, 2)), 'abcd');
+  assert.equal(order(formations), 'abcd');
 });

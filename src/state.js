@@ -548,6 +548,28 @@ export function nextFormation(formations, index) {
 }
 
 /**
+ * The storyboard with a copy of one formation right after it. The copy shares the parts of
+ * the formation that are objects. No change edits a state in place, so the two stay apart.
+ * @param {Formation[]} formations the storyboard
+ * @param {number} index the formation to copy
+ * @returns {Formation[]} a new list
+ */
+export function duplicatedFormations(formations, index) {
+  return formations.toSpliced(index + 1, 0, { ...formations[index] });
+}
+
+/**
+ * The storyboard with one formation at a new place. The other formations keep their order.
+ * @param {Formation[]} formations the storyboard
+ * @param {number} from the place of the formation now
+ * @param {number} to the place of the formation in the new storyboard
+ * @returns {Formation[]} a new list
+ */
+export function reorderedFormations(formations, from, to) {
+  return formations.toSpliced(from, 1).toSpliced(to, 0, formations[from]);
+}
+
+/**
  * Converts user input to a value that the field accepts.
  * @param {NumberField} field
  * @param {number} value

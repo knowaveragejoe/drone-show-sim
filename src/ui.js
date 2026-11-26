@@ -41,7 +41,9 @@ import {
  * @property {(index: number) => void} selectFormation makes one formation the formation that the sidebar edits
  * @property {() => void} addFormation
  * @property {() => void} removeFormation
+ * @property {() => void} duplicateFormation puts a copy of the selected formation right after it
  * @property {(step: number) => void} moveFormation -1 moves the formation earlier, 1 later
+ * @property {(from: number, to: number) => void} moveFormationTo moves a formation to a new place
  * @property {(land: boolean) => void} setLandAtEnd
  * @property {(key: string, value: number | string) => void} setFlightLights sets one setting of the
  *   flight lights of the formation that the sidebar edits
@@ -94,6 +96,9 @@ import {
 // drag. Above it, they apply their value when the user lets go. The other sliders need no new
 // assignment, so they apply each step at every fleet size.
 const LIVE_SLIDER_MAX_DRONES = 250;
+
+// A grip that moves more than this many CSS pixels drags its row. Less is a click.
+const DRAG_THRESHOLD = 4;
 const SLOW_FIELDS = ['count', 'yaw', 'tiltForward', 'tiltSide', 'turnRate'];
 
 // The Fleet section of the Fleet tab holds these fields. The Limits section holds the others.
@@ -190,12 +195,14 @@ export function createUi(actions) {
   );
   buildDemoList(byId('demo-list'), projectError, actions.importProject);
 
-  const storyboard = buildStoryboard(byId('formation-list'), actions.selectFormation);
+  const storyboard = buildStoryboard(byId('formation-list'), actions.selectFormation, actions.moveFormationTo);
   const addFormation = /** @type {HTMLButtonElement} */ (byId('add-formation'));
   const removeFormation = /** @type {HTMLButtonElement} */ (byId('remove-formation'));
+  const duplicateFormation = /** @type {HTMLButtonElement} */ (byId('duplicate-formation'));
   const moveEarlier = /** @type {HTMLButtonElement} */ (byId('move-formation-earlier'));
   const moveLater = /** @type {HTMLButtonElement} */ (byId('move-formation-later'));
   addFormation.addEventListener('click', actions.addFormation);
+  duplicateFormation.addEventListener('click', actions.duplicateFormation);
   removeFormation.addEventListener('click', actions.removeFormation);
   moveEarlier.addEventListener('click', () => actions.moveFormation(-1));
   moveLater.addEventListener('click', () => actions.moveFormation(1));
@@ -370,6 +377,7 @@ export function createUi(actions) {
 
     storyboard.show(state, plan, view);
     addFormation.disabled = formations.length >= MAX_FORMATIONS;
+    duplicateFormation.disabled = formations.length >= MAX_FORMATIONS;
     removeFormation.disabled = formations.length <= 1;
     moveEarlier.disabled = view.formation === 0;
     moveLater.disabled = view.formation === formations.length - 1;
@@ -748,13 +756,75 @@ function shapeLabel({ source }) {
 }
 
 /**
- * Builds the storyboard list: one row per formation, in show order.
+ * Builds the storyboard list: one row per formation, in show order. A drag of the grip at
+ * the end of a row moves that formation to a new place.
  * @param {HTMLElement} list
  * @param {(index: number) => void} onSelect
+ * @param {(from: number, to: number) => void} onMove
  */
-function buildStoryboard(list, onSelect) {
+function buildStoryboard(list, onSelect, onMove) {
   /** @type {HTMLButtonElement[]} */
   const rows = [];
+
+  /**
+   * A drag of a row by its grip: the place of the row, the place where it would land, the
+   * pointer, and the distance from one row to the next. Null when no drag runs.
+   * @type {{from: number, to: number, pointerId: number, startY: number, pitch: number, moved: boolean} | null}
+   */
+  let drag = null;
+  // The click that ends a drag does not select a formation.
+  let skipClick = false;
+
+  /** @param {number} from @param {PointerEvent} event */
+  function startDrag(from, event) {
+    if (event.button !== 0 || drag || rows.length < 2) return;
+    // No text selection, and no scroll on a touch screen.
+    event.preventDefault();
+    /** @type {HTMLElement} */ (event.currentTarget).setPointerCapture(event.pointerId);
+    const tops = rows.map((row) => row.getBoundingClientRect().top);
+    drag = { from, to: from, pointerId: event.pointerId, startY: event.clientY, pitch: tops[1] - tops[0], moved: false };
+    list.classList.add('sorting');
+    rows[from].parentElement?.classList.add('dragging');
+  }
+
+  /** @param {PointerEvent} event */
+  function moveDrag(event) {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const { from, pitch } = drag;
+    const last = rows.length - 1;
+    const dy = event.clientY - drag.startY;
+    if (Math.abs(dy) > DRAG_THRESHOLD) drag.moved = true;
+    // The row follows the pointer, but not past the ends of the list. The rows that it
+    // passes step aside to show where it lands.
+    const offset = Math.min((last - from) * pitch, Math.max(-from * pitch, dy));
+    const to = from + Math.round(offset / pitch);
+    drag.to = to;
+    rows.forEach((row, index) => {
+      let shift = 0;
+      if (index === from) shift = offset;
+      else if (index > from && index <= to) shift = -pitch;
+      else if (index < from && index >= to) shift = pitch;
+      const item = /** @type {HTMLElement} */ (row.parentElement);
+      item.style.transform = shift === 0 ? '' : `translateY(${shift}px)`;
+    });
+  }
+
+  /** @param {PointerEvent} event @param {boolean} commit */
+  function endDrag(event, commit) {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const { from, to, moved } = drag;
+    drag = null;
+    // The rows go back to their places at once, with no transition. The move then puts the
+    // formations in the new order, so the list looks as it did at the end of the drag.
+    list.classList.remove('sorting');
+    for (const row of rows) {
+      const item = /** @type {HTMLElement} */ (row.parentElement);
+      item.style.transform = '';
+      item.classList.remove('dragging');
+    }
+    skipClick = moved;
+    if (commit && to !== from) onMove(from, to);
+  }
 
   /**
    * @param {import('./state.js').State} state
@@ -770,7 +840,20 @@ function buildStoryboard(list, onSelect) {
       row.type = 'button';
       row.append(element('span', 'swatch'), element('span', 'number'), element('span', 'name'));
       row.append(element('span', 'meta'), element('span', 'problem'));
-      row.addEventListener('click', () => onSelect(index));
+      // A grip to drag the row to a new place. The Earlier and Later buttons do the same for
+      // the keyboard, so the grip is not in the accessibility tree.
+      const grip = element('span', 'grip');
+      grip.setAttribute('aria-hidden', 'true');
+      grip.title = 'Drag to move the formation';
+      grip.addEventListener('pointerdown', (event) => startDrag(index, event));
+      grip.addEventListener('pointermove', moveDrag);
+      grip.addEventListener('pointerup', (event) => endDrag(event, true));
+      grip.addEventListener('pointercancel', (event) => endDrag(event, false));
+      row.append(grip);
+      row.addEventListener('click', () => {
+        if (skipClick) skipClick = false;
+        else onSelect(index);
+      });
       const item = element('li');
       item.append(row);
       list.append(item);
