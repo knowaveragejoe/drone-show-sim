@@ -49,7 +49,17 @@
       <div id="view-tools" class="hud" role="toolbar" aria-label="View">
         <button id="show-paths" type="button" aria-pressed="true" title="Show the flight paths of the current step">Paths</button>
         <button id="show-volume" type="button" aria-pressed="true" title="Show the flight volume">Volume</button>
-        <button id="audience-view" type="button" title="Move the camera into the crowd and aim it at the selected formation">Audience<span class="wide-only"> view</span></button>
+        <details id="view-menu" class="menu">
+          <summary title="Move the camera to a view of the show or of the selected formation">View</summary>
+          <div class="menu-items">
+            <button type="button" data-view="show" title="See every formation from the start direction">Whole show</button>
+            <p class="menu-heading">Selected formation</p>
+            <button type="button" data-view="front" title="Look straight at the formation from the audience side">Front</button>
+            <button type="button" data-view="side" title="Look at the formation from the right side">Side</button>
+            <button type="button" data-view="top" title="Look down on the formation from above">Top</button>
+            <button type="button" data-view="audience" title="Move the camera into the crowd and aim it at the formation">Audience</button>
+          </div>
+        </details>
         <button id="showtime" type="button" title="Watch the whole show full screen, from the crowd">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L13 8z"/></svg>
           Showtime

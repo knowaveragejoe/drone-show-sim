@@ -29,6 +29,12 @@ import {
 } from './state.js';
 
 /**
+ * A view of the View menu: the whole show, or the selected formation from a fixed direction or
+ * from the audience seat.
+ * @typedef {'show' | import('./camera.js').FixedView | 'audience'} CameraView
+ */
+
+/**
  * @typedef {object} Actions
  * @property {(key: string, value: number) => void} setFleet
  * @property {(key: string, value: number) => void} setVolume
@@ -55,7 +61,7 @@ import {
  * @property {(text: string) => string | null} importProject returns an error message, or null
  * @property {(show: boolean) => void} setShowPaths
  * @property {(show: boolean) => void} setShowVolume
- * @property {() => void} audienceView
+ * @property {(view: CameraView) => void} showView flies the camera to a view of the show or of the formation
  * @property {() => void} startShowtime hides the panels and plays the show from the audience seat
  * @property {() => void} stopShowtime goes back to the editor
  * @property {() => void} togglePlay
@@ -160,12 +166,19 @@ export function createUi(actions) {
   redo.addEventListener('click', actions.redo);
 
   const projectMenu = /** @type {HTMLDetailsElement} */ (byId('project-menu'));
-  // A choice in the menu closes it. So does a click outside it.
-  projectMenu.addEventListener('click', (event) => {
-    if (/** @type {HTMLElement} */ (event.target).closest('.menu-items button')) projectMenu.open = false;
-  });
+  const viewMenu = /** @type {HTMLDetailsElement} */ (byId('view-menu'));
+  const menus = [projectMenu, viewMenu];
+  const closeMenus = () => menus.forEach((menu) => (menu.open = false));
+  // A choice in a menu closes it. So does a press outside it.
+  for (const menu of menus) {
+    menu.addEventListener('click', (event) => {
+      if (/** @type {HTMLElement} */ (event.target).closest('.menu-items button')) menu.open = false;
+    });
+  }
   document.addEventListener('pointerdown', (event) => {
-    if (projectMenu.open && !projectMenu.contains(/** @type {Node} */ (event.target))) projectMenu.open = false;
+    for (const menu of menus) {
+      if (menu.open && !menu.contains(/** @type {Node} */ (event.target))) menu.open = false;
+    }
   });
   byId('new-show').addEventListener('click', actions.newShow);
   byId('export-project').addEventListener('click', () => {
@@ -252,7 +265,9 @@ export function createUi(actions) {
 
   const showPaths = wireToggle(byId('show-paths'), actions.setShowPaths);
   const showVolume = wireToggle(byId('show-volume'), actions.setShowVolume);
-  byId('audience-view').addEventListener('click', actions.audienceView);
+  for (const button of viewMenu.querySelectorAll('button')) {
+    button.addEventListener('click', () => actions.showView(/** @type {CameraView} */ (button.dataset.view)));
+  }
   const showtime = wireShowtime(actions);
 
   const play = byId('play');
@@ -294,7 +309,7 @@ export function createUi(actions) {
       return;
     }
     if (event.code === 'Escape') {
-      projectMenu.open = false;
+      closeMenus();
       actions.select(-1);
     }
 
@@ -463,7 +478,7 @@ export function createUi(actions) {
    * @param {boolean} on
    */
   function showShowtime(on) {
-    if (on) projectMenu.open = false;
+    if (on) closeMenus();
     showtime.show(on);
   }
 

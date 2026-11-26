@@ -436,6 +436,22 @@ output.warn {
   color: var(--accent);
 }
 
+/* The View menu drops down over the Checks panel. */
+#view-tools {
+  z-index: 2;
+}
+
+#view-menu summary {
+  height: 26px;
+  font-size: inherit;
+}
+
+#view-menu .menu-items {
+  right: auto;
+  left: -3px;
+  width: 190px;
+}
+
 #checks {
   top: 12px;
   right: 12px;
@@ -1450,10 +1466,6 @@ button.preview[aria-pressed="true"] {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
 
-  .wide-only {
-    display: none;
-  }
-
   /* The transport bar: the timeline on its own line, and the buttons under it. */
   #transport {
     flex-wrap: wrap;
@@ -1530,7 +1542,8 @@ button.preview[aria-pressed="true"] {
     font-size: 16px;
   }
 
-  #view-tools button {
+  #view-tools button,
+  #view-menu summary {
     height: 34px;
   }
 
@@ -1673,7 +1686,7 @@ button.preview[aria-pressed="true"] {
   }
 
   /* The Project menu opens as a sheet of its own, over the bottom of the screen. */
-  .menu-items {
+  #project-menu .menu-items {
     position: fixed;
     top: auto;
     right: 8px;

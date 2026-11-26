@@ -1,17 +1,22 @@
 // Start-up. Connects the state, the plan, the renderer, and the user interface.
 
 import {
+  CAMERA_FLY_SECONDS,
   SHOWTIME_MAX_FOV,
   SHOWTIME_MIN_FOV,
   aimFromSeat,
   attachCameraControls,
   audienceShot,
+  blendCameras,
   cameraAxes,
+  copyCamera,
   createCamera,
+  easeFlight,
   easeShot,
   frameShow,
   pixelsPerMeter,
   setAudienceView,
+  setFixedView,
   viewProjection,
 } from './camera.js';
 import { createAutosave } from './autosave.js';
@@ -163,6 +168,13 @@ function start() {
    */
   let showtime = null;
 
+  /**
+   * A flight of the camera to a view from the View menu: the camera at the start and at the
+   * end, and the start time in milliseconds. Null when the camera does not fly.
+   * @type {{from: import('./camera.js').Camera, to: import('./camera.js').Camera, start: number} | null}
+   */
+  let cameraFlight = null;
+
   const positions = new Float32Array(MAX_DRONES * 3);
   const brightness = new Float32Array(MAX_DRONES);
   const lightColors = new Float32Array(MAX_DRONES * 3);
@@ -253,7 +265,25 @@ function start() {
   function openedShow() {
     showFormation(0);
     view.selected = -1;
+    cameraFlight = null;
     frameShow(camera, state.formations);
+  }
+
+  /**
+   * Flies the camera to a new view. When the user asks the system for less motion, the camera
+   * jumps there.
+   * @param {(camera: import('./camera.js').Camera) => void} setView puts a camera at the new view
+   */
+  function flyCamera(setView) {
+    const to = copyCamera(camera);
+    setView(to);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      cameraFlight = null;
+      Object.assign(camera, to);
+    } else {
+      cameraFlight = { from: copyCamera(camera), to, start: performance.now() };
+    }
+    requestFrame();
   }
 
   /**
@@ -396,16 +426,23 @@ function start() {
       view.showVolume = show;
       requestFrame();
     },
-    audienceView() {
+    showView(name) {
       // Step k flies to formation k, so its end is the formation as the hold starts.
-      setAudienceView(camera, plan.steps[view.formation].to, aspect());
-      requestFrame();
+      const points = plan.steps[view.formation].to;
+      flyCamera((target) => {
+        if (name === 'show') frameShow(target, state.formations);
+        else if (name === 'audience') setAudienceView(target, points, aspect());
+        else setFixedView(target, name, points, aspect());
+      });
     },
     startShowtime() {
       if (showtime) return;
       view.loop = null;
       view.marked = [];
-      showtime = { camera: { ...camera, target: [...camera.target] }, shot: null };
+      // A camera flight ends at once, so that the editor gets the camera at its new view back.
+      if (cameraFlight) Object.assign(camera, cameraFlight.to);
+      cameraFlight = null;
+      showtime = { camera: copyCamera(camera), shot: null };
       view.time = 0;
       view.playing = true;
       lastFrameTime = performance.now();
@@ -591,6 +628,12 @@ function start() {
       }
     }
     lastFrameTime = now;
+    if (cameraFlight) {
+      const share = (now - cameraFlight.start) / 1000 / CAMERA_FLY_SECONDS;
+      Object.assign(camera, blendCameras(cameraFlight.from, cameraFlight.to, easeFlight(share)));
+      if (share >= 1) cameraFlight = null;
+      else requestFrame();
+    }
 
     positionsAt(plan, view.time, positions);
     lightsAt(plan, view.time, positions, lightColors, brightness);
@@ -631,7 +674,16 @@ function start() {
     }
   }
 
-  attachCameraControls(canvas, camera, requestFrame, pick);
+  // A drag, a pinch, or the wheel takes the camera from a flight.
+  attachCameraControls(
+    canvas,
+    camera,
+    () => {
+      cameraFlight = null;
+      requestFrame();
+    },
+    pick,
+  );
   new ResizeObserver(requestFrame).observe(canvas);
   // Save a change that waits when the user leaves the page or hides it.
   window.addEventListener('pagehide', autosave.flush);

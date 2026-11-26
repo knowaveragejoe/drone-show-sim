@@ -655,7 +655,7 @@ The layout follows the width of the window.
 | Window | Layout |
 |---|---|
 | Wider than 1000 px | The 3D view and the transport bar on the left, the sidebar on the right, 352 px wide. |
-| 721 to 1000 px wide | The same, with a sidebar 320 px wide. The transport bar has two lines: the timeline, and under it the buttons, the time, and the speed. The Checks panel sits under the view buttons. The Audience view button says "Audience". When the sidebar title does not fit, it ends with an ellipsis. |
+| 721 to 1000 px wide | The same, with a sidebar 320 px wide. The transport bar has two lines: the timeline, and under it the buttons, the time, and the speed. The Checks panel sits under the view buttons. When the sidebar title does not fit, it ends with an ellipsis. |
 | 720 px wide or less | A phone: the 3D view and the transport bar fill the screen, and the sidebar is a sheet at the bottom. The transport bar has two lines, as above. |
 
 On a window 1000 px wide or less, or 500 px high or less, the Checks panel starts folded, so it does not cover the 3D view. Its status line still shows when a check fails.
@@ -696,7 +696,7 @@ A touch screen (no hover, a coarse pointer) gets larger controls at every width:
 
 | Place | Contents |
 |---|---|
-| Top left | Paths and Volume toggle buttons. Audience view button. Showtime button. |
+| Top left | Paths and Volume toggle buttons. View menu. Showtime button. |
 | Top right | The Checks panel: a status line, the five readouts, and a list of problems. A click on the status line folds the panel to one line. |
 | Top middle | A note while a new plan pauses the page: "Planning the show…" after an imported project file or shape, and "Loading" and the demo name while a demo loads. The page draws the note before it starts the plan. |
 | Bottom left | A short hint for the mouse controls. |
@@ -801,9 +801,27 @@ A click on empty space or the Escape key clears the selection.
 
 When one finger lifts after a pinch, the other finger orbits from where it is, with no jump, and its lift is not a tap. A third finger does nothing.
 
-The Audience view button puts the camera at the audience seat: 160 m in front of the takeoff grid, at eye height, inside the crowd.
-It aims the camera at the selected formation with the shot of the Showtime camera (see Showtime), but it keeps the field of view of the editor.
-After the Audience view, an orbit turns about the middle of the formation.
+The View menu moves the camera to a view of the whole show or of the selected formation:
+
+| View | Camera |
+|---|---|
+| Whole show | The frame of a show, as when a show opens (see Showtime). |
+| Front | Level with the middle of the formation, from the audience side. |
+| Side | Level with the middle of the formation, from the right side as the audience sees it. |
+| Top | Straight down on the formation (89°, the steepest orbit), with the audience side at the bottom of the view. |
+| Audience | At the audience seat: 160 m in front of the takeoff grid, at eye height, inside the crowd. |
+
+The views of the formation use its targets as its hold starts.
+Front, Side, and Top aim at the middle of the box around the targets. The camera stands back until every target fits in three quarters of the view width and of the view height.
+Audience aims at the formation with the shot of the Showtime camera (see Showtime).
+No view changes the field of view of the editor. After a view of the formation, an orbit turns about the middle of the formation.
+
+The camera flies to the view in 0.8 seconds: slow at the start, fast in the middle, and slow at the end.
+The target and the angles change evenly, and the azimuth turns the short way around. The distance changes by the same factor in each equal part of the flight, so a flight from far away does not rush at the end.
+A drag, a pinch, or the wheel stops the flight where the camera is.
+When the system asks for less motion, the camera jumps to the view.
+An opened show also stops a flight. Showtime first finishes it at once, so that the editor gets the camera at the new view back after Showtime.
+The menu closes after a choice, at a press outside it, and at Escape.
 
 ### Showtime
 
@@ -1006,7 +1024,7 @@ src/
   assign.js       assignment solver (Jonker-Volgenant algorithm)
   motion.js       takeoff grid, trapezoid timing, closest approach, turn and swing profiles, pose rotation
   mat4.js         matrix helpers for the camera
-  camera.js       orbit camera, the frame of a show, the audience seat shot, and mouse and touch input
+  camera.js       orbit camera, the frame of a show, the audience seat shot, the views of the View menu and the flight to them, and mouse and touch input
   demos.js        the list of demo shows
   renderer.js     WebGL2 shaders, buffers, and draw calls: scenery, lines, and lights
   scenery.js      the people of the crowd and the stars
@@ -1044,7 +1062,7 @@ No `npm install` is necessary.
 | `obj.js` | Triangles, faces with four corners, negative indices, up axis. |
 | `svg.js` | Each path command, compact numbers and arc flags, smooth curves, arcs on each side, the error rule, each transform and their order, each basic shape, nested groups, skipped elements, namespaces, the orientation and scale of the cloud. Each color format, stroke before fill, the style attribute, colors from groups, `currentColor`, and the color of each cloud point. |
 | `history.js` | Undo and redo, quick changes of one field merge, the time window, an undo ends a merge run, the step limit. |
-| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. The audience seat shot: every point in the view, the horizon in the lower quarter, the narrowest view for a small show, no horizon for a tall show and the middle for a show that does not fit, a turn toward a show to one side. Easing by time and not by frames. The camera eye at the seat, the axes, and the Audience view. A pinch: fingers apart zoom in, together zoom out, a move together pans, two fingers at one point do not zoom. A pan: the scene follows the pointer, a sideways pan keeps the height, and the target stays above the ground. |
+| `camera.js` | The frame of a show: the aim at the middle of the formations, the start direction, the start distance for a short show, and a larger distance for a tall show. The audience seat shot: every point in the view, the horizon in the lower quarter, the narrowest view for a small show, no horizon for a tall show and the middle for a show that does not fit, a turn toward a show to one side. Easing by time and not by frames. The camera eye at the seat, the axes, and the Audience view. Each fixed view, in a wide and in a narrow view: every target in the frame, and the outermost one at its edge. The direction of the front, the side, and the top view, with the audience side at the bottom of the top view. A camera flight: its two ends, the short way around, the distance by equal factors, and an ease that starts and ends at rest. A pinch: fingers apart zoom in, together zoom out, a move together pans, two fingers at one point do not zoom. A pan: the scene follows the pointer, a sideways pan keeps the height, and the target stays above the ground. |
 | `scenery.js` | The crowd: its size, its area, the spacing of the people, the clear space at the seat, heights, phones, a denser front. The stars: unit directions above 4°, a few bright ones. Both are the same each time. |
 | `demos.test.js` | Each demo has a name, a line, and a relative URL of a file in `demos/`. The list and the folder match. Each demo loads like an imported project file and passes every check. |
 | `page.test.js` | The module preload list equals the modules that the page imports. Every link that the page loads is relative and is a file. The link preview picture is on the site and has the size that its tags give. The version is the last milestone that is done. The script and the style sheet use the same width for the phone layout, and the style sheet has each height of the sheet. |
@@ -1134,6 +1152,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 31 | Light patterns | Four new flight light effects: Bands (also as ripples and spokes), Pulse (breathe, heartbeat, strobe), Dissolve, and Speed glow. The works uses every effect. | Done |
 | 32 | Preview and focus | A Preview button and a click on a flight block play one flight again and again. Each set of flight lights names its flight. A click on a problem moves the timeline to it and marks its drones with amber rings. | Done |
 | 33 | Checks on every push | A GitHub Actions workflow runs the unit tests on two Node versions, the smoke test, and a strict type check of the JSDoc types. On `main` it deploys the site to GitHub Pages only when every check passes. | Done |
+| 34 | Camera views | A View menu on the 3D view: Whole show, and the selected formation from the front, the side, above, and the audience seat. The camera flies to each view, and a drag stops the flight. | Done |
 
 ## Known limits
 

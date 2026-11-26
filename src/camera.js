@@ -51,6 +51,14 @@ export function createCamera() {
 
 /**
  * @param {Camera} camera
+ * @returns {Camera} a copy that does not share the target list
+ */
+export function copyCamera(camera) {
+  return { ...camera, target: [...camera.target] };
+}
+
+/**
+ * @param {Camera} camera
  * @returns {number[]} eye position
  */
 export function cameraEye(camera) {
@@ -278,6 +286,115 @@ export function frameShow(camera, formations) {
   const fitDistance = (top - bottom) / FRAME_FILL / (2 * Math.tan(camera.fovY / 2));
   camera.distance = Math.max(start.distance, fitDistance);
   clampCamera(camera);
+}
+
+/**
+ * The views of the View menu that look at a formation from one fixed direction.
+ * @typedef {'front' | 'side' | 'top'} FixedView
+ */
+
+/** The direction of each fixed view: the azimuth and the elevation of the eye, radians. */
+const FIXED_VIEWS = {
+  // From the audience side, level with the middle of the formation.
+  front: { azimuth: 0, elevation: 0 },
+  // From the right, as the audience sees it, level with the middle of the formation.
+  side: { azimuth: Math.PI / 2, elevation: 0 },
+  // From above. The audience side is at the bottom of the view.
+  top: { azimuth: 0, elevation: MAX_ELEVATION },
+};
+
+/**
+ * The axes of a camera that looks from a direction.
+ * @param {number} azimuth radians
+ * @param {number} elevation radians
+ * @returns {{right: number[], up: number[], forward: number[]}} unit vectors; forward goes from the eye to the target
+ */
+function viewAxes(azimuth, elevation) {
+  const cosE = Math.cos(elevation);
+  const sinE = Math.sin(elevation);
+  const cosA = Math.cos(azimuth);
+  const sinA = Math.sin(azimuth);
+  return {
+    right: [cosA, sinA, 0],
+    up: [-sinA * sinE, cosA * sinE, cosE],
+    forward: [-sinA * cosE, cosA * cosE, -sinE],
+  };
+}
+
+/**
+ * Aims the camera at a formation from a fixed direction. The camera aims at the middle of the
+ * box around the targets. It stands back until every target fits in `FRAME_FILL` of the view
+ * width and of the view height. The field of view does not change.
+ * @param {Camera} camera
+ * @param {FixedView} view
+ * @param {ArrayLike<number>} points the targets of the formation, xyz per target
+ * @param {number} aspect view width ÷ height
+ */
+export function setFixedView(camera, view, points, aspect) {
+  const { azimuth, elevation } = FIXED_VIEWS[view];
+  const low = [Infinity, Infinity, Infinity];
+  const high = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < points.length; i += 3) {
+    for (let axis = 0; axis < 3; axis++) {
+      low[axis] = Math.min(low[axis], points[i + axis]);
+      high[axis] = Math.max(high[axis], points[i + axis]);
+    }
+  }
+  const middle = low.map((value, axis) => (value + high[axis]) / 2);
+  const { right, up, forward } = viewAxes(azimuth, elevation);
+  const tanY = Math.tan(camera.fovY / 2) * FRAME_FILL;
+  const tanX = tanY * aspect;
+  let distance = MIN_DISTANCE;
+  for (let i = 0; i < points.length; i += 3) {
+    const dx = points[i] - middle[0];
+    const dy = points[i + 1] - middle[1];
+    const dz = points[i + 2] - middle[2];
+    const across = Math.abs(dx * right[0] + dy * right[1]);
+    const height = Math.abs(dx * up[0] + dy * up[1] + dz * up[2]);
+    // The point is this far behind the target, as the eye sees it. Its distance from the eye
+    // is the camera distance plus this depth.
+    const depth = dx * forward[0] + dy * forward[1] + dz * forward[2];
+    distance = Math.max(distance, MIN_DISTANCE - depth, across / tanX - depth, height / tanY - depth);
+  }
+  camera.target = middle;
+  camera.azimuth = azimuth;
+  camera.elevation = elevation;
+  camera.distance = distance;
+  clampCamera(camera);
+}
+
+// A view from the View menu flies the camera to its place in this time.
+export const CAMERA_FLY_SECONDS = 0.8;
+
+/**
+ * Eases a flight: slow at the start, fast in the middle, and slow at the end.
+ * @param {number} share share of the flight time that has passed, 0 to 1
+ * @returns {number} share of the way, 0 to 1
+ */
+export function easeFlight(share) {
+  const t = Math.min(1, Math.max(0, share));
+  return t < 0.5 ? 4 * t * t * t : 1 - (2 - 2 * t) ** 3 / 2;
+}
+
+/**
+ * A camera part of the way from one camera to another. The target and the angles change
+ * evenly, and the azimuth turns the short way around. The distance changes by the same
+ * factor in each equal part of the way, so that a zoom from far away does not rush at the end.
+ * @param {Camera} from
+ * @param {Camera} to
+ * @param {number} share share of the way, 0 to 1
+ * @returns {Camera} a new camera
+ */
+export function blendCameras(from, to, share) {
+  if (share >= 1) return copyCamera(to);
+  const turn = Math.atan2(Math.sin(to.azimuth - from.azimuth), Math.cos(to.azimuth - from.azimuth));
+  return {
+    target: from.target.map((value, axis) => value + (to.target[axis] - value) * share),
+    distance: from.distance * (to.distance / from.distance) ** share,
+    azimuth: from.azimuth + turn * share,
+    elevation: from.elevation + (to.elevation - from.elevation) * share,
+    fovY: from.fovY + (to.fovY - from.fovY) * share,
+  };
 }
 
 /** @param {Camera} camera */

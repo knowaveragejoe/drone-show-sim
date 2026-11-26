@@ -7,15 +7,19 @@ import {
   SHOWTIME_MIN_FOV,
   aimFromSeat,
   audienceShot,
+  blendCameras,
   cameraAxes,
   cameraEye,
   createCamera,
+  easeFlight,
   easeShot,
   frameShow,
   panCamera,
   pinchStep,
   pixelsPerMeter,
   setAudienceView,
+  setFixedView,
+  viewProjection,
 } from '../src/camera.js';
 
 test('the camera frames a show from the start direction, at the middle of its formations', () => {
@@ -192,4 +196,89 @@ test('a pan moves the target across the view, and the scene follows the pointer'
   // A pan never takes the target below the ground.
   for (let i = 0; i < 20; i++) panCamera(camera, 0, -400, height);
   assert.ok(camera.target[2] >= 0);
+});
+
+/**
+ * Where a point shows in the view of a camera.
+ * @returns {{x: number, y: number, w: number}} x and y from -1 to 1 across the view; w > 0 in front of the eye
+ */
+function project(camera, aspect, [x, y, z]) {
+  const m = viewProjection(camera, aspect, new Float32Array(16));
+  const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+  return { x: (m[0] * x + m[4] * y + m[8] * z + m[12]) / w, y: (m[1] * x + m[5] * y + m[9] * z + m[13]) / w, w };
+}
+
+/** @param {number[]} points xyz per point */
+function eachPoint(points) {
+  const list = [];
+  for (let i = 0; i < points.length; i += 3) list.push(points.slice(i, i + 3));
+  return list;
+}
+
+test('each fixed view shows every target, and the outermost target at the edge of the frame', () => {
+  // A wide, shallow formation and a tall one, in a wide view and in the view of a phone.
+  for (const points of [box(60, 80, 10), box(120, 30, 50)]) {
+    for (const aspect of [16 / 9, 0.6]) {
+      for (const view of ['front', 'side', 'top']) {
+        const camera = createCamera();
+        setFixedView(camera, view, points, aspect);
+        let outermost = 0;
+        for (const point of eachPoint(points)) {
+          const { x, y, w } = project(camera, aspect, point);
+          assert.ok(w > 0, `${view}: a target is behind the eye`);
+          assert.ok(Math.abs(x) <= 0.75 + 1e-4 && Math.abs(y) <= 0.75 + 1e-4, `${view}: a target shows at ${x}, ${y}`);
+          outermost = Math.max(outermost, Math.abs(x), Math.abs(y));
+        }
+        assert.ok(outermost > 0.75 - 1e-4, `${view}: the formation fills ${outermost} of the frame`);
+      }
+    }
+  }
+});
+
+test('the front view looks level from the audience, the side view from the right, the top view down', () => {
+  const points = box(60, 40);
+  const camera = createCamera();
+  const fovY = camera.fovY;
+  const near = (eye, target) => eye.every((value, axis) => Math.abs(value - target[axis]) < 1e-6);
+
+  setFixedView(camera, 'front', points, 1.5);
+  assert.deepEqual(camera.target, [0, 0, 60]);
+  assert.ok(near(cameraEye(camera), [0, -camera.distance, 60]));
+
+  setFixedView(camera, 'side', points, 1.5);
+  assert.ok(near(cameraEye(camera), [camera.distance, 0, 60]));
+
+  setFixedView(camera, 'top', points, 1.5);
+  const eye = cameraEye(camera);
+  assert.ok(eye[2] - 60 > 0.99 * camera.distance, 'the eye is above the formation');
+  // The audience side is at the bottom of the view, and the right side is at the right.
+  assert.ok(project(camera, 1.5, [0, -20, 60]).y < project(camera, 1.5, [0, 20, 60]).y);
+  assert.ok(project(camera, 1.5, [-20, 0, 60]).x < project(camera, 1.5, [20, 0, 60]).x);
+  assert.equal(camera.fovY, fovY);
+});
+
+test('a camera flight starts and ends at its cameras, and turns the short way around', () => {
+  const from = { target: [0, 0, 50], distance: 100, azimuth: (350 * Math.PI) / 180, elevation: 0.2, fovY: 0.8 };
+  const to = { target: [40, 20, 70], distance: 400, azimuth: (10 * Math.PI) / 180, elevation: 1.2, fovY: 0.8 };
+  assert.deepEqual(blendCameras(from, to, 0), from);
+  const end = blendCameras(from, to, 1);
+  assert.deepEqual(end, to);
+  assert.notEqual(end.target, to.target, 'the flight makes a new camera');
+  const half = blendCameras(from, to, 0.5);
+  // Halfway between 350° and 10° is 0°, not 180°.
+  assert.ok(Math.abs(Math.cos(half.azimuth) - 1) < 1e-12);
+  assert.deepEqual(half.target, [20, 10, 60]);
+  assert.ok(Math.abs(half.elevation - 0.7) < 1e-12);
+  // The distance grows by the same factor in each half: 100, 200, 400.
+  assert.ok(Math.abs(half.distance - 200) < 1e-9);
+});
+
+test('a camera flight starts and ends at rest', () => {
+  assert.equal(easeFlight(0), 0);
+  assert.equal(easeFlight(0.5), 0.5);
+  assert.equal(easeFlight(1), 1);
+  assert.equal(easeFlight(-0.2), 0);
+  assert.equal(easeFlight(1.7), 1);
+  assert.ok(easeFlight(0.02) < 0.001 && easeFlight(0.98) > 0.999);
+  for (let t = 0; t < 1; t += 0.05) assert.ok(easeFlight(t + 0.05) > easeFlight(t));
 });
