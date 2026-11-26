@@ -772,8 +772,10 @@ function buildStoryboard(list, onSelect, onMove) {
    * @type {{from: number, to: number, pointerId: number, startY: number, pitch: number, moved: boolean} | null}
    */
   let drag = null;
-  // The click that ends a drag does not select a formation.
+  // The click that ends a drag does not select a formation. Some browsers send no click after
+  // a drag by touch, so each new press clears this.
   let skipClick = false;
+  list.addEventListener('pointerdown', () => (skipClick = false), true);
 
   /** @param {number} from @param {PointerEvent} event */
   function startDrag(from, event) {
