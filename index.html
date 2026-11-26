@@ -187,9 +187,9 @@
         <ol id="formation-list"></ol>
         <label class="check"><input id="land-at-end" type="checkbox"> Land at the end</label>
         <div class="fields" id="landing-lights-group">
-          <div class="field choice">
+          <div class="field choice" title="What the lights do in the flight back to the takeoff grid">
             <label for="landing-lights">Landing lights</label>
-            <select id="landing-lights" title="What the lights do in the flight back to the takeoff grid"></select>
+            <select id="landing-lights"></select>
           </div>
           <div class="field wide flight-row">
             <span class="label">Flight</span>
@@ -243,17 +243,17 @@
             <label for="color">Color</label>
             <input id="color" type="color">
           </div>
-          <div class="field choice">
+          <div class="field choice" title="How the drones of the formation get their colors">
             <label for="color-pattern">Color pattern</label>
-            <select id="color-pattern" title="How the drones of the formation get their colors"></select>
+            <select id="color-pattern"></select>
           </div>
-          <div class="field" id="second-color-row" hidden>
+          <div class="field" id="second-color-row" title="The color at the other end of the gradient" hidden>
             <label for="second-color">Second color</label>
-            <input id="second-color" type="color" title="The color at the other end of the gradient">
+            <input id="second-color" type="color">
           </div>
-          <div class="field choice">
+          <div class="field choice" title="What the lights do in the flight to this formation">
             <label for="flight-lights">Flight lights</label>
-            <select id="flight-lights" title="What the lights do in the flight to this formation"></select>
+            <select id="flight-lights"></select>
           </div>
           <div class="field wide flight-row">
             <span class="label">Flight</span>
@@ -265,9 +265,9 @@
             </button>
           </div>
           <div class="fields" id="flight-light-fields" hidden></div>
-          <div class="field choice">
+          <div class="field choice" title="Bright bands that travel across the formation in its hold">
             <label for="chase">Light chase</label>
-            <select id="chase" title="Bright bands that travel across the formation in its hold"></select>
+            <select id="chase"></select>
           </div>
           <div class="fields" id="chase-fields" hidden></div>
         </div>
@@ -289,7 +289,9 @@
       <section class="group" data-fold="limits">
         <header class="group-header"><h2><button type="button" class="fold" aria-expanded="true">Limits</button></h2></header>
         <div class="fields" id="limit-fields"></div>
-        <label class="check" title="When a direct flight brings drones too close, the formations grow before the drones cross, and shrink again after"><input id="spread-to-pass" type="checkbox"> Spread out to pass safely</label>
+        <div class="check-row" title="When a direct flight brings drones too close, the formations grow before the drones cross, and shrink again after">
+          <label class="check"><input id="spread-to-pass" type="checkbox"> Spread out to pass safely</label>
+        </div>
       </section>
       <section class="group" data-fold="volume">
         <header class="group-header"><h2><button type="button" class="fold" aria-expanded="true">Flight volume</button></h2></header>

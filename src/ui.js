@@ -283,6 +283,8 @@ export function createUi(actions) {
     showtime.showSpeed(Number(speed.value));
   });
   wireFolds();
+  // After all the rows are in the sidebar.
+  addHelpButtons(byId('sidebar'));
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
   const timeline = buildTimeline(byId('timeline-blocks'), actions);
 
@@ -1225,6 +1227,54 @@ function meters(distance) {
  * @param {number} value the value under the slider thumb
  * @returns {boolean}
  */
+
+/**
+ * Gives each row of the sidebar that has an explanation (a `title`) a help button beside its
+ * label. A touch screen shows no tooltips, so there a tap on the button shows the explanation
+ * under the row. One explanation shows at a time. The style sheet shows the buttons on touch
+ * screens only.
+ * @param {HTMLElement} root
+ */
+function addHelpButtons(root) {
+  /** The button and the text of the explanation that shows. @type {{button: HTMLElement, text: HTMLElement} | null} */
+  let open = null;
+  const closeHelp = () => {
+    if (!open) return;
+    open.button.setAttribute('aria-expanded', 'false');
+    open.text.hidden = true;
+    open = null;
+  };
+  let count = 0;
+  for (const row of root.querySelectorAll('.field[title], .check-row[title]')) {
+    const label = /** @type {HTMLElement} */ (row.firstElementChild);
+    const text = element('p', 'help-text');
+    text.id = `help-${count++}`;
+    text.textContent = /** @type {HTMLElement} */ (row).title;
+    text.hidden = true;
+    const button = element('button', 'help-button');
+    button.setAttribute('type', 'button');
+    button.textContent = '?';
+    button.setAttribute('aria-label', `About ${label.textContent?.trim()}`);
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', text.id);
+    button.addEventListener('click', () => {
+      const wasOpen = open?.button === button;
+      closeHelp();
+      if (wasOpen) return;
+      open = { button, text };
+      button.setAttribute('aria-expanded', 'true');
+      text.hidden = false;
+    });
+    // A screen reader reads the explanation when a control of the row takes the focus.
+    for (const control of row.querySelectorAll('input, select')) control.setAttribute('aria-describedby', text.id);
+    // The label and the button share the first cell of the row. A button cannot go inside the
+    // label: a label holds no other control than its own.
+    const cell = element('span', 'label-cell');
+    label.replaceWith(cell);
+    cell.append(label, button);
+    row.append(text);
+  }
+}
 
 /**
  * Builds one row per field: a label, a slider for fields that ask for one, and a number box.

@@ -83,3 +83,13 @@ test('a folded group hides every part under its title, also a part that an ID ru
   assert.ok(rule, 'style.css has the fold rule');
   assert.match(rule[1], /display:\s*none\s*!important/);
 });
+
+test('in the sidebar, an explanation is on its row, where a touch screen gives it a help button', () => {
+  const sidebar = page.slice(page.indexOf('<aside id="sidebar">'), page.indexOf('</aside>'));
+  // A select, an input, or a label with a title keeps its explanation from the help button.
+  const misplaced = [...sidebar.matchAll(/<(select|input|label)\b[^>]*\stitle="/g)].map((match) => match[0]);
+  assert.deepEqual(misplaced, []);
+  // The rows that the page itself holds do have explanations, so the test looks at real rows.
+  assert.ok(/<div class="field[^"]*"[^>]*\stitle="/.test(sidebar));
+  assert.ok(/<div class="check-row"[^>]*\stitle="/.test(sidebar));
+});

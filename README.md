@@ -46,6 +46,7 @@ On a phone or a tablet:
 | Pinch with two fingers | Zoom |
 | Drag with two fingers | Pan |
 | Tap a drone | Select that drone |
+| Tap the (?) beside a label | Show what that setting does. On a computer, the tooltip of the row shows the same text. |
 
 On a phone the sidebar is a sheet at the bottom of the screen. It opens with only its tabs in sight, so the show is large. Tap a tab or the handle to open the sheet to half the screen, and swipe up or down on the handle or the tabs to make it taller or shorter.
 

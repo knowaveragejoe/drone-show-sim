@@ -193,8 +193,85 @@ input[type="color"]::-moz-color-swatch {
   accent-color: var(--accent);
 }
 
-.fields + .check {
+.fields + .check,
+.fields + .check-row {
   margin-top: 12px;
+}
+
+/* A label and its help button share the first cell of a row. */
+.label-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label-cell > label,
+.label-cell > .label {
+  min-width: 0;
+}
+
+/* A small ring with a question mark, in a button large enough for a finger. Only a touch
+   screen shows it, because a touch screen shows no tooltips. */
+.help-button {
+  position: relative;
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 28px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  /* The color of an open button is the feedback for a tap, not a square flash. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.help-button::before {
+  position: absolute;
+  inset: 6px 4px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  content: "";
+}
+
+.help-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.help-button[aria-expanded="true"] {
+  color: var(--accent);
+}
+
+/* The focus ring goes around the ring of the button, not around its square. */
+.help-button:focus-visible {
+  outline: none;
+}
+
+.help-button:focus-visible::before {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.help-text {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--control);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.check-row .help-text {
+  margin-top: 6px;
 }
 
 .check + .fields {
@@ -1545,6 +1622,17 @@ button.preview[aria-pressed="true"] {
   #view-tools button,
   #view-menu summary {
     height: 34px;
+  }
+
+  .help-button {
+    display: grid;
+  }
+
+  /* A label beside a help button can take two lines, so that the button does not cut it short. */
+  .label-cell > label,
+  .label-cell > .label {
+    line-height: 1.15;
+    white-space: normal;
   }
 
   .formation-row {
