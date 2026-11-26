@@ -340,7 +340,7 @@ export function createPlanner() {
   const store = (key, value) => {
     cache.delete(key);
     cache.set(key, value);
-    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+    if (cache.size > CACHE_LIMIT) cache.delete(/** @type {string} */ (cache.keys().next().value));
     return value;
   };
   /**
@@ -867,7 +867,7 @@ function holdSpacing(unit, body, motion, size, heightScale) {
 /**
  * Picks points from a list.
  * @param {Float32Array} points xyz per point
- * @param {Int32Array} indices index of the point to take, per output position
+ * @param {ArrayLike<number>} indices index of the point to take, per output position
  * @returns {Float32Array} xyz per output position
  */
 function gather(points, indices) {
@@ -883,7 +883,7 @@ function gather(points, indices) {
 /**
  * Picks one value per output position from a list.
  * @param {Float32Array} values one value per point
- * @param {Int32Array} indices index of the value to take, per output position
+ * @param {ArrayLike<number>} indices index of the value to take, per output position
  */
 function gatherValues(values, indices) {
   return Float32Array.from(indices, (index) => values[index]);
@@ -1702,7 +1702,7 @@ export function problemFocus(plan, problem, fleet) {
     motion && isMoving(motion)
       ? holdTimes(motion, ROUTE_STEP, MAX_FOCUS_POSES).map((time) => ({
           time: holdTime + Math.min(time, step.hold),
-          points: placeBody(step.body, poseRotation(...holdAngles(motion, time)), step.centerHeight),
+          points: placeBody(/** @type {Float32Array} */ (step.body), poseRotation(...holdAngles(motion, time)), step.centerHeight),
         }))
       : [{ time: holdTime, points: step.to }];
 
@@ -1830,7 +1830,7 @@ export function positionsAt(plan, time, out) {
   if (held >= 0) {
     // In the hold a drone is exactly on its target, or on its path as the formation moves.
     if (held < step.hold && step.motion && isMoving(step.motion)) {
-      placeBody(step.body, poseRotation(...holdAngles(step.motion, held)), step.centerHeight, out);
+      placeBody(/** @type {Float32Array} */ (step.body), poseRotation(...holdAngles(step.motion, held)), step.centerHeight, out);
     } else {
       out.set(held < step.hold ? step.to : step.end);
     }
@@ -1872,7 +1872,8 @@ export function speedAt(plan, drone, time) {
   // The distance that the drone moves in a short time before and after.
   const before = Math.max(0, held - DERIVATIVE_STEP);
   const after = Math.min(step.hold, held + DERIVATIVE_STEP);
-  const point = body.subarray(drone * 3, drone * 3 + 3);
+  // A step that moves in its hold always has a body.
+  const point = /** @type {Float32Array} */ (body).subarray(drone * 3, drone * 3 + 3);
   // 64-bit positions: 32-bit ones would lose the small move in rounding.
   const p0 = placeBody(point, poseRotation(...holdAngles(motion, before)), 0, new Float64Array(3));
   const p1 = placeBody(point, poseRotation(...holdAngles(motion, after)), 0, new Float64Array(3));
@@ -1898,7 +1899,7 @@ export function routeOf(plan, drone) {
       const point = body.subarray(drone * 3, drone * 3 + 3);
       times.forEach((time, k) => {
         const out = route.subarray((corners + k) * 3, (corners + k + 1) * 3);
-        placeBody(point, poseRotation(...holdAngles(motion, time)), centerHeight, out);
+        placeBody(point, poseRotation(...holdAngles(/** @type {import('./motion.js').HoldMotion} */ (motion), time)), centerHeight, out);
       });
     }
     return route;

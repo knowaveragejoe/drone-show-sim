@@ -1,5 +1,7 @@
 # Drone show simulator
 
+[![CI](https://github.com/knowaveragejoe/drone-show-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/knowaveragejoe/drone-show-sim/actions/workflows/ci.yml)
+
 A browser tool that previews a drone light show in 3D.
 The drones take off from a ground grid, fly to each formation of a storyboard in turn, and land.
 
@@ -89,21 +91,27 @@ In short:
 
 ## Test it
 
-Both commands need Node 20 or later. Neither needs `npm install`.
+The commands need Node 20 or later. None of them needs `npm install`.
 
 ```sh
-npm test          # unit tests for the math
-npm run smoke     # opens the page in headless Chrome and checks that it draws a frame
+npm test            # unit tests for the math
+npm run smoke       # opens the page in headless Chrome and checks that it draws a frame
+npm run typecheck   # checks the JSDoc types of src/ with TypeScript, in strict mode
 ```
 
 The smoke test needs Chrome or Chromium. Set `CHROME_PATH` if the script does not find the browser.
+The type check downloads one pinned version of TypeScript with `npx` the first time. The page does not use it.
+
+GitHub Actions runs all three on every push and pull request. The badge at the top shows the result for `main`.
 
 ## Publish it on GitHub Pages
 
 1. Make the repository public.
 2. In the repository settings, open Pages.
-3. Select "Deploy from a branch", then `main` and the `/ (root)` folder. `main` holds the last finished milestone.
+3. Under "Build and deployment", set Source to "GitHub Actions".
 
-The empty `.nojekyll` file tells Pages to serve the files as they are.
+The CI workflow then deploys `main` after each push, but only when every check passes. `main` holds the last finished milestone. To deploy again by hand, open the CI workflow on the Actions tab and select "Run workflow" on `main`.
+
+"Deploy from a branch" with `main` and the `/ (root)` folder also works, but it deploys without the checks. The empty `.nojekyll` file is for that case: it tells Pages to serve the files as they are.
 
 The page head has a link preview for chat apps and social sites. Its tags hold the full address of the site, because link crawlers need it. If you publish the site at another address, change those tags in `index.html` and the `SITE` constant in `test/page.test.js`.

@@ -1,0 +1,86 @@
+# Checks every push and pull request. On a push to main, it deploys the site to GitHub Pages,
+# but only after all checks pass.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a work branch stops the older run. On main every run finishes, so that no
+# deploy stops halfway.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  unit:
+    name: Unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The lowest Node version that the README names, and the current long-term release.
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  smoke:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # The runner image has Google Chrome at /usr/bin/google-chrome, where the script looks.
+      - run: npm run smoke
+
+  types:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm run typecheck
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [unit, smoke, types]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # The site is the repository as it is: no build. The upload leaves out .git, .github,
+      # and the other names that start with a dot.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v5

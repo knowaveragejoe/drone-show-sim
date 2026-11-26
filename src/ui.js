@@ -360,7 +360,7 @@ export function createUi(actions) {
     landingLightsGroup.hidden = !state.landAtEnd;
     landingLights.show(state.landingLights);
     landingStep = state.landAtEnd ? plan.steps.length - 1 : -1;
-    landingName.textContent = `${formations.length} ${shapeLabel(formations.at(-1))} → Landing`;
+    landingName.textContent = `${formations.length} ${shapeLabel(formations[formations.length - 1])} → Landing`;
 
     formationTitle.textContent = `Formation ${view.formation + 1} of ${formations.length}`;
     formationFields.show(formation);
@@ -759,7 +759,7 @@ function buildStoryboard(list, onSelect) {
       list.append(item);
       rows.push(row);
     }
-    while (rows.length > state.formations.length) rows.pop().parentElement.remove();
+    while (rows.length > state.formations.length) rows.pop()?.parentElement?.remove();
 
     state.formations.forEach((formation, index) => {
       const row = rows[index];
@@ -771,7 +771,7 @@ function buildStoryboard(list, onSelect) {
       number.textContent = String(index + 1);
       name.textContent = shapeLabel(formation);
       const turn = formation.turnRate === 0 ? '' : ` · ${formation.turnRate}°/s`;
-      const swings = ['sway', 'rock', 'roll'].filter((swing) => formation[`${swing}Angle`] !== 0);
+      const swings = /** @type {const} */ (['sway', 'rock', 'roll']).filter((swing) => formation[`${swing}Angle`] !== 0);
       const motion = swings.length === 0 ? '' : ` · ${swings.join('/')}`;
       const { effect: lightEffect } = formation.flightLights;
       const effect = lightEffect === 'blend' ? '' : ` · ${FLIGHT_EFFECTS[lightEffect].toLowerCase()}`;
@@ -819,7 +819,10 @@ function buildFlightLights(list, box, onChange) {
   for (const [key, label] of Object.entries(FLIGHT_EFFECTS)) select.add(new Option(label, key));
   select.addEventListener('change', () => onChange('effect', select.value));
 
-  /** Each row of a setting, with the effects that use it, and a way to show its value. */
+  /**
+   * Each row of a setting, with the effects that use it, and a way to show its value.
+   * @type {{ row: HTMLElement, effects: string[], show: (lights: import('./state.js').FlightLights) => void }[]}
+   */
   const rows = [];
   for (const choice of FLIGHT_LIGHT_CHOICES) {
     const row = element('div', choice.options ? 'field choice' : 'field');
@@ -891,6 +894,7 @@ function buildTimeline(strip, actions) {
   function show(state, plan, view) {
     const { formations } = state;
     const { minSpacing } = state.fleet;
+    /** @type {HTMLElement[]} */
     const blocks = [];
     clicks = [];
     flights = [];

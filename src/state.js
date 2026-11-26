@@ -332,6 +332,7 @@ export const FLIGHT_LIGHT_FIELDS = [
  * @returns {FlightLights}
  */
 export function defaultFlightLights() {
+  /** @type {Record<string, string | number | undefined>} */
   const lights = { effect: 'blend' };
   for (const { key, fallback } of [...FLIGHT_LIGHT_CHOICES, ...FLIGHT_LIGHT_FIELDS]) lights[key] = fallback;
   return /** @type {FlightLights} */ (lights);

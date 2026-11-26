@@ -76,7 +76,7 @@ const SHOWTIME_AIM_DISTANCE = 200;
 function reportFatal(message) {
   document.documentElement.dataset.smoke = 'error';
   document.documentElement.dataset.smokeMessage = message;
-  const box = document.getElementById('fatal');
+  const box = /** @type {HTMLElement} */ (document.getElementById('fatal'));
   box.textContent = message;
   box.hidden = false;
 }
@@ -89,7 +89,7 @@ window.addEventListener('unhandledrejection', (event) => reportFatal(String(even
  * @param {string | null} message null hides the message
  */
 function showAutosaveProblem(message) {
-  const box = document.getElementById('autosave-error');
+  const box = /** @type {HTMLElement} */ (document.getElementById('autosave-error'));
   box.textContent = message ?? '';
   box.hidden = message === null;
 }
@@ -364,8 +364,8 @@ function start() {
       const margin = state.spreadToPass ? 1 : FLIGHT_MARGIN;
       const fitted = fitSize(size, spacing, state.fleet.minSpacing, margin);
       if (fitted === null) return;
-      const sizeField = FORMATION_FIELDS.find((field) => field.key === 'size');
-      changeFormation({ size: clampToField(sizeField, fitted) });
+      const sizeField = /** @type {import('./state.js').NumberField} */ (FORMATION_FIELDS.find((field) => field.key === 'size'));
+      changeFormation({ size: /** @type {number} */ (clampToField(sizeField, fitted)) });
     },
     projectText() {
       return serializeProject(state);

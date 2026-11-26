@@ -981,9 +981,12 @@ It shows a message and changes nothing when a check fails.
 ```
 index.html        page skeleton: canvas, sidebar, transport bar
 style.css
-package.json      no dependencies; marks the code as ES modules and names the test scripts
+package.json      no dependencies; marks the code as ES modules and names the test and check scripts
+jsconfig.json     type check settings: strict, for the JSDoc types of src/
 README.md         how to run, use, test, and publish the simulator
-.nojekyll         tells GitHub Pages to serve the files as they are
+.nojekyll         tells GitHub Pages to serve the files as they are, when Pages deploys from a branch
+.github/workflows/
+  ci.yml          checks each push, and deploys main to GitHub Pages when the checks pass
 docs/
   screenshot.png  picture for the README
   social.png      1200 × 630 picture for link previews
@@ -1058,10 +1061,21 @@ The smoke test uses the `--dump-dom` flag of Chrome, so it needs no npm package.
 It also sets `--virtual-time-budget`. Without that flag, Chrome prints the page before the first frame.
 The `CHROME_PATH` environment variable selects the browser binary.
 
+The type check is `npm run typecheck`.
+It runs the TypeScript checker on the JSDoc types of `src/`, in strict mode, and writes no files.
+`npx` gets one pinned version of TypeScript, so the project still has no dependencies and needs no `npm install`.
+The check covers `src/` only. The tests and the smoke test import Node modules, and the types of those modules are a separate package.
+Where the checker cannot see a fact that the code knows, a JSDoc cast states it. For example, a step that moves in its hold always has a body.
+
+GitHub Actions runs all three checks on each push and each pull request: the unit tests on Node 20 and on Node 24, the smoke test in the Google Chrome of the runner, and the type check.
+
 ## Hosting
 
-GitHub Pages serves the repository root from a branch.
-The site needs no build and no workflow file.
+GitHub Pages serves the repository root.
+The site needs no build.
+The CI workflow deploys it: on a push to `main`, a deploy job uploads the repository as it is and publishes it, but only after the unit tests, the smoke test, and the type check pass.
+A failed check stops the deploy, so the site keeps the last version that passed.
+For this, the Pages source in the repository settings is GitHub Actions.
 All URLs that the page loads are relative, so the site works under `/drone-show-sim/`. This includes the demo files, which the page fetches.
 `README.md` lists the steps to turn Pages on.
 
@@ -1119,6 +1133,7 @@ Claude checks each milestone before the next one starts. Each milestone is one o
 | 30 | Flight light settings | The flight lights become an effect with settings: fade time, twinkle rate, spark color, the direction, flash time, and ember time of a starburst, and the direction, bands, and speed of a color wave. | Done |
 | 31 | Light patterns | Four new flight light effects: Bands (also as ripples and spokes), Pulse (breathe, heartbeat, strobe), Dissolve, and Speed glow. The works uses every effect. | Done |
 | 32 | Preview and focus | A Preview button and a click on a flight block play one flight again and again. Each set of flight lights names its flight. A click on a problem moves the timeline to it and marks its drones with amber rings. | Done |
+| 33 | Checks on every push | A GitHub Actions workflow runs the unit tests on two Node versions, the smoke test, and a strict type check of the JSDoc types. On `main` it deploys the site to GitHub Pages only when every check passes. | Done |
 
 ## Known limits
 

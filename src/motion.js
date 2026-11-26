@@ -315,7 +315,7 @@ export function isMoving(motion) {
  * The angles of the pose at a time in the hold.
  * @param {HoldMotion} motion
  * @param {number} time seconds from the start of the hold
- * @returns {number[]} yaw, forward tilt, sideways tilt, radians
+ * @returns {[number, number, number]} yaw, forward tilt, sideways tilt, radians
  */
 export function holdAngles(motion, time) {
   const { turn, sway, rock, roll } = motion;
@@ -373,13 +373,14 @@ export function poseRotation(yaw, forward, side) {
 
 /**
  * Places the points of a formation: its center plus the rotation of each point.
+ * @template {Float32Array | Float64Array} [T=Float32Array]
  * @param {Float32Array} body xyz per point, in the axes of the formation, about its center
  * @param {number[]} rotation from `poseRotation`
  * @param {number} centerHeight height of the center, meters; the center is above the origin
- * @param {Float32Array | Float64Array} [out] xyz per point; a new list when not given
- * @returns {Float32Array | Float64Array} `out`
+ * @param {T} [out] xyz per point; a new 32-bit list when not given
+ * @returns {T} `out`
  */
-export function placeBody(body, rotation, centerHeight, out = new Float32Array(body.length)) {
+export function placeBody(body, rotation, centerHeight, out = /** @type {T} */ (new Float32Array(body.length))) {
   const [a, b, c, d, e, f, g, h, k] = rotation;
   for (let i = 0; i < body.length; i += 3) {
     const x = body[i];

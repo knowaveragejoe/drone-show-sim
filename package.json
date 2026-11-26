@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "smoke": "node tools/smoke.js"
+    "smoke": "node tools/smoke.js",
+    "typecheck": "npx --yes -p typescript@7.0.2 tsc -p jsconfig.json"
   }
 }

@@ -46,7 +46,8 @@ export function farthestPointSampler(points) {
       grown.set(picks.subarray(0, count));
       picks = grown;
     }
-    if (count < wanted && !grid) grid = buildGrid(points, total);
+    if (count >= wanted) return picks.subarray(0, wanted);
+    grid ??= buildGrid(points, total);
     while (count < wanted) {
       picks[count++] = current;
       grid.update(current, limit, nearest);

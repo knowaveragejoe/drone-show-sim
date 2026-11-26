@@ -102,7 +102,7 @@ export function parseSvg(text) {
     const [whole, closing, fullName, attributeText = ''] = match;
     // A comment, a CDATA block, or a declaration.
     if (fullName === undefined) continue;
-    const name = fullName.split(':').pop();
+    const name = /** @type {string} */ (fullName.split(':').pop());
 
     if (closing) {
       // Close up to the element with this name. This also repairs a missing end tag.

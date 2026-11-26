@@ -347,6 +347,7 @@ const SELECTED_LIGHT_SIZE = 5;
 // A drone that a problem marks: an amber ring around its light, as large as a light of this
 // size would be, and at least `MIN_MARKED_PIXELS` wide.
 const MARKED_LIGHT_SIZE = 4;
+/** @type {[number, number, number]} */
 const MARKED_COLOR = [1, 0.78, 0.2];
 // Far drones stay visible: a light never gets smaller than this many CSS pixels.
 const MIN_LIGHT_PIXELS = 4;
@@ -397,8 +398,11 @@ const OTHER_STEP_BRIGHTNESS = 0.3;
  * @param {HTMLCanvasElement} canvas
  */
 export function createRenderer(canvas) {
-  const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true });
-  if (!gl) throw new Error('This browser does not support WebGL2.');
+  const context = canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true });
+  if (!context) throw new Error('This browser does not support WebGL2.');
+  // A second constant keeps the checked type in the functions below. The type checker does
+  // not carry the check above into a function declaration.
+  const gl = context;
 
   const sceneryProgram = createProgram(gl, SCENERY_VERTEX_SHADER, SCENERY_FRAGMENT_SHADER);
   const starProgram = createProgram(gl, STAR_VERTEX_SHADER, STAR_FRAGMENT_SHADER);
@@ -862,12 +866,16 @@ function createVertexArray(gl, program) {
  */
 function createProgram(gl, vertexSource, fragmentSource) {
   const program = gl.createProgram();
-  for (const [type, source] of [
+  /** @type {[number, string][]} */
+  const stages = [
     [gl.VERTEX_SHADER, vertexSource],
     [gl.FRAGMENT_SHADER, fragmentSource],
-  ]) {
-    const shader = gl.createShader(/** @type {number} */ (type));
-    gl.shaderSource(shader, /** @type {string} */ (source));
+  ];
+  for (const [type, source] of stages) {
+    // The browser gives no shader when it lost the WebGL context.
+    const shader = gl.createShader(type);
+    if (!shader) throw new Error('WebGL could not make a shader.');
+    gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
       throw new Error(`Shader compile failed: ${gl.getShaderInfoLog(shader)}`);
@@ -885,10 +893,10 @@ function createProgram(gl, vertexSource, fragmentSource) {
  * @param {WebGL2RenderingContext} gl
  * @param {WebGLProgram} program
  * @param {string[]} names
- * @returns {Record<string, WebGLUniformLocation>}
+ * @returns {Record<string, WebGLUniformLocation | null>} null for a name that the program does not use
  */
 function uniformLocations(gl, program, names) {
-  /** @type {Record<string, WebGLUniformLocation>} */
+  /** @type {Record<string, WebGLUniformLocation | null>} */
   const locations = {};
   for (const name of names) locations[name] = gl.getUniformLocation(program, name);
   return locations;
