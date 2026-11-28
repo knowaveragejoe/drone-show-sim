@@ -4,7 +4,7 @@
 // The crowd is the only solid object. It writes the depth buffer, so it hides the lines and the
 // lights behind it. The lines and the lights add their light to the picture and write no depth.
 
-import { makeCrowd, makeStars, PERSON_FIELDS } from './scenery.js';
+import { AUDIENCE_AREA, makeCrowd, makeStars, PERSON_FIELDS } from './scenery.js';
 
 // One triangle that covers the whole view. A shader finds the direction of each pixel and draws
 // the sky, the ground, and the hills.
@@ -44,6 +44,14 @@ const float HAZE_DISTANCE = 1800.0;
 const float GRAIN_DISTANCE = 250.0;
 // The light of the show reaches about this far on the field, meters.
 const float SHOW_GLOW_RADIUS = 160.0;
+// The audience area on the field: the smallest x and y, then the largest x and y, meters.
+const vec4 AUDIENCE = vec4(${AUDIENCE_AREA.map((value) => value.toFixed(1)).join(', ')});
+// The grass where the crowd stands is a little lighter, as trodden grass is.
+const vec3 TRODDEN = vec3(0.032, 0.037, 0.03);
+// A faint pale barrier, like a rope, marks the edge of the audience area. Its width, meters.
+// From far away it stays about one pixel wide, so the area shows from every distance.
+const vec3 BARRIER = vec3(0.12, 0.112, 0.095);
+const float BARRIER_WIDTH = 0.25;
 
 float hash(vec2 p) {
   uvec2 q = uvec2(ivec2(floor(p)) + 32768);
@@ -89,6 +97,16 @@ void main() {
   // Horizontal distance to the ground along the ray, or no ground.
   float ground = direction.z < 0.0 ? uEye.z / -direction.z * horizontal : -1.0;
 
+  // The distance from the edge of the audience area, positive inside. Outside, it is the
+  // distance from the farthest side, so the corners are square. The derivatives need the
+  // same steps in every pixel, so this comes before the branches, also for a ray that misses
+  // the ground.
+  vec2 onField = uEye.xy + heading * (uEye.z / max(-direction.z, 1e-5) * horizontal);
+  vec2 inside = min(onField - AUDIENCE.xy, AUDIENCE.zw - onField);
+  float edge = min(inside.x, inside.y);
+  // How much the distance changes from one pixel to the next.
+  float edgeStep = max(fwidth(edge), 1e-6);
+
   // The ring of hills: solve |eye + s * heading| = HILL_DISTANCE for s.
   float b = dot(uEye.xy, heading);
   float c = dot(uEye.xy, uEye.xy) - HILL_DISTANCE * HILL_DISTANCE;
@@ -106,7 +124,12 @@ void main() {
     vec2 at = uEye.xy + heading * ground;
     float grain = 0.8 + 0.3 * noise(at * 0.07) + 0.25 * noise(at * 0.8);
     grain = mix(1.0, grain, exp(-ground / GRAIN_DISTANCE));
-    vec3 field = GRASS * grain;
+    vec3 field = mix(GRASS, TRODDEN, smoothstep(-edgeStep, edgeStep, edge)) * grain;
+    // The barrier is never thinner than a pixel, and its edges blend over one pixel, so a far
+    // barrier stays a smooth line.
+    float halfWidth = 0.5 * max(BARRIER_WIDTH, edgeStep);
+    float barrier = 1.0 - smoothstep(halfWidth, halfWidth + edgeStep, abs(edge));
+    field += BARRIER * barrier;
     field += uShowLight * 0.05 * exp(-dot(at, at) / (2.0 * SHOW_GLOW_RADIUS * SHOW_GLOW_RADIUS));
     color = mix(field, haze, 1.0 - exp(-ground / HAZE_DISTANCE));
   }

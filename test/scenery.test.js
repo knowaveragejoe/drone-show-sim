@@ -3,6 +3,8 @@ import { test } from 'node:test';
 
 import { AUDIENCE_DISTANCE, AUDIENCE_SEAT } from '../src/camera.js';
 import {
+  AUDIENCE_AREA,
+  AUDIENCE_AREA_MARGIN,
   CROWD_DEPTH,
   CROWD_SIZE,
   CROWD_WIDTH,
@@ -45,6 +47,23 @@ test('the crowd stands in its area, apart, and clear of the audience seat', () =
     }
   }
   assert.ok(closest >= PERSON_SPACING, `closest pair ${closest} m`);
+});
+
+test('the audience area holds the crowd and the seat, with room inside the barrier', () => {
+  const [left, back, right, front] = AUDIENCE_AREA;
+  const people = makeCrowd();
+  // The people are 32-bit numbers, so the limits have a small tolerance.
+  const room = AUDIENCE_AREA_MARGIN - 1e-4;
+  for (let i = 0; i < people.length; i += PERSON_FIELDS) {
+    const [x, y] = [people[i], people[i + 1]];
+    assert.ok(x - left >= room && right - x >= room, `a person at x ${x}`);
+    assert.ok(y - back >= room && front - y >= room, `a person at y ${y}`);
+  }
+  const [seatX, seatY] = AUDIENCE_SEAT;
+  assert.ok(seatX > left && seatX < right && seatY > back && seatY < front, 'the seat is in the area');
+  // The front edge faces the show, and the area is in front of the takeoff grid.
+  assert.equal(front, -AUDIENCE_DISTANCE + AUDIENCE_AREA_MARGIN);
+  assert.ok(front < 0);
 });
 
 test('the crowd and the stars are the same each time', () => {

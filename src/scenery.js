@@ -13,6 +13,17 @@ export const CROWD_SIZE = 1200;
 export const PERSON_SPACING = 0.8;
 // Nobody stands this close to the audience seat, so no head fills the view, meters.
 export const SEAT_CLEARANCE = 4;
+// A faint barrier on the field marks the audience area: the area of the crowd, and this much
+// room around it, so that nobody stands on the barrier, meters.
+export const AUDIENCE_AREA_MARGIN = 2;
+// The audience area on the field: the smallest x and y, then the largest x and y, meters. Its
+// front edge faces the show.
+export const AUDIENCE_AREA = [
+  -CROWD_WIDTH / 2 - AUDIENCE_AREA_MARGIN,
+  -AUDIENCE_DISTANCE - CROWD_DEPTH - AUDIENCE_AREA_MARGIN,
+  CROWD_WIDTH / 2 + AUDIENCE_AREA_MARGIN,
+  -AUDIENCE_DISTANCE + AUDIENCE_AREA_MARGIN,
+];
 // This share of the crowd holds up a phone to film the show.
 const PHONE_SHARE = 0.05;
 const CHILD_SHARE = 0.08;
