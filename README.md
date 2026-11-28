@@ -105,7 +105,7 @@ npm run typecheck   # checks the JSDoc types of src/ with TypeScript, in strict 
 The smoke test needs Chrome or Chromium. Set `CHROME_PATH` if the script does not find the browser.
 The type check downloads one pinned version of TypeScript with `npx` the first time. The page does not use it.
 
-GitHub Actions runs all three on every push and pull request. The badge at the top shows the result for `main`.
+GitHub Actions runs all three on every push and pull request. The badge at the top shows the result for `main`. Each month, Dependabot opens a pull request when an action that the workflow uses has a new version.
 
 ## Publish it on GitHub Pages
 

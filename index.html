@@ -74,11 +74,11 @@
         </summary>
         <div class="checks-body">
           <dl>
-            <div><dt>Show duration</dt><dd><output id="duration"></output></dd></div>
-            <div><dt>Drones outside volume</dt><dd><output id="outside"></output></dd></div>
-            <div><dt>Lowest target</dt><dd><output id="lowest"></output></dd></div>
+            <div title="The time from the start of the takeoff to the end of the show: the end of the landing, or the end of the last hold when the fleet does not land."><dt>Show duration</dt><dd><output id="duration"></output></dd></div>
+            <div title="The number of drones that leave the flight volume at some time in the show. A safe show has none."><dt>Drones outside volume</dt><dd><output id="outside"></output></dd></div>
+            <div title="The height of the lowest drone of any formation, at any time in its hold. Red when it is below the ground."><dt>Lowest target</dt><dd><output id="lowest"></output></dd></div>
             <div title="The smallest distance between two drones in any flight. A height difference counts as less when the vertical spacing is larger than the minimum spacing, so this distance compares with the minimum spacing."><dt>Closest approach in flight</dt><dd><output id="approach"></output></dd></div>
-            <div><dt>Peak speed</dt><dd><output id="peak-speed"></output></dd></div>
+            <div title="The fastest speed of any drone in the show, in a flight or in a hold."><dt>Peak speed</dt><dd><output id="peak-speed"></output></dd></div>
           </dl>
           <ul id="checks-problems" hidden></ul>
         </div>

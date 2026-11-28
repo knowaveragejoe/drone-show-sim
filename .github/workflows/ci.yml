@@ -58,21 +58,16 @@ jobs:
           node-version: 24
       - run: npm run typecheck
 
-  deploy:
-    name: Deploy to GitHub Pages
+  # Two jobs publish the site, as in the GitHub guide for Pages workflows. The deploy reads
+  # the list of artifacts of the run once. Right after an upload, that list can still be
+  # empty, so in one job the deploy can fail with "No artifacts named github-pages". The
+  # time between two jobs gives the list time to catch up. The deploy job also runs no code
+  # of the repository, so the Pages permissions stay away from it.
+  package:
+    name: Package the site
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [unit, smoke, types]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    concurrency:
-      group: pages
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -82,5 +77,20 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: .
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v5

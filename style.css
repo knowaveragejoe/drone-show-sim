@@ -591,12 +591,29 @@ output.warn {
 
 #checks dl div {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0 12px;
 }
 
 #checks dt {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   color: var(--muted);
+}
+
+/* The explanation of a readout takes a line of its own, under the readout. */
+#checks dd.help-text {
+  flex-basis: 100%;
+  margin: 3px 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+#checks .help-button {
+  margin: -2px 0;
 }
 
 #checks dd {

@@ -291,7 +291,7 @@ export function createUi(actions) {
   });
   wireFolds();
   // After all the rows are in the sidebar.
-  addHelpButtons(byId('sidebar'));
+  addHelpButtons([byId('sidebar'), byId('checks')]);
   scrub.addEventListener('input', () => actions.seek(scrub.valueAsNumber));
   const timeline = buildTimeline(byId('timeline-blocks'), actions);
 
@@ -1314,13 +1314,13 @@ function meters(distance) {
  */
 
 /**
- * Gives each row of the sidebar that has an explanation (a `title`) a help button beside its
- * label. A touch screen shows no tooltips, so there a tap on the button shows the explanation
- * under the row. One explanation shows at a time. The style sheet shows the buttons on touch
- * screens only.
- * @param {HTMLElement} root
+ * Gives each row that has an explanation (a `title`) a help button beside its label: the rows
+ * of the sidebar, and the readouts of the Checks panel. A touch screen shows no tooltips, so
+ * there a tap on the button shows the explanation under the row. One explanation shows at a
+ * time. The style sheet shows the buttons on touch screens only.
+ * @param {HTMLElement[]} roots
  */
-function addHelpButtons(root) {
+function addHelpButtons(roots) {
   /** The button and the text of the explanation that shows. @type {{button: HTMLElement, text: HTMLElement} | null} */
   let open = null;
   const closeHelp = () => {
@@ -1330,9 +1330,13 @@ function addHelpButtons(root) {
     open = null;
   };
   let count = 0;
-  for (const row of root.querySelectorAll('.field[title], .check-row[title]')) {
+  const rows = roots.flatMap((root) => [...root.querySelectorAll('.field[title], .check-row[title], dl > div[title]')]);
+  for (const row of rows) {
+    // A readout of the Checks panel is a term and its value in a description list. Its
+    // explanation is one more description of the term.
+    const readout = row.parentElement?.tagName === 'DL';
     const label = /** @type {HTMLElement} */ (row.firstElementChild);
-    const text = element('p', 'help-text');
+    const text = element(readout ? 'dd' : 'p', 'help-text');
     text.id = `help-${count++}`;
     text.textContent = /** @type {HTMLElement} */ (row).title;
     text.hidden = true;
@@ -1352,11 +1356,15 @@ function addHelpButtons(root) {
     });
     // A screen reader reads the explanation when a control of the row takes the focus.
     for (const control of row.querySelectorAll('input, select')) control.setAttribute('aria-describedby', text.id);
-    // The label and the button share the first cell of the row. A button cannot go inside the
-    // label: a label holds no other control than its own.
-    const cell = element('span', 'label-cell');
-    label.replaceWith(cell);
-    cell.append(label, button);
+    if (readout) {
+      label.append(button);
+    } else {
+      // The label and the button share the first cell of the row. A button cannot go inside
+      // the label: a label holds no other control than its own.
+      const cell = element('span', 'label-cell');
+      label.replaceWith(cell);
+      cell.append(label, button);
+    }
     row.append(text);
   }
 }

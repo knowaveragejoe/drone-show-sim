@@ -93,3 +93,10 @@ test('in the sidebar, an explanation is on its row, where a touch screen gives i
   assert.ok(/<div class="field[^"]*"[^>]*\stitle="/.test(sidebar));
   assert.ok(/<div class="check-row"[^>]*\stitle="/.test(sidebar));
 });
+
+test('each readout of the Checks panel has an explanation on its row', () => {
+  const list = page.slice(page.indexOf('<details id="checks"'), page.indexOf('</dl>'));
+  const rows = [...list.matchAll(/<div([^>]*)><dt>([^<]*)<\/dt>/g)];
+  assert.equal(rows.length, 5);
+  for (const [, attributes, term] of rows) assert.match(attributes, /\stitle="[^"]+"/, `${term} has no explanation`);
+});
